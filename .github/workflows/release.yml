@@ -1,17 +1,35 @@
 name: Release
 
-on:
+"on":
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version/tag, for example v0.5.1"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Validate release version
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must look like v0.5.1"
+            exit 1
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -35,19 +53,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           folder="GBA_Video_Maker_v${version}_Portable"
           mkdir "$folder"
           cp "GBA Video Maker.exe" README.md LICENSE THIRD_PARTY_NOTICES.md "$folder/"
           zip -9 -r "${folder}.zip" "$folder"
           sha256sum "${folder}.zip" > "${folder}.zip.sha256"
 
-      - name: Publish GitHub release
+      - name: Publish or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            GBA_Video_Maker_v*_Portable.zip \
-            GBA_Video_Maker_v*_Portable.zip.sha256 \
-            --generate-notes \
-            --title "GBA Video Maker $GITHUB_REF_NAME"
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          zip_file="GBA_Video_Maker_v${version}_Portable.zip"
+          checksum_file="${zip_file}.sha256"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$zip_file" \
+              "$checksum_file" \
+              --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "GBA Video Maker $RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" \
+              "$zip_file" \
+              "$checksum_file" \
+              --target "$GITHUB_SHA" \
+              --generate-notes \
+              --title "GBA Video Maker $RELEASE_TAG"
+          fi
