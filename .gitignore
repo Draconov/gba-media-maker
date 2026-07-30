@@ -1,0 +1,26 @@
+# Build output
+GBA Video Maker.exe
+*.exe
+*.zip
+*.sha256
+dist/
+build/
+
+# Runtime downloads and logs
+ffmpeg.exe
+ffmpeg.exe.download
+GBA Video Maker.log
+
+# Generated media
+*.gba
+*.gbv
+*.pcm
+*.raw
+
+# Test and editor files
+coverage.out
+*.tmp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

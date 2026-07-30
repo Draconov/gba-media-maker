@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible crash, conversion failure, or broken ROM
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please do not upload private or copyrighted source videos. A short synthetic reproduction is ideal.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: 0.5.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: video
+    attributes:
+      label: Source media details
+      description: Container, codecs, resolution, duration, frame rate, audio tracks/channels.
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Conversion settings
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log output
+      description: Paste relevant content from GBA Video Maker.log, with personal paths removed when necessary.
+      render: text
