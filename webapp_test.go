@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -255,12 +256,34 @@ func TestHTTPUploadInspectConvertDownload(t *testing.T) {
 	if rom[0xBD] != check {
 		t.Fatalf("bad GBA header checksum: got %02x want %02x", rom[0xBD], check)
 	}
-	if string(rom[metadataOffset:metadataOffset+4]) != "GBV2" {
-		t.Fatalf("missing GBV2 metadata marker")
+	if string(rom[metadataOffset:metadataOffset+4]) != "GBV3" {
+		t.Fatalf("missing GBV3 metadata marker")
+	}
+	if version := binary.LittleEndian.Uint16(rom[metadataOffset+4 : metadataOffset+6]); version != 3 {
+		t.Fatalf("metadata version = %d, want 3", version)
 	}
 
 	flags := uint16(rom[metadataOffset+6]) | uint16(rom[metadataOffset+7])<<8
 	if flags&1 == 0 {
 		t.Fatalf("audio flag was not set in ROM metadata")
+	}
+
+	frameCount := binary.LittleEndian.Uint32(rom[metadataOffset+8 : metadataOffset+12])
+	videoOffset := binary.LittleEndian.Uint32(rom[metadataOffset+16 : metadataOffset+20])
+	audioSize := binary.LittleEndian.Uint32(rom[metadataOffset+24 : metadataOffset+28])
+	seekTableOffset := binary.LittleEndian.Uint32(rom[metadataOffset+48 : metadataOffset+52])
+	seekFrameStep := binary.LittleEndian.Uint32(rom[metadataOffset+52 : metadataOffset+56])
+	if frameCount < 2 || seekTableOffset == 0 || seekTableOffset >= videoOffset {
+		t.Fatalf("invalid seek metadata: frames=%d table=%#x video=%#x", frameCount, seekTableOffset, videoOffset)
+	}
+	if seekFrameStep != 50 {
+		t.Fatalf("classic 5-second seek step = %d frames, want 50", seekFrameStep)
+	}
+	firstOffset := binary.LittleEndian.Uint32(rom[seekTableOffset : seekTableOffset+4])
+	secondOffset := binary.LittleEndian.Uint32(rom[seekTableOffset+4 : seekTableOffset+8])
+	lastEntry := seekTableOffset + (frameCount-1)*4
+	lastOffset := binary.LittleEndian.Uint32(rom[lastEntry : lastEntry+4])
+	if firstOffset != 0 || secondOffset == 0 || secondOffset%4 != 0 || lastOffset >= audioSize {
+		t.Fatalf("invalid audio seek table: first=%d second=%d last=%d audio=%d", firstOffset, secondOffset, lastOffset, audioSize)
 	}
 }

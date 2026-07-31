@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.6.0] - 2026-07-31
+
+### Added
+
+- `L` seeks backward by approximately five seconds during playback or from the end screen
+- `R` seeks forward by approximately five seconds
+- Per-frame audio seek offsets keep sound aligned after seeking
+- Freestanding ARM7TDMI player source and reproducible LLVM build scripts
+
+### Changed
+
+- Generated ROM metadata format upgraded from GBV2 to GBV3
+- GitHub Actions use Node.js 24-compatible action releases
+
 ## [0.5.0] - 2026-07-30
 
 ### Added

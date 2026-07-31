@@ -237,7 +237,7 @@ func downloadFileWithProgress(url, path string, progress func(done, total int64)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "GBA-Video-Maker/0.5.0")
+	req.Header.Set("User-Agent", "GBA-Video-Maker/0.6.0")
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -832,7 +832,7 @@ button,input,select{font:inherit}.app{min-height:100%;display:grid;place-items:c
       </div><label class="check"><input id="loop" type="checkbox"> Loop when playback ends</label></section>
       <section class="section"><h3>Picture</h3><div class="fields"><div class="field full"><label for="fit">Screen framing</label><select id="fit"><option value="crop" selected>Crop to fill — no black bars</option><option value="fit">Fit — keep full image with bars</option><option value="stretch">Stretch to fill</option></select></div></div><p class="tiny">The GBA plays a 120×80 image expanded to its 240×160 screen.</p></section>
       <section class="section"><h3>Audio</h3><div class="fields"><div class="field"><label for="audio">Channel</label><select id="audio"><option value="mix">Mix channels to mono</option><option value="left">Left channel only</option><option value="right">Right channel only</option><option value="none">No audio</option></select></div><div class="field"><label for="volume">Volume %</label><input id="volume" type="number" min="0" max="200" step="5" value="100"></div></div></section>
-      <section class="section"><h3>ROM</h3><div class="fields"><div class="field full"><label for="romTitle">ROM title</label><input id="romTitle" maxlength="12" value="GBA VIDEO"></div></div><p class="tiny">Controls in the ROM: A pauses or resumes; START restarts.</p></section>
+      <section class="section"><h3>ROM</h3><div class="fields"><div class="field full"><label for="romTitle">ROM title</label><input id="romTitle" maxlength="12" value="GBA VIDEO"></div></div><p class="tiny">Controls in the ROM: A pauses or resumes; L/R seek 5 seconds; B or START restarts.</p></section>
     </div>
     <div class="bottom"><div id="estimate" class="estimate"></div><button id="convert" class="btn primary">Create .gba ROM</button></div>
     <div id="progressWrap" class="progress-wrap hidden"><div class="status"><span id="progressText"></span><span id="progressPct"></span></div><div class="bar"><i id="progressFill"></i></div></div>
@@ -872,7 +872,7 @@ else if(state.convertError){$('progressWrap').classList.add('hidden');$('done').
 $('retryEngine').onclick=()=>api('/engine/retry',{method:'POST'}).catch(e=>showErrorLoading(e.message));
 $('change').onclick=async()=>{await api('/reset',{method:'POST'});lastReadyVideo='';show('welcome')};
 function values(){return{start:$('start').value,end:$('end').value,speed:Number($('speed').value),fps:$('fps').value,fit:$('fit').value,audio:$('audio').value,volume:Number($('volume').value),loop:$('loop').checked,romTitle:$('romTitle').value}}
-function estimate(){if(!state||!state.media)return;let v=values(),start=parseClock(v.start),end=parseClock(v.end);if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||v.speed<.5||v.speed>3){$('estimate').textContent='Check the trim and speed settings.';return}end=Math.min(end,state.media.Duration);let vb={smooth:4,balanced:5,classic:6,compact:8}[v.fps],fps=59.727500569606/vb,frames=Math.max(1,Math.ceil(((end-start)/v.speed)*fps)),display=frames*vb/59.727500569606,audio=(v.audio!=='none'&&state.media.AudioStreams)?Math.ceil(display*16384/16)*16:0,raw=8192+512+frames*9600+audio,p=1048576;while(p<raw)p*=2;$('estimate').textContent=raw>33554432?('Too large: about '+(raw/1048576).toFixed(2)+' MiB. Shorten it, speed it up, lower FPS or disable audio.'):('Estimated output: '+(p/1048576)+' MiB cartridge • '+frames+' frames • '+fps.toFixed(2)+' fps')}
+function estimate(){if(!state||!state.media)return;let v=values(),start=parseClock(v.start),end=parseClock(v.end);if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||v.speed<.5||v.speed>3){$('estimate').textContent='Check the trim and speed settings.';return}end=Math.min(end,state.media.Duration);let vb={smooth:4,balanced:5,classic:6,compact:8}[v.fps],fps=59.727500569606/vb,frames=Math.max(1,Math.ceil(((end-start)/v.speed)*fps)),display=frames*vb/59.727500569606,hasAudio=(v.audio!=='none'&&state.media.AudioStreams),audio=hasAudio?Math.ceil(display*16384/16)*16:0,seek=hasAudio?frames*4:0,raw=8192+512+seek+frames*9600+audio,p=1048576;while(p<raw)p*=2;$('estimate').textContent=raw>33554432?('Too large: about '+(raw/1048576).toFixed(2)+' MiB. Shorten it, speed it up, lower FPS or disable audio.'):('Estimated output: '+(p/1048576)+' MiB cartridge • '+frames+' frames • '+fps.toFixed(2)+' fps')}
 function parseClock(s){let a=String(s).trim().split(':').map(Number);if(a.some(x=>!Number.isFinite(x))||a.length<1||a.length>3)return NaN;if(a.length===1)return a[0];if(a.length===2)return a[0]*60+a[1];return a[0]*3600+a[1]*60+a[2]}
 for(const id of ['start','end','speed','fps','fit','audio','volume'])$(id).addEventListener('input',estimate);
 $('convert').onclick=async()=>{try{await api('/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values())});poll()}catch(e){$('convertError').textContent=e.message;$('convertError').classList.remove('hidden')}};

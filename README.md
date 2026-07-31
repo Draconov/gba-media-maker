@@ -29,7 +29,7 @@ On first use, the app can download a pinned Windows x64 FFmpeg executable and ve
 - Editable 12-character GBA ROM title
 - ROM-size estimate with a 32 MiB compatibility limit
 - One-click `.gba` output
-- Pause/resume and restart controls inside the generated ROM
+- Pause/resume, five-second seeking, and restart controls inside the generated ROM
 
 ## Generated ROM format
 
@@ -40,7 +40,7 @@ The current encoder prioritizes reliability and straightforward playback:
 - Indexed 256-colour video
 - Signed 8-bit mono audio at 16,384 Hz
 - Power-of-two ROM padding, up to 32 MiB
-- Audio-driven playback timing
+- Frame-synchronised playback with audio seek offsets
 
 The exact duration that fits depends on frame rate and whether audio is enabled. Low-motion footage generally looks better at the same size than noisy footage.
 
@@ -49,7 +49,9 @@ The exact duration that fits depends on frame rate and whether audio is enabled.
 | Button | Action |
 |---|---|
 | `A` | Pause or resume |
-| `START` | Restart the video |
+| `L` | Seek backward approximately 5 seconds |
+| `R` | Seek forward approximately 5 seconds |
+| `B` or `START` | Restart the video |
 
 ## Privacy model
 
@@ -63,6 +65,7 @@ Requirements:
 
 - Go 1.23 or newer
 - FFmpeg only for the integration test and local conversions
+- LLVM (`clang`, `ld.lld`, and `llvm-objcopy`) only when rebuilding the embedded GBA player
 
 Run checks:
 
@@ -70,6 +73,12 @@ Run checks:
 go fmt ./...
 go vet ./...
 go test -race ./...
+```
+
+Rebuild the embedded GBA player after changing files under `player/`:
+
+```bash
+./player/build.sh
 ```
 
 Build the portable Windows executable from Windows, Linux, or macOS:
@@ -89,13 +98,14 @@ On PowerShell:
 Create a release ZIP:
 
 ```powershell
-./scripts/package-release.ps1 -Version 0.5.0
+./scripts/package-release.ps1 -Version 0.6.0
 ```
 
 ## Project layout
 
 ```text
-assets/player_stub.bin   Embedded GBA playback engine
+player/                  GBA playback-engine source and build scripts
+assets/player_stub.bin   Prebuilt embedded GBA playback engine
 converter.go             FFmpeg pipeline and ROM assembly
 webapp.go                Local HTTP API and embedded GUI
 main_windows.go          Windows app-window launcher

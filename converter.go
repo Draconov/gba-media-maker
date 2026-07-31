@@ -23,7 +23,7 @@ import (
 
 const (
 	appName        = "GBA Video Maker"
-	appVersion     = "0.5.0 Portable"
+	appVersion     = "0.6.0 Portable"
 	romLimit       = 32 * 1024 * 1024
 	romMinSize     = 1 * 1024 * 1024
 	metadataOffset = 0x1000
@@ -211,7 +211,11 @@ func estimateROM(duration, speed float64, vblanks int, withAudio bool) (raw, pad
 	if withAudio {
 		audioBytes = int64(math.Ceil(displaySeconds*audioRate/16.0) * 16)
 	}
-	raw = assetOffset + 512 + int64(frames*frameBytes) + audioBytes
+	seekTableBytes := int64(0)
+	if withAudio {
+		seekTableBytes = int64(frames * 4)
+	}
+	raw = assetOffset + 512 + seekTableBytes + int64(frames*frameBytes) + audioBytes
 	padded = nextPowerOfTwo(raw)
 	return
 }
@@ -615,7 +619,7 @@ func patchGBAHeader(rom []byte, title string) {
 	binary.LittleEndian.PutUint32(rom[0:4], 0xEA00002E)
 	copy(rom[0x004:0x0A0], nintendoLogo)
 	copy(rom[0x0A0:0x0AC], safeRomTitle(title))
-	copy(rom[0x0AC:0x0B0], []byte("GV02"))
+	copy(rom[0x0AC:0x0B0], []byte("GV03"))
 	copy(rom[0x0B0:0x0B2], []byte("01"))
 	rom[0x0B2] = 0x96
 	for i := 0x0B3; i < 0x0BD; i++ {
@@ -663,6 +667,22 @@ func assembleROM(opt ConvertOptions, frameCount int, palettePath, videoPath, aud
 	rom := append([]byte(nil), playerStub...)
 	paletteOffset := len(rom)
 	rom = appendAligned(rom, palette)
+
+	seekTableOffset := 0
+	if hasAudio {
+		seekTableOffset = len(rom)
+		seekTable := make([]byte, frameCount*4)
+		for frame := 0; frame < frameCount; frame++ {
+			offset := int64(math.Floor(float64(frame*opt.VBlanks) * float64(audioRate) / gbaRefresh))
+			offset &^= 3
+			if len(audio) >= 4 && offset > int64(len(audio)-4) {
+				offset = int64(len(audio)-4) &^ 3
+			}
+			binary.LittleEndian.PutUint32(seekTable[frame*4:frame*4+4], uint32(offset))
+		}
+		rom = appendAligned(rom, seekTable)
+	}
+
 	videoOffset := len(rom)
 	rom = appendAligned(rom, video)
 	audioOffset := len(rom)
@@ -679,12 +699,17 @@ func assembleROM(opt ConvertOptions, frameCount int, palettePath, videoPath, aud
 		flags |= 2
 	}
 
+	seekFrameStep := int(math.Round(5.0 * gbaRefresh / float64(opt.VBlanks)))
+	if seekFrameStep < 1 {
+		seekFrameStep = 1
+	}
+
 	metadata := &bytes.Buffer{}
 	fields := []any{
-		uint32(0x32564247), uint16(2), flags,
+		uint32(0x33564247), uint16(3), flags,
 		uint32(frameCount), uint32(frameBytes), uint32(videoOffset), uint32(audioOffset), uint32(len(audio)), uint32(paletteOffset), uint32(audioRate),
 		uint16(opt.VBlanks), uint16(frameWidth), uint16(frameHeight), uint16(0),
-		uint32(len(audio)), uint32(0), uint32(0), uint32(0), uint32(0),
+		uint32(len(audio)), uint32(seekTableOffset), uint32(seekFrameStep), uint32(0), uint32(0),
 	}
 	for _, field := range fields {
 		if err := binary.Write(metadata, binary.LittleEndian, field); err != nil {

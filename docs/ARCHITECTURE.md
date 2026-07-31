@@ -33,13 +33,14 @@ The executable contains the HTML, CSS, JavaScript, conversion code, and the GBA 
 
 FFmpeg decodes the selected section, applies speed and framing filters, and emits RGB24 frames at the selected playback rate. The Go encoder quantizes colours to the GBA RGB555 palette format and stores 120×80 indexed frames.
 
-Audio is decoded to signed 8-bit mono PCM at 16,384 Hz. The player uses audio timing as the playback clock and expands each source pixel to a 2×2 block on the 240×160 display.
+Audio is decoded to signed 8-bit mono PCM at 16,384 Hz. The converter also writes an aligned audio-offset entry for every video frame. This lets the player restart DMA at the matching sample when `L` or `R` seeks by approximately five seconds. Each 120×80 source pixel is expanded to a 2×2 block on the 240×160 display.
 
 The ROM builder combines:
 
 - embedded player code
 - metadata header
 - palette data
+- per-frame audio seek table
 - indexed frames
 - optional PCM audio
 - power-of-two cartridge padding
