@@ -22,17 +22,18 @@ import (
 )
 
 const (
-	appName        = "GBA Video Maker"
-	appVersion     = "0.6.0 Portable"
-	romLimit       = 32 * 1024 * 1024
-	romMinSize     = 1 * 1024 * 1024
-	metadataOffset = 0x1000
-	assetOffset    = 0x2000
-	frameWidth     = 120
-	frameHeight    = 80
-	frameBytes     = frameWidth * frameHeight
-	audioRate      = 16384
-	gbaRefresh     = 59.727500569606
+	appName            = "GBA Video Maker"
+	appVersion         = "0.7.0 Portable"
+	romLimit           = 32 * 1024 * 1024
+	romMinSize         = 1 * 1024 * 1024
+	metadataOffset     = 0x1C00
+	assetOffset        = 0x2000
+	frameWidth         = 120
+	frameHeight        = 80
+	frameBytes         = frameWidth * frameHeight
+	audioRate          = 16384
+	videoPaletteColors = 250
+	gbaRefresh         = 59.727500569606
 )
 
 //go:embed assets/player_stub.bin
@@ -431,7 +432,7 @@ func buildPaletteAndVideo(framesPath, palettePath, videoPath string, progress Pr
 		return 0, errors.New("could not build a color palette")
 	}
 	boxes := []colorBox{newColorBox(points)}
-	for len(boxes) < 256 {
+	for len(boxes) < videoPaletteColors {
 		best := -1
 		var bestScore uint64
 		for i, b := range boxes {
@@ -467,6 +468,15 @@ func buildPaletteAndVideo(framesPath, palettePath, videoPath string, progress Pr
 			palette[i] = rgb5{int((rs + total/2) / total), int((gs + total/2) / total), int((bs + total/2) / total)}
 		}
 	}
+	// Reserve six stable colours for the playback HUD. Video pixels are
+	// quantized only to entries 0-249, so overlays remain readable regardless
+	// of the source footage's palette.
+	palette[250] = rgb5{0, 0, 0}
+	palette[251] = rgb5{6, 6, 6}
+	palette[252] = rgb5{31, 31, 31}
+	palette[253] = rgb5{31, 27, 0}
+	palette[254] = rgb5{31, 0, 0}
+	palette[255] = rgb5{0, 31, 0}
 
 	palFile, err := os.Create(palettePath)
 	if err != nil {
@@ -489,7 +499,7 @@ func buildPaletteAndVideo(framesPath, palettePath, videoPath string, progress Pr
 		r, g, b := idx&31, (idx>>5)&31, (idx>>10)&31
 		best := 0
 		bestDist := math.MaxInt
-		for j, p := range palette {
+		for j, p := range palette[:videoPaletteColors] {
 			dr, dg, db := r-p.r, g-p.g, b-p.b
 			dist := dr*dr + dg*dg + db*db
 			if dist < bestDist {
@@ -619,7 +629,7 @@ func patchGBAHeader(rom []byte, title string) {
 	binary.LittleEndian.PutUint32(rom[0:4], 0xEA00002E)
 	copy(rom[0x004:0x0A0], nintendoLogo)
 	copy(rom[0x0A0:0x0AC], safeRomTitle(title))
-	copy(rom[0x0AC:0x0B0], []byte("GV03"))
+	copy(rom[0x0AC:0x0B0], []byte("GV04"))
 	copy(rom[0x0B0:0x0B2], []byte("01"))
 	rom[0x0B2] = 0x96
 	for i := 0x0B3; i < 0x0BD; i++ {
@@ -706,7 +716,7 @@ func assembleROM(opt ConvertOptions, frameCount int, palettePath, videoPath, aud
 
 	metadata := &bytes.Buffer{}
 	fields := []any{
-		uint32(0x33564247), uint16(3), flags,
+		uint32(0x34564247), uint16(4), flags,
 		uint32(frameCount), uint32(frameBytes), uint32(videoOffset), uint32(audioOffset), uint32(len(audio)), uint32(paletteOffset), uint32(audioRate),
 		uint16(opt.VBlanks), uint16(frameWidth), uint16(frameHeight), uint16(0),
 		uint32(len(audio)), uint32(seekTableOffset), uint32(seekFrameStep), uint32(0), uint32(0),

@@ -1,87 +1,173 @@
 name: Release
 
-"on":
+run-name: >-
+  ${{ github.event_name == 'push'
+      && format('Automatic release from {0}', github.sha)
+      || format('Manual release {0}', inputs.version) }}
+
+on:
+  # Automatically publish a prerelease after every push to main.
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+
+  # Also allow a versioned release to be started from Actions > Release.
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version/tag, for example v0.5.1"
+        description: "Version tag, for example v0.7.1"
         required: true
         type: string
+      prerelease:
+        description: "Mark the manual release as a prerelease"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
-env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+# Do not let two pushes publish releases at the same time.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate release version
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check formatting
         shell: bash
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Version must look like v0.5.1"
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            echo "::error::These Go files are not formatted:"
+            echo "$unformatted"
             exit 1
           fi
 
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Vet
+        run: go vet ./...
 
       - name: Test
         run: go test ./...
+
+      - name: Choose release version
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          MANUAL_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$MANUAL_VERSION"
+            [[ "$tag" == v* ]] || tag="v$tag"
+            prerelease="$MANUAL_PRERELEASE"
+            title="GBA Video Maker $tag"
+          else
+            base_version="$(tr -d '[:space:]' < VERSION)"
+            if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::VERSION must contain a version such as 0.7.0"
+              exit 1
+            fi
+
+            # Each push needs a unique tag. Automatic builds are prereleases so
+            # they do not replace a manually published stable release as Latest.
+            tag="v${base_version}-build.${GITHUB_RUN_NUMBER}"
+            prerelease="true"
+            title="GBA Video Maker ${tag} (automatic build)"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must look like v0.7.1"
+            exit 1
+          fi
+
+          version="${tag#v}"
+          folder="GBA_Video_Maker_v${version}_Portable"
+          zip_file="${folder}.zip"
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "folder=$folder" >> "$GITHUB_OUTPUT"
+          echo "zip_file=$zip_file" >> "$GITHUB_OUTPUT"
 
       - name: Build Windows executable
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: 0
-        run: go build -trimpath -ldflags="-H windowsgui -s -w" -o "GBA Video Maker.exe" .
+        run: >-
+          go build -trimpath
+          -ldflags="-H windowsgui -s -w"
+          -o "GBA Video Maker.exe" .
 
-      - name: Package portable release
+      - name: Package portable ZIP
         shell: bash
+        env:
+          FOLDER: ${{ steps.release.outputs.folder }}
+          ZIP_FILE: ${{ steps.release.outputs.zip_file }}
         run: |
           set -euo pipefail
-          version="${RELEASE_TAG#v}"
-          folder="GBA_Video_Maker_v${version}_Portable"
-          mkdir "$folder"
-          cp "GBA Video Maker.exe" README.md LICENSE THIRD_PARTY_NOTICES.md "$folder/"
-          zip -9 -r "${folder}.zip" "$folder"
-          sha256sum "${folder}.zip" > "${folder}.zip.sha256"
+          mkdir "$FOLDER"
+          cp "GBA Video Maker.exe" README.md LICENSE THIRD_PARTY_NOTICES.md "$FOLDER/"
+          zip -9 -r "$ZIP_FILE" "$FOLDER"
+          sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
 
-      - name: Publish or update GitHub release
+      - name: Publish GitHub release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          ZIP_FILE: ${{ steps.release.outputs.zip_file }}
         run: |
           set -euo pipefail
-          version="${RELEASE_TAG#v}"
-          zip_file="GBA_Video_Maker_v${version}_Portable.zip"
-          checksum_file="${zip_file}.sha256"
 
+          prerelease_args=()
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+
+          # A rerun for the same commit updates the assets instead of failing.
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            git fetch --tags --force
+            tagged_sha="$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null || true)"
+            if [[ -n "$tagged_sha" && "$tagged_sha" != "$GITHUB_SHA" ]]; then
+              echo "::error::Release $RELEASE_TAG already points to another commit. Use a new version."
+              exit 1
+            fi
+
             gh release upload "$RELEASE_TAG" \
-              "$zip_file" \
-              "$checksum_file" \
+              "$ZIP_FILE" \
+              "${ZIP_FILE}.sha256" \
               --clobber
             gh release edit "$RELEASE_TAG" \
-              --title "GBA Video Maker $RELEASE_TAG"
+              --title "$RELEASE_TITLE" \
+              "${prerelease_args[@]}"
           else
             gh release create "$RELEASE_TAG" \
-              "$zip_file" \
-              "$checksum_file" \
+              "$ZIP_FILE" \
+              "${ZIP_FILE}.sha256" \
               --target "$GITHUB_SHA" \
+              --title "$RELEASE_TITLE" \
               --generate-notes \
-              --title "GBA Video Maker $RELEASE_TAG"
+              "${prerelease_args[@]}"
           fi

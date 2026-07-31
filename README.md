@@ -29,7 +29,7 @@ On first use, the app can download a pinned Windows x64 FFmpeg executable and ve
 - Editable 12-character GBA ROM title
 - ROM-size estimate with a 32 MiB compatibility limit
 - One-click `.gba` output
-- Pause/resume, five-second seeking, and restart controls inside the generated ROM
+- Pause/resume, mute, playback HUD, five-second seeking, and restart controls inside the generated ROM
 
 ## Generated ROM format
 
@@ -37,7 +37,7 @@ The current encoder prioritizes reliability and straightforward playback:
 
 - GBA display: 240×160
 - Encoded source frames: 120×80, expanded 2× by the player
-- Indexed 256-colour video
+- Indexed video using 250 source colours plus six reserved HUD colours
 - Signed 8-bit mono audio at 16,384 Hz
 - Power-of-two ROM padding, up to 32 MiB
 - Frame-synchronised playback with audio seek offsets
@@ -49,9 +49,13 @@ The exact duration that fits depends on frame rate and whether audio is enabled.
 | Button | Action |
 |---|---|
 | `A` | Pause or resume |
-| `L` | Seek backward approximately 5 seconds |
-| `R` | Seek forward approximately 5 seconds |
+| `L` or `D-pad Left` | Seek backward approximately 5 seconds |
+| `R` or `D-pad Right` | Seek forward approximately 5 seconds |
+| `SELECT` | Mute or unmute audio |
+| `D-pad Up` | Show or hide the playback HUD |
 | `B` or `START` | Restart the video |
+
+Mute/unmute and seek feedback disappear after about 0.4 seconds. The playback HUD remains visible while the video is paused, and `D-pad Up` can still pin or hide it manually. Muting or unmuting does not automatically pop open the playback HUD. The unmuted badge uses a compact green check-style mark.
 
 ## Privacy model
 
@@ -98,7 +102,7 @@ On PowerShell:
 Create a release ZIP:
 
 ```powershell
-./scripts/package-release.ps1 -Version 0.6.0
+./scripts/package-release.ps1 -Version 0.7.0
 ```
 
 ## Project layout
@@ -128,3 +132,12 @@ Convert only video and audio you have permission to use. Game Boy Advance, Ninte
 ## License
 
 The application source is available under the [MIT License](LICENSE).
+
+
+The playback HUD leaves a black 1-pixel row above and below the loop icon so it sits cleanly above the progress line.
+
+
+The seek popup now uses a tighter 2-pixel gap between the number and arrow to keep the box less intrusive.
+
+
+`D-pad Left/Right` now mirror `L/R` for five-second seeking, so either control style works.

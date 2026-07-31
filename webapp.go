@@ -237,7 +237,7 @@ func downloadFileWithProgress(url, path string, progress func(done, total int64)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "GBA-Video-Maker/0.6.0")
+	req.Header.Set("User-Agent", "GBA-Video-Maker/0.7.0")
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -832,7 +832,7 @@ button,input,select{font:inherit}.app{min-height:100%;display:grid;place-items:c
       </div><label class="check"><input id="loop" type="checkbox"> Loop when playback ends</label></section>
       <section class="section"><h3>Picture</h3><div class="fields"><div class="field full"><label for="fit">Screen framing</label><select id="fit"><option value="crop" selected>Crop to fill — no black bars</option><option value="fit">Fit — keep full image with bars</option><option value="stretch">Stretch to fill</option></select></div></div><p class="tiny">The GBA plays a 120×80 image expanded to its 240×160 screen.</p></section>
       <section class="section"><h3>Audio</h3><div class="fields"><div class="field"><label for="audio">Channel</label><select id="audio"><option value="mix">Mix channels to mono</option><option value="left">Left channel only</option><option value="right">Right channel only</option><option value="none">No audio</option></select></div><div class="field"><label for="volume">Volume %</label><input id="volume" type="number" min="0" max="200" step="5" value="100"></div></div></section>
-      <section class="section"><h3>ROM</h3><div class="fields"><div class="field full"><label for="romTitle">ROM title</label><input id="romTitle" maxlength="12" value="GBA VIDEO"></div></div><p class="tiny">Controls in the ROM: A pauses or resumes; L/R seek 5 seconds; B or START restarts.</p></section>
+      <section class="section"><h3>ROM</h3><div class="fields"><div class="field full"><label for="romTitle">ROM title</label><input id="romTitle" maxlength="12" value="GBA VIDEO"></div></div><p class="tiny">Controls: A pause; L/R or D-pad Left/Right seek 5 seconds; SELECT mute; D-pad Up shows playback progress; B or START restarts.</p></section>
     </div>
     <div class="bottom"><div id="estimate" class="estimate"></div><button id="convert" class="btn primary">Create .gba ROM</button></div>
     <div id="progressWrap" class="progress-wrap hidden"><div class="status"><span id="progressText"></span><span id="progressPct"></span></div><div class="bar"><i id="progressFill"></i></div></div>

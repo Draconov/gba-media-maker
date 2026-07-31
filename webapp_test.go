@@ -256,11 +256,11 @@ func TestHTTPUploadInspectConvertDownload(t *testing.T) {
 	if rom[0xBD] != check {
 		t.Fatalf("bad GBA header checksum: got %02x want %02x", rom[0xBD], check)
 	}
-	if string(rom[metadataOffset:metadataOffset+4]) != "GBV3" {
-		t.Fatalf("missing GBV3 metadata marker")
+	if string(rom[metadataOffset:metadataOffset+4]) != "GBV4" {
+		t.Fatalf("missing GBV4 metadata marker")
 	}
-	if version := binary.LittleEndian.Uint16(rom[metadataOffset+4 : metadataOffset+6]); version != 3 {
-		t.Fatalf("metadata version = %d, want 3", version)
+	if version := binary.LittleEndian.Uint16(rom[metadataOffset+4 : metadataOffset+6]); version != 4 {
+		t.Fatalf("metadata version = %d, want 4", version)
 	}
 
 	flags := uint16(rom[metadataOffset+6]) | uint16(rom[metadataOffset+7])<<8
@@ -270,6 +270,7 @@ func TestHTTPUploadInspectConvertDownload(t *testing.T) {
 
 	frameCount := binary.LittleEndian.Uint32(rom[metadataOffset+8 : metadataOffset+12])
 	videoOffset := binary.LittleEndian.Uint32(rom[metadataOffset+16 : metadataOffset+20])
+	paletteOffset := binary.LittleEndian.Uint32(rom[metadataOffset+28 : metadataOffset+32])
 	audioSize := binary.LittleEndian.Uint32(rom[metadataOffset+24 : metadataOffset+28])
 	seekTableOffset := binary.LittleEndian.Uint32(rom[metadataOffset+48 : metadataOffset+52])
 	seekFrameStep := binary.LittleEndian.Uint32(rom[metadataOffset+52 : metadataOffset+56])
@@ -285,5 +286,22 @@ func TestHTTPUploadInspectConvertDownload(t *testing.T) {
 	lastOffset := binary.LittleEndian.Uint32(rom[lastEntry : lastEntry+4])
 	if firstOffset != 0 || secondOffset == 0 || secondOffset%4 != 0 || lastOffset >= audioSize {
 		t.Fatalf("invalid audio seek table: first=%d second=%d last=%d audio=%d", firstOffset, secondOffset, lastOffset, audioSize)
+	}
+	if paletteOffset+512 > uint32(len(rom)) {
+		t.Fatalf("invalid palette offset: %#x", paletteOffset)
+	}
+	wantHUD := []uint16{0x0000, 0x18C6, 0x7FFF, 0x037F, 0x001F, 0x03E0}
+	for i, want := range wantHUD {
+		off := int(paletteOffset) + (250+i)*2
+		got := binary.LittleEndian.Uint16(rom[off : off+2])
+		if got != want {
+			t.Fatalf("HUD palette entry %d = %#04x, want %#04x", 250+i, got, want)
+		}
+	}
+	videoBytes := rom[videoOffset : videoOffset+frameCount*frameBytes]
+	for i, pixel := range videoBytes {
+		if pixel >= videoPaletteColors {
+			t.Fatalf("video pixel %d uses reserved HUD palette index %d", i, pixel)
+		}
 	}
 }
