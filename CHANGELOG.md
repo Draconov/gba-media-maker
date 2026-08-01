@@ -59,6 +59,12 @@ All notable changes to this project are documented here.
 - Mute feedback, playback HUD, progress line, seek feedback, and loop indicator
 - Per-frame audio seek offsets
 
+### Fixed
+
+- Fixed audio/video drift and end-of-video silence by scheduling frames from a dedicated 16,384 Hz hardware playback clock.
+- Audio conversion now normalizes source timestamps with asynchronous resampling, improving files with timestamp gaps or overlaps.
+- Paused frame stepping now repositions the audio stream to the selected frame before playback resumes.
+
 ### Changed
 
 - Automatic GitHub Actions builds now publish/update a normal stable release using the exact VERSION tag, without build-number suffixes or a prerelease badge.

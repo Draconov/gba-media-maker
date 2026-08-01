@@ -128,3 +128,8 @@ The player validates these values before showing the continue/restart prompt.
 
 
 In multi-video menu ROMs, the selected clip uses a clear pixel-art arrow. Finishing a clip or pressing B returns to the menu.
+
+
+## Playback clock
+
+Timer 2 runs at 16,384 Hz and Timer 3 cascades to form a 32-bit clock. Frame deadlines are derived from the selected frame rate, so decoding and rendering time is included rather than accumulating as drift. Audio timestamps are normalized during conversion with FFmpeg asynchronous resampling.

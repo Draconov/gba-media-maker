@@ -354,6 +354,9 @@ func audioFilters(opt ProjectOptions, info MediaInfo) []string {
 			filters = append(filters, "pan=mono|c0=c1")
 		}
 	}
+	// Anchor output to timestamp zero and compensate small timestamp gaps or
+	// overlaps before speed and volume processing.
+	filters = append(filters, "aresample=16384:async=1:first_pts=0")
 	for _, f := range buildAtempo(opt.Speed) {
 		filters = append(filters, fmt.Sprintf("atempo=%.8f", f))
 	}

@@ -27,6 +27,10 @@ typedef unsigned int   u32;
 #define REG_DMA1CNT_H    REG16(0x040000C6)
 #define REG_TM0CNT_L     REG16(0x04000100)
 #define REG_TM0CNT_H     REG16(0x04000102)
+#define REG_TM2CNT_L     REG16(0x04000108)
+#define REG_TM2CNT_H     REG16(0x0400010A)
+#define REG_TM3CNT_L     REG16(0x0400010C)
+#define REG_TM3CNT_H     REG16(0x0400010E)
 #define REG_KEYINPUT     REG16(0x04000130)
 
 #define PALRAM           ((volatile u16 *)0x05000000)
@@ -140,6 +144,13 @@ struct PlayerUI {
     u16 seek_hold_counter;
     int help_combo_latched;
     int hud_combo_latched;
+};
+
+struct PlaybackClock {
+    u32 next_deadline;
+    u32 step_whole;
+    u32 step_remainder;
+    u32 remainder_accum;
 };
 
 extern const struct GlobalMetadata gba_video_metadata;
@@ -561,6 +572,63 @@ static u32 audio_offset_for_frame(const struct ClipDescriptor *clip, u32 frame)
     return offset;
 }
 
+/* Timer 2 runs at 16,384 Hz; Timer 3 cascades for a 32-bit playback clock. */
+static void playback_timer_stop(void)
+{
+    REG_TM2CNT_H = 0u;
+    REG_TM3CNT_H = 0u;
+}
+
+static void playback_timer_reset(void)
+{
+    playback_timer_stop();
+    REG_TM2CNT_L = 0u;
+    REG_TM3CNT_L = 0u;
+    REG_TM3CNT_H = 0x0084u;
+    REG_TM2CNT_H = 0x0083u;
+}
+
+static void playback_timer_pause(void)
+{
+    playback_timer_stop();
+}
+
+static void playback_timer_resume(void)
+{
+    REG_TM3CNT_H = 0x0084u;
+    REG_TM2CNT_H = 0x0083u;
+}
+
+static u32 playback_timer_read(void)
+{
+    u16 high1, low, high2;
+    do {
+        high1 = REG_TM3CNT_L;
+        low = REG_TM2CNT_L;
+        high2 = REG_TM3CNT_L;
+    } while (high1 != high2);
+    return ((u32)high1 << 16) | (u32)low;
+}
+
+static void playback_clock_init(struct PlaybackClock *clock, u16 vblanks)
+{
+    u32 numerator = (u32)vblanks * 16384000u;
+    clock->step_whole = numerator / GBA_REFRESH_MILLI;
+    clock->step_remainder = numerator % GBA_REFRESH_MILLI;
+    clock->remainder_accum = 0u;
+    clock->next_deadline = 0u;
+}
+
+static void playback_clock_advance(struct PlaybackClock *clock)
+{
+    clock->next_deadline += clock->step_whole;
+    clock->remainder_accum += clock->step_remainder;
+    if (clock->remainder_accum >= GBA_REFRESH_MILLI) {
+        clock->remainder_accum -= GBA_REFRESH_MILLI;
+        ++clock->next_deadline;
+    }
+}
+
 static int tick_ui_timers(struct PlayerUI *ui)
 {
     int changed = 0;
@@ -655,27 +723,29 @@ static int poll_action(u16 *previous_keys, int paused, int has_audio, struct Pla
     return ACTION_NONE;
 }
 
-static int wait_frame_period(u16 *previous_keys, u16 vblanks, int has_audio, int *paused,
-                             u32 *elapsed, struct PlayerUI *ui)
+static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, int *paused,
+                             struct PlayerUI *ui)
 {
-    while (*elapsed < (u32)vblanks) {
+    for (;;) {
         int changed, action;
-        u16 before;
         wait_vblank();
         changed = tick_ui_timers(ui);
-        before = *previous_keys;
         action = poll_action(previous_keys, *paused, has_audio, ui);
-        (void)before;
         if (action == ACTION_TOGGLE_PAUSE) {
             *paused = !*paused; ui->hud_timer = HUD_HOLD_VBLANKS;
-            if (has_audio) { if (*paused) audio_pause(); else audio_resume(); }
+            if (*paused) {
+                playback_timer_pause();
+                if (has_audio) audio_pause();
+            } else {
+                playback_timer_resume();
+                if (has_audio) audio_resume();
+            }
             return ACTION_UI_REFRESH;
         }
         if (action != ACTION_NONE) return action;
         if (*paused && changed) return ACTION_UI_REFRESH;
-        if (!*paused) ++(*elapsed);
+        if (!*paused && playback_timer_read() >= deadline) return ACTION_NONE;
     }
-    return ACTION_NONE;
 }
 
 static u32 seek_target(u32 frame, u32 frame_count, u32 step, int forward)
@@ -841,7 +911,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     const u8 *audio = rom_ptr(clip->audio_offset);
     int has_audio = (clip->flags & CLIP_FLAG_AUDIO) && clip->audio_size && clip->seek_table_offset;
     u32 frame = initial_frame < clip->frame_count ? initial_frame : 0u;
-    u32 frame_elapsed = 0u;
+    struct PlaybackClock clock;
     u16 displayed_page = 0u;
     u16 previous_keys;
     int paused = 0, at_end = 0;
@@ -853,6 +923,9 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     render_frame_with_ui(current,frame,VRAM_PAGE0,clip,ui);
     wait_vblank(); REG_DISPCNT=MODE4_BG2;
     previous_keys=keys_down();
+    playback_clock_init(&clock, clip->vblanks_per_frame);
+    playback_timer_reset();
+    playback_clock_advance(&clock);
     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
 
@@ -861,16 +934,20 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             int redraw=0, action;
             wait_vblank(); if (tick_ui_timers(ui)) redraw=1;
             action=poll_action(&previous_keys,0,has_audio,ui);
-            if (action==ACTION_RESTART) { clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
+            if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
             if (action==ACTION_HELP) {
-                audio_pause(); show_help_screen(&displayed_page, is_menu_mode(meta)); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down(); continue;
+                playback_timer_stop(); audio_stop();
+                show_help_screen(&displayed_page, is_menu_mode(meta)); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                playback_timer_stop(); audio_stop();
+                continue;
             }
             if (action==ACTION_UI_REFRESH) redraw=1;
             if (action==ACTION_SEEK_BACK || action==ACTION_SEEK_FORWARD) {
                 u32 target=seek_target(frame,clip->frame_count,clip->seek_frame_step,action==ACTION_SEEK_FORWARD);
                 if (target!=frame) {
-                    start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1); load_frame_pixels(clip,target,current); frame=target; frame_elapsed=0u; at_end=0; paused=0;
+                    start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1); load_frame_pixels(clip,target,current); frame=target; at_end=0; paused=0;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                    playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
                     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
                 }
@@ -884,11 +961,14 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             volatile u16 *back = displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
             int action;
             if (has_next) { load_next_pixels(clip,frame+1u,current,next); render_frame_with_ui(next,frame+1u,back,clip,ui); }
-            action=wait_frame_period(&previous_keys,clip->vblanks_per_frame,has_audio,&paused,&frame_elapsed,ui);
-            if (action==ACTION_RESTART) { clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
+            action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,&paused,ui);
+            if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
             if (action==ACTION_HELP) {
-                if (has_audio) audio_pause(); show_help_screen(&displayed_page, is_menu_mode(meta)); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
-                if (has_audio && !paused) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
+                playback_timer_pause(); if (has_audio) audio_pause();
+                show_help_screen(&displayed_page, is_menu_mode(meta)); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
+                if (paused) playback_timer_pause();
+                if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
                 continue;
             }
             if (action==ACTION_UI_REFRESH) { render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down(); continue; }
@@ -897,8 +977,10 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                 if (action==ACTION_FRAME_BACK && frame>0u) target=frame-1u;
                 if (action==ACTION_FRAME_FORWARD && frame+1u<clip->frame_count) target=frame+1u;
                 if (target!=frame) {
-                    load_frame_pixels(clip,target,current); frame=target; frame_elapsed=0u; ui->hud_timer=HUD_HOLD_VBLANKS;
+                    load_frame_pixels(clip,target,current); frame=target; ui->hud_timer=HUD_HOLD_VBLANKS;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                    playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); playback_timer_pause();
+                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),1,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
                 }
                 continue;
@@ -907,8 +989,9 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                 u32 target=seek_target(frame,clip->frame_count,clip->seek_frame_step,action==ACTION_SEEK_FORWARD);
                 if (target!=frame) {
                     if (has_audio) audio_stop(); start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1);
-                    load_frame_pixels(clip,target,current); frame=target; frame_elapsed=0u;
+                    load_frame_pixels(clip,target,current); frame=target;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                    playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); if (paused) playback_timer_pause();
                     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
                 }
@@ -917,10 +1000,10 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             if (has_next) {
                 show_rendered_page(&displayed_page,palette_for_frame(clip,frame+1u));
                 { u8 *tmp=current; current=next; next=tmp; }
-                ++frame; frame_elapsed=0u;
+                ++frame; playback_clock_advance(&clock);
                 if ((meta->flags & GLOBAL_FLAG_RESUME) && (frame % 10u == 0u)) save_position(clip_index,frame);
             } else {
-                audio_stop();
+                playback_timer_stop(); audio_stop();
                 if (clip->flags & CLIP_FLAG_LOOP) { clear_position(); return PLAY_RESULT_RESTART_CURRENT; }
                 if (is_menu_mode(meta)) {
                     clear_position();
@@ -944,7 +1027,7 @@ void main(void)
     u32 selected=0u, saved_clip=0u, saved_frame=0u;
     int have_resume=0;
 
-    REG_IME=0; REG_WAITCNT=0x4317; REG_DISPCNT=FORCE_BLANK;
+    REG_IME=0; REG_WAITCNT=0x4317; REG_DISPCNT=FORCE_BLANK; playback_timer_stop();
     if (meta->magic!=GBV5_MAGIC || meta->version!=5u || meta->clip_count==0u || meta->clip_descriptor_size!=96u) for(;;){}
     clips=(const struct ClipDescriptor *)rom_ptr(meta->clip_table_offset);
     REG_BG2PA=0x0100; REG_BG2PB=0; REG_BG2PC=0; REG_BG2PD=0x0100; REG_BG2X=0; REG_BG2Y=0;
