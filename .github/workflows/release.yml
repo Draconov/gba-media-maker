@@ -115,16 +115,68 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p _vendor _vendor/unpacked
-          python -m pip download --only-binary=:all: --no-deps --platform win_amd64 --implementation py --python-version 3 --abi none --dest _vendor shaka-streamer-binaries==1.5.1
+          mkdir -p _vendor
+          python -m pip download \
+            --only-binary=:all: \
+            --no-deps \
+            --platform win_amd64 \
+            --implementation py \
+            --python-version 3 \
+            --abi none \
+            --dest _vendor \
+            shaka-streamer-binaries==1.5.1
 
           wheel="$(find _vendor -maxdepth 1 -name 'shaka_streamer_binaries-1.5.1-*-win_amd64.whl' -print -quit)"
-          test -n "$wheel"
+          if [[ -z "$wheel" ]]; then
+            echo "::error::The pinned Windows wheel was not downloaded."
+            exit 1
+          fi
+
           echo "240b5a649527f1ddd8b95e7856a0e830c5da02664be5d45032654d274ead7a8c  $wheel" | sha256sum -c -
-          python -m zipfile -e "$wheel" _vendor/unpacked
-          ffmpeg="$(find _vendor/unpacked -type f -iname 'ffmpeg.exe' -print -quit)"
-          test -n "$ffmpeg"
-          cp "$ffmpeg" ffmpeg.exe
+
+          # Do not assume where the wheel stores FFmpeg or what its internal
+          # filename is. Find the Windows PE binary by its MZ header and copy
+          # it to the portable package under the name the app expects.
+          WHEEL="$wheel" python - <<'PY'
+          import os
+          import pathlib
+          import zipfile
+
+          wheel = pathlib.Path(os.environ["WHEEL"])
+          output = pathlib.Path("ffmpeg.exe")
+
+          with zipfile.ZipFile(wheel) as archive:
+              names = sorted(
+                  archive.namelist(),
+                  key=lambda name: (
+                      pathlib.PurePosixPath(name).name.lower() not in {"ffmpeg", "ffmpeg.exe"},
+                      len(name),
+                      name,
+                  ),
+              )
+              for name in names:
+                  base = pathlib.PurePosixPath(name).name.lower()
+                  if "ffmpeg" not in base or name.endswith("/"):
+                      continue
+                  data = archive.read(name)
+                  if data.startswith(b"MZ"):
+                      output.write_bytes(data)
+                      print(f"Extracted {name} -> {output}")
+                      break
+              else:
+                  raise SystemExit("No Windows FFmpeg PE executable was found in the verified wheel")
+
+          if output.stat().st_size < 1_000_000:
+              raise SystemExit("Extracted FFmpeg executable is unexpectedly small")
+          PY
+
+          test -s ffmpeg.exe
+          python - <<'PY'
+          from pathlib import Path
+          data = Path("ffmpeg.exe").read_bytes()[:2]
+          if data != b"MZ":
+              raise SystemExit("ffmpeg.exe is not a Windows PE executable")
+          PY
 
       - name: Package portable ZIP
         shell: bash
