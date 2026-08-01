@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	_ "embed"
 	"encoding/binary"
 	"errors"
@@ -16,15 +15,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	appName            = "GBA Video Maker"
-	appVersion         = "0.8.0 Portable"
 	romLimit           = 32 * 1024 * 1024
 	romMinSize         = 1 * 1024 * 1024
 	metadataOffset     = 0x3F00
@@ -129,22 +128,21 @@ type ConvertResult struct {
 	OutputKind        string  `json:"outputKind"`
 }
 
-type EstimateResult struct {
-	RawBytes      int64
-	PaddedBytes   int64
-	Frames        int
-	DurationLimit float64
-}
-
 type ProgressFunc func(percent int, status string)
+
+var (
+	durationPattern   = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
+	dimensionsPattern = regexp.MustCompile(`(?:^|[^0-9])(\d{2,5})x(\d{2,5})(?:[^0-9]|$)`)
+	fpsPattern        = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s+fps`)
+	channelsPattern   = regexp.MustCompile(`\b(\d+)\.(\d+)\b`)
+)
 
 func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	output, _ := runCommandContext(ctx, ffmpegPath, "-hide_banner", "-i", path)
 	text := string(output)
-	durRE := regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
-	dm := durRE.FindStringSubmatch(text)
+	dm := durationPattern.FindStringSubmatch(text)
 	if dm == nil {
 		return MediaInfo{}, errors.New("could not read video duration")
 	}
@@ -165,7 +163,7 @@ func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 					audioChannels = 1
 				} else if strings.Contains(lower, "stereo") {
 					audioChannels = 2
-				} else if lm := regexp.MustCompile(`\b(\d+)\.(\d+)\b`).FindStringSubmatch(lower); lm != nil {
+				} else if lm := channelsPattern.FindStringSubmatch(lower); lm != nil {
 					a, _ := strconv.Atoi(lm[1])
 					b, _ := strconv.Atoi(lm[2])
 					audioChannels = a + b
@@ -176,14 +174,14 @@ func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 	if videoLine == "" {
 		return MediaInfo{}, errors.New("could not find a video stream")
 	}
-	dims := regexp.MustCompile(`(?:^|[^0-9])(\d{2,5})x(\d{2,5})(?:[^0-9]|$)`).FindStringSubmatch(videoLine)
+	dims := dimensionsPattern.FindStringSubmatch(videoLine)
 	if dims == nil {
 		return MediaInfo{}, errors.New("could not read video dimensions")
 	}
 	w, _ := strconv.Atoi(dims[1])
 	hg, _ := strconv.Atoi(dims[2])
 	fps := 0.0
-	if fm := regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s+fps`).FindStringSubmatch(videoLine); fm != nil {
+	if fm := fpsPattern.FindStringSubmatch(videoLine); fm != nil {
 		fps, _ = strconv.ParseFloat(fm[1], 64)
 	}
 	return MediaInfo{Duration: float64(h*3600+m*60) + s, Width: w, Height: hg, FPS: fps, AudioStreams: audioStreams, AudioChannels: audioChannels}, nil
@@ -220,86 +218,12 @@ func parseTime(value string) (float64, error) {
 	return result, nil
 }
 
-func formatTime(seconds float64) string {
-	if seconds < 0 {
-		seconds = 0
-	}
-	h := int(seconds / 3600)
-	m := int(math.Mod(seconds, 3600) / 60)
-	s := math.Mod(seconds, 60)
-	if h > 0 {
-		return fmt.Sprintf("%d:%02d:%05.2f", h, m, s)
-	}
-	return fmt.Sprintf("%d:%05.2f", m, s)
-}
-
 func nextPowerOfTwo(v int64) int64 {
 	p := int64(1 << 20)
 	for p < v {
 		p <<= 1
 	}
 	return p
-}
-
-func estimateROM(duration, speed float64, vblanks int, withAudio bool) (raw, padded int64, frames int) {
-	fps := gbaRefresh / float64(vblanks)
-	frames = int(math.Ceil((duration / speed) * fps))
-	if frames < 1 {
-		frames = 1
-	}
-	display := float64(frames*vblanks) / gbaRefresh
-	audio := int64(0)
-	if withAudio {
-		audio = int64(math.Ceil(display*audioRate/16.0) * 16)
-	}
-	seek := int64(0)
-	if withAudio {
-		seek = int64(frames * 4)
-	}
-	raw = assetOffset + clipDescriptorSize + 512 + int64(frames*frameBytes) + seek + audio
-	padded = nextPowerOfTwo(raw)
-	return
-}
-
-func estimateProject(durations []float64, opt ProjectOptions, infos []MediaInfo) EstimateResult {
-	var raw int64 = assetOffset + int64(len(durations)*clipDescriptorSize)
-	frames := 0
-	fps := gbaRefresh / float64(opt.VBlanks)
-	for i, d := range durations {
-		f := int(math.Ceil((d / opt.Speed) * fps))
-		if f < 1 {
-			f = 1
-		}
-		frames += f
-		display := float64(f*opt.VBlanks) / gbaRefresh
-		palettes := int64(1)
-		if opt.PaletteMode == "scene" {
-			palettes = int64((f + 59) / 60)
-		}
-		raw += palettes * 512
-		if palettes > 1 {
-			raw += int64(f * 2)
-		}
-		// Worst-case compression includes record headers and index table.
-		video := int64(f * frameBytes)
-		if opt.Compression == "delta" {
-			video += int64(f * 12)
-		}
-		raw += video
-		if opt.Compression == "delta" {
-			raw += int64(f * 4)
-		}
-		if i < len(infos) && opt.AudioMode != "none" && infos[i].AudioStreams > 0 {
-			raw += int64(f*4) + int64(math.Ceil(display*audioRate/16.0)*16)
-		}
-	}
-	padded := nextPowerOfTwo(raw)
-	bytesPerSecond := fps * frameBytes
-	if opt.AudioMode != "none" {
-		bytesPerSecond += audioRate + fps*4
-	}
-	limit := (float64(romLimit-assetOffset) / bytesPerSecond) * opt.Speed
-	return EstimateResult{RawBytes: raw, PaddedBytes: padded, Frames: frames, DurationLimit: limit}
 }
 
 func makeVideoFilter(fitMode string, speed, fps float64) string {
@@ -540,21 +464,45 @@ func quantizePalette(hist []uint64) []rgb5 {
 
 func paletteLookup(palette []rgb5) []byte {
 	lookup := make([]byte, 32768)
-	for idx := 0; idx < 32768; idx++ {
-		r, g, b := idx&31, (idx>>5)&31, (idx>>10)&31
-		best, dist := 0, math.MaxInt
-		for j, p := range palette[:videoPaletteColors] {
-			dr, dg, db := r-p.r, g-p.g, b-p.b
-			d := dr*dr + dg*dg + db*db
-			if d < dist {
-				best, dist = j, d
-				if d == 0 {
-					break
-				}
-			}
-		}
-		lookup[idx] = byte(best)
+	workers := runtime.GOMAXPROCS(0)
+	if workers > 16 {
+		workers = 16
 	}
+	if workers < 1 {
+		workers = 1
+	}
+	chunk := (len(lookup) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > len(lookup) {
+			end = len(lookup)
+		}
+		if start >= end {
+			break
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for idx := start; idx < end; idx++ {
+				r, g, b := idx&31, (idx>>5)&31, (idx>>10)&31
+				best, dist := 0, math.MaxInt
+				for j, p := range palette[:videoPaletteColors] {
+					dr, dg, db := r-p.r, g-p.g, b-p.b
+					d := dr*dr + dg*dg + db*db
+					if d < dist {
+						best, dist = j, d
+						if d == 0 {
+							break
+						}
+					}
+				}
+				lookup[idx] = byte(best)
+			}
+		}(start, end)
+	}
+	wg.Wait()
 	return lookup
 }
 func clamp(v, lo, hi int) int {
@@ -567,14 +515,12 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func quantizeFrame(src, dst []byte, palette []rgb5, lookup []byte, mode string) {
+func quantizeFrame(src, dst []byte, palette []rgb5, lookup []byte, mode string, cur, next []int) {
 	if mode == "error" {
-		cur := make([]int, (frameWidth+2)*3)
-		next := make([]int, (frameWidth+2)*3)
+		clear(cur)
+		clear(next)
 		for y := 0; y < frameHeight; y++ {
-			for i := range next {
-				next[i] = 0
-			}
+			clear(next)
 			for x := 0; x < frameWidth; x++ {
 				i := (y*frameWidth + x) * 3
 				e := (x + 1) * 3
@@ -590,12 +536,18 @@ func quantizeFrame(src, dst []byte, palette []rgb5, lookup []byte, mode string) 
 				er := r - p.r*255/31
 				eg := g - p.g*255/31
 				eb := b - p.b*255/31
-				for c, v := range []int{er, eg, eb} {
-					cur[e+3+c] += v * 7
-					next[e-3+c] += v * 3
-					next[e+c] += v * 5
-					next[e+3+c] += v
-				}
+				cur[e+3] += er * 7
+				cur[e+4] += eg * 7
+				cur[e+5] += eb * 7
+				next[e-3] += er * 3
+				next[e-2] += eg * 3
+				next[e-1] += eb * 3
+				next[e] += er * 5
+				next[e+1] += eg * 5
+				next[e+2] += eb * 5
+				next[e+3] += er
+				next[e+4] += eg
+				next[e+5] += eb
 			}
 			cur, next = next, cur
 		}
@@ -629,21 +581,25 @@ func detectSceneStarts(framesPath string, frameCount int, rgbFrameBytes int64) (
 	}
 	defer f.Close()
 	buf := make([]byte, rgbFrameBytes)
-	var previous []byte
+	sigLen := ((frameHeight-1-4)/8 + 1) * ((frameWidth-1-4)/8 + 1) * 3
+	sig := make([]byte, sigLen)
+	previous := make([]byte, sigLen)
+	havePrevious := false
 	starts := []int{0}
 	lastStart := 0
 	for frame := 0; frame < frameCount; frame++ {
 		if _, err := io.ReadFull(f, buf); err != nil {
 			return nil, err
 		}
-		sig := make([]byte, 0, 15*10*3)
+		pos := 0
 		for y := 4; y < frameHeight; y += 8 {
 			for x := 4; x < frameWidth; x += 8 {
 				i := (y*frameWidth + x) * 3
-				sig = append(sig, buf[i], buf[i+1], buf[i+2])
+				sig[pos], sig[pos+1], sig[pos+2] = buf[i], buf[i+1], buf[i+2]
+				pos += 3
 			}
 		}
-		if previous != nil {
+		if havePrevious {
 			diff := 0
 			for i := range sig {
 				d := int(sig[i]) - int(previous[i])
@@ -653,14 +609,13 @@ func detectSceneStarts(framesPath string, frameCount int, rgbFrameBytes int64) (
 				diff += d
 			}
 			avg := diff / len(sig)
-			// A strong visual cut starts a new palette scene. Long scenes are also
-			// split periodically so gradual lighting changes can receive a fresh palette.
 			if (frame-lastStart >= 10 && avg >= 42) || frame-lastStart >= 120 {
 				starts = append(starts, frame)
 				lastStart = frame
 			}
 		}
-		previous = append(previous[:0], sig...)
+		copy(previous, sig)
+		havePrevious = true
 	}
 	return starts, nil
 }
@@ -740,34 +695,24 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 		lookups[scene] = paletteLookup(palettes[scene])
 	}
 
-	pf, err := os.Create(palettePath)
-	if err != nil {
-		return 0, 0, err
-	}
+	paletteBytes := make([]byte, sceneCount*256*2)
+	palettePos := 0
 	for _, pal := range palettes {
-		for _, p := range pal {
-			if err := binary.Write(pf, binary.LittleEndian, uint16(p.r|(p.g<<5)|(p.b<<10))); err != nil {
-				pf.Close()
-				return 0, 0, err
-			}
+		for _, colour := range pal {
+			binary.LittleEndian.PutUint16(paletteBytes[palettePos:palettePos+2], uint16(colour.r|(colour.g<<5)|(colour.b<<10)))
+			palettePos += 2
 		}
 	}
-	if err := pf.Close(); err != nil {
+	if err := os.WriteFile(palettePath, paletteBytes, 0644); err != nil {
 		return 0, 0, err
 	}
 
 	if sceneCount > 1 {
-		pi, err := os.Create(paletteIndexPath)
-		if err != nil {
-			return 0, 0, err
+		paletteIndexes := make([]byte, frameCount*2)
+		for frame, scene := range frameScene {
+			binary.LittleEndian.PutUint16(paletteIndexes[frame*2:frame*2+2], uint16(scene))
 		}
-		for frame := 0; frame < frameCount; frame++ {
-			if err := binary.Write(pi, binary.LittleEndian, uint16(frameScene[frame])); err != nil {
-				pi.Close()
-				return 0, 0, err
-			}
-		}
-		if err := pi.Close(); err != nil {
+		if err := os.WriteFile(paletteIndexPath, paletteIndexes, 0644); err != nil {
 			return 0, 0, err
 		}
 	} else if err := os.WriteFile(paletteIndexPath, nil, 0644); err != nil {
@@ -784,18 +729,55 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 	defer out.Close()
 	reader := bufio.NewReaderSize(f, int(rgbFrameBytes)*2)
 	writer := bufio.NewWriterSize(out, frameBytes*64)
-	indexBuf := make([]byte, frameBytes)
-	for frame := 0; frame < frameCount; frame++ {
-		if _, err := io.ReadFull(reader, frameBuf); err != nil {
-			return 0, 0, err
+	workers := runtime.GOMAXPROCS(0)
+	if workers > 16 {
+		workers = 16
+	}
+	if workers > frameCount {
+		workers = frameCount
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	rgbBuffers := make([][]byte, workers)
+	indexBuffers := make([][]byte, workers)
+	errorCur := make([][]int, workers)
+	errorNext := make([][]int, workers)
+	for slot := 0; slot < workers; slot++ {
+		rgbBuffers[slot] = make([]byte, rgbFrameBytes)
+		indexBuffers[slot] = make([]byte, frameBytes)
+		errorCur[slot] = make([]int, (frameWidth+2)*3)
+		errorNext[slot] = make([]int, (frameWidth+2)*3)
+	}
+	for base := 0; base < frameCount; base += workers {
+		count := workers
+		if remaining := frameCount - base; remaining < count {
+			count = remaining
 		}
-		scene := frameScene[frame]
-		quantizeFrame(frameBuf, indexBuf, palettes[scene], lookups[scene], ditherMode)
-		if _, err := writer.Write(indexBuf); err != nil {
-			return 0, 0, err
+		for slot := 0; slot < count; slot++ {
+			if _, err := io.ReadFull(reader, rgbBuffers[slot]); err != nil {
+				return 0, 0, err
+			}
 		}
-		if frame%20 == 0 || frame+1 == frameCount {
-			progress(40+int(25*float64(frame+1)/float64(frameCount)), fmt.Sprintf("Converting frame %d of %d…", frame+1, frameCount))
+		var quantizeWG sync.WaitGroup
+		quantizeWG.Add(count)
+		for slot := 0; slot < count; slot++ {
+			frame := base + slot
+			scene := frameScene[frame]
+			go func(slot, scene int) {
+				defer quantizeWG.Done()
+				quantizeFrame(rgbBuffers[slot], indexBuffers[slot], palettes[scene], lookups[scene], ditherMode, errorCur[slot], errorNext[slot])
+			}(slot, scene)
+		}
+		quantizeWG.Wait()
+		for slot := 0; slot < count; slot++ {
+			frame := base + slot
+			if _, err := writer.Write(indexBuffers[slot]); err != nil {
+				return 0, 0, err
+			}
+			if frame%20 == 0 || frame+1 == frameCount {
+				progress(40+int(25*float64(frame+1)/float64(frameCount)), fmt.Sprintf("Converting frame %d of %d…", frame+1, frameCount))
+			}
 		}
 	}
 	if err := writer.Flush(); err != nil {
@@ -805,29 +787,33 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 }
 
 func writeRecord(w io.Writer, typ uint32, payload []byte) (int, error) {
-	var h [8]byte
-	binary.LittleEndian.PutUint32(h[0:4], typ)
-	binary.LittleEndian.PutUint32(h[4:8], uint32(len(payload)))
-	n, err := w.Write(h[:])
-	if err != nil {
-		return n, err
+	var header [8]byte
+	binary.LittleEndian.PutUint32(header[0:4], typ)
+	binary.LittleEndian.PutUint32(header[4:8], uint32(len(payload)))
+	if _, err := w.Write(header[:]); err != nil {
+		return 0, err
 	}
-	m, err := w.Write(payload)
-	n += m
-	if err != nil {
-		return n, err
+	if _, err := w.Write(payload); err != nil {
+		return 8, err
 	}
-	for n%4 != 0 {
-		if _, err := w.Write([]byte{0}); err != nil {
-			return n, err
+	total := 8 + len(payload)
+	padding := (-total) & 3
+	if padding != 0 {
+		var zeros [3]byte
+		if _, err := w.Write(zeros[:padding]); err != nil {
+			return total, err
 		}
-		n++
+		total += padding
 	}
-	return n, nil
+	return total, nil
+}
+
+func appendUint16LE(dst []byte, value int) []byte {
+	return append(dst, byte(value), byte(value>>8))
 }
 
 func encodeDelta(prev, curr []byte) []byte {
-	var out bytes.Buffer
+	out := make([]byte, 0, len(curr)/2)
 	pos := 0
 	for pos < len(curr) {
 		skip := 0
@@ -836,8 +822,8 @@ func encodeDelta(prev, curr []byte) []byte {
 		}
 		pos += skip
 		if pos >= len(curr) {
-			binary.Write(&out, binary.LittleEndian, uint16(skip))
-			binary.Write(&out, binary.LittleEndian, uint16(0))
+			out = appendUint16LE(out, skip)
+			out = appendUint16LE(out, 0)
 			break
 		}
 		start := pos
@@ -855,11 +841,11 @@ func encodeDelta(prev, curr []byte) []byte {
 			}
 		}
 		run := pos - start
-		binary.Write(&out, binary.LittleEndian, uint16(skip))
-		binary.Write(&out, binary.LittleEndian, uint16(run))
-		out.Write(curr[start:pos])
+		out = appendUint16LE(out, skip)
+		out = appendUint16LE(out, run)
+		out = append(out, curr[start:pos]...)
 	}
-	return out.Bytes()
+	return out
 }
 
 func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval int) (int64, int64, error) {
@@ -895,6 +881,7 @@ func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval i
 		return 0, 0, err
 	}
 	defer idxFile.Close()
+	idxWriter := bufio.NewWriterSize(idxFile, 64*1024)
 	frames := int(rawSize / frameBytes)
 	prev := make([]byte, frameBytes)
 	cur := make([]byte, frameBytes)
@@ -903,7 +890,9 @@ func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval i
 		if _, err := io.ReadFull(in, cur); err != nil {
 			return 0, 0, err
 		}
-		if err := binary.Write(idxFile, binary.LittleEndian, offset); err != nil {
+		var indexEntry [4]byte
+		binary.LittleEndian.PutUint32(indexEntry[:], offset)
+		if _, err := idxWriter.Write(indexEntry[:]); err != nil {
 			return 0, 0, err
 		}
 		typ := uint32(0)
@@ -921,6 +910,9 @@ func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval i
 		}
 		offset += uint32(n)
 		prev, cur = cur, prev
+	}
+	if err := idxWriter.Flush(); err != nil {
+		return 0, 0, err
 	}
 	return rawSize, int64(offset), nil
 }
@@ -1379,16 +1371,4 @@ func generateAudioPreview(opt ProjectOptions, info MediaInfo, input, outPath str
 	return nil
 }
 
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
-}
 func commandExists(name string) string { p, _ := exec.LookPath(name); return p }

@@ -1,4 +1,4 @@
-const TOKEN = window.GBAVM_SESSION_TOKEN, BASE = '/' + TOKEN + '/api', $ = id => document.getElementById(id);
+const TOKEN = document.querySelector('meta[name="gbavm-session-token"]').content, BASE = '/' + TOKEN + '/api', $ = id => document.getElementById(id);
 let state = null, pollTimer = null, uploadBusy = false, selected = 0, previewMode = 'start', audioURL = '', lastPreviewKey = '', romTitleAuto = true;
 function headers(x = {}) { return Object.assign({ 'X-GBA-Token': TOKEN }, x); }
 function show(id) { ['welcome', 'loading', 'editor'].forEach(x => $(x).classList.toggle('hidden', x !== id)); $('topBar').classList.toggle('hidden', id !== 'editor'); }
@@ -169,7 +169,7 @@ function estimate() { if (!state?.videos?.length)
     if (v.audio !== 'none' && x.info.audioStreams)
         raw += f * 4 + Math.ceil((f * vb / 59.7275) * 16384 / 16) * 16;
 } let p = 1048576; while (p < raw)
-    p *= 2; let bps = fps * 9600 + (v.audio !== 'none' ? 16384 + fps * 4 : 0), limit = (33554432 - 16384) / bps * v.speed; $('estimate').innerHTML = (raw > 33554432 ? '<b style="color:#ff8d8d">Worst-case estimate exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (p / 1048576) + ' MiB</b>') + '<br>Worst-case data: ' + (raw / 1048576).toFixed(2) + ' MiB • ' + totalFrames + ' frames • ' + fps.toFixed(2) + ' fps<br>Approximate single-clip duration limit: ' + fmt(limit) + ' <span class="pill">delta compression may improve it</span>'; }
+    p *= 2; let bps = fps * 9600 + (v.audio !== 'none' ? 16384 + fps * 4 : 0), limit = (33554432 - 16384) / bps * v.speed; $('estimate').innerHTML = (raw > 33554432 ? '<b class="estimate-over">Worst-case estimate exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (p / 1048576) + ' MiB</b>') + '<br>Worst-case data: ' + (raw / 1048576).toFixed(2) + ' MiB • ' + totalFrames + ' frames • ' + fps.toFixed(2) + ' fps<br>Approximate single-clip duration limit: ' + fmt(limit) + ' <span class="pill">delta compression may improve it</span>'; }
 for (let id of ['start', 'end', 'speed', 'fps', 'fit', 'seekSeconds', 'paletteMode', 'ditherMode', 'compression', 'audio', 'volume', 'normalize', 'limiter'])
     $(id).addEventListener('input', e => { markCustom(e); estimate(); if (['start', 'end', 'fit'].includes(id))
         updatePreview(); });

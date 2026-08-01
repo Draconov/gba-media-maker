@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -39,9 +41,10 @@ type publicVideo struct {
 type appState struct {
 	mu sync.Mutex
 
-	token      string
-	sessionDir string
-	ffmpegPath string
+	token       string
+	sessionDir  string
+	ffmpegPath  string
+	allowedHost string
 
 	engineStatus   string
 	engineProgress int
@@ -584,6 +587,52 @@ func recovery(next http.Handler) http.Handler {
 	})
 }
 
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *appState) localRequestGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.allowedHost != "" && r.Host != s.allowedHost {
+			http.Error(w, "invalid local host", http.StatusForbidden)
+			return
+		}
+		if r.RemoteAddr != "" {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err == nil {
+				ip := net.ParseIP(host)
+				if ip == nil || !ip.IsLoopback() {
+					http.Error(w, "local access only", http.StatusForbidden)
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *appState) apiRequestGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.allowedHost != "" && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			provided := r.Header.Get("X-GBA-Token")
+			if len(provided) != len(s.token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
+				errorJSON(w, http.StatusForbidden, errors.New("invalid session token"))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *appState) routes(page []byte) http.Handler {
 	mux := http.NewServeMux()
 	prefix := "/" + s.token
@@ -821,15 +870,15 @@ func (s *appState) routes(page []byte) http.Handler {
 		}()
 	})
 	api.HandleFunc("/close", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204); go s.shutdownOnce.Do(s.shutdown) })
-	mux.Handle(prefix+"/api/", http.StripPrefix(prefix+"/api", api))
-	return recovery(mux)
+	mux.Handle(prefix+"/api/", http.StripPrefix(prefix+"/api", s.apiRequestGuard(api)))
+	return securityHeaders(recovery(s.localRequestGuard(mux)))
 }
 
 func renderPage(token string) ([]byte, error) {
 	if token == "" {
 		return nil, errors.New("session token is empty")
 	}
-	page := strings.Replace(appHTML, "__SESSION_TOKEN__", strconv.Quote(token), 1)
+	page := strings.Replace(appHTML, "__SESSION_TOKEN__", html.EscapeString(token), 1)
 	if page == appHTML {
 		return nil, errors.New("session token placeholder is missing")
 	}
@@ -856,6 +905,7 @@ func runWebApp(launch func(string) error) error {
 		return err
 	}
 	state := newAppState(token, sessionDir)
+	state.allowedHost = listener.Addr().String()
 	server := &http.Server{Handler: state.routes(page), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 5 * time.Minute}
 	shutdownCh := make(chan struct{})
 	state.shutdown = func() {

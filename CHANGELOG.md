@@ -67,6 +67,14 @@ All notable changes to this project are documented here.
 
 ### Changed
 
+- Audited the repository and removed unused converter helpers and constants
+- Added strict loopback host checks, anti-CSRF token checks for local POST requests, and browser security headers
+- Moved the session token from inline JavaScript into an escaped HTML meta element, allowing a strict script policy
+- Parallelized RGB555 palette lookup generation and reduced allocations in scene detection and error-diffusion dithering
+- Quantized independent video frames in parallel while preserving byte-for-byte ROM output
+- Optimized delta-frame encoding and binary index/palette writing without changing ROM output
+- Reduced the embedded browser icon from 69 KiB to 26 KiB without changing the Windows executable icon
+- Avoided duplicate GitHub Actions work by letting the Release workflow validate pushes to main while CI handles pull requests and other branches
 - Removed the runtime FFmpeg executable downloader; portable releases now bundle a pinned, verified FFmpeg binary.
 - Moved the browser UI from a large inline Go string into readable embedded files under `web/` to reduce heuristic antivirus false positives and improve auditability.
 - Automatic GitHub Actions builds now publish/update a normal stable release using the exact VERSION tag, without build-number suffixes or a prerelease badge.

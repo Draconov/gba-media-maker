@@ -38,6 +38,8 @@ func TestRunWebAppLifecycle(t *testing.T) {
 		t.Fatalf("unexpected page status=%d", resp.StatusCode)
 	}
 	req, _ := http.NewRequest(http.MethodPost, strings.TrimSuffix(url, "/")+"/api/close", nil)
+	parts := strings.Split(strings.TrimSuffix(url, "/"), "/")
+	req.Header.Set("X-GBA-Token", parts[len(parts)-1])
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +60,7 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(page, []byte(`window.GBAVM_SESSION_TOKEN="abc123"`)) {
+	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
 	if !bytes.Contains(page, []byte("GBA Video Maker 0.8.0")) {
@@ -75,8 +77,57 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(appCSS, []byte("prefers-color-scheme:dark")) {
 		t.Fatal("system dark-mode stylesheet missing")
 	}
-	if !bytes.Contains(appJS, []byte("GBAVM_SESSION_TOKEN")) {
+	if !bytes.Contains(appJS, []byte("gbavm-session-token")) {
 		t.Fatal("external application script missing")
+	}
+}
+
+func TestLocalServerSecurityGuards(t *testing.T) {
+	state := &appState{token: "securetoken", allowedHost: "127.0.0.1:45678", lastHeartbeat: time.Now(), shutdown: func() {}}
+	page, err := renderPage(state.token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := state.routes(page)
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:45678/securetoken/", nil)
+	req.Host = state.allowedHost
+	req.RemoteAddr = "127.0.0.1:54321"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid local request returned %d", rec.Code)
+	}
+	if rec.Header().Get("Content-Security-Policy") == "" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("security headers missing")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://evil.example/securetoken/", nil)
+	req.Host = "evil.example"
+	req.RemoteAddr = "127.0.0.1:54321"
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("bad host returned %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:45678/securetoken/api/heartbeat", nil)
+	req.Host = state.allowedHost
+	req.RemoteAddr = "127.0.0.1:54321"
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing token returned %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:45678/securetoken/api/heartbeat", nil)
+	req.Host = state.allowedHost
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Header.Set("X-GBA-Token", state.token)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("valid token returned %d", rec.Code)
 	}
 }
 
