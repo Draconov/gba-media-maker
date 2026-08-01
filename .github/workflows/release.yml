@@ -111,6 +111,21 @@ jobs:
           -exe "GBA Video Maker.exe"
           -ico "assets/app_icon.ico"
 
+      - name: Fetch pinned FFmpeg for the portable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _vendor _vendor/unpacked
+          python -m pip download --only-binary=:all: --no-deps --platform win_amd64 --implementation py --python-version 3 --abi none --dest _vendor shaka-streamer-binaries==1.5.1
+
+          wheel="$(find _vendor -maxdepth 1 -name 'shaka_streamer_binaries-1.5.1-*-win_amd64.whl' -print -quit)"
+          test -n "$wheel"
+          echo "240b5a649527f1ddd8b95e7856a0e830c5da02664be5d45032654d274ead7a8c  $wheel" | sha256sum -c -
+          python -m zipfile -e "$wheel" _vendor/unpacked
+          ffmpeg="$(find _vendor/unpacked -type f -iname 'ffmpeg.exe' -print -quit)"
+          test -n "$ffmpeg"
+          cp "$ffmpeg" ffmpeg.exe
+
       - name: Package portable ZIP
         shell: bash
         env:
@@ -119,7 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir "$FOLDER"
-          cp "GBA Video Maker.exe" README.md LICENSE THIRD_PARTY_NOTICES.md "$FOLDER/"
+          cp "GBA Video Maker.exe" ffmpeg.exe README.md LICENSE THIRD_PARTY_NOTICES.md "$FOLDER/"
           zip -9 -r "$ZIP_FILE" "$FOLDER"
           sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
 

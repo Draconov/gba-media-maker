@@ -12,7 +12,13 @@ $zip = Join-Path $root "dist\GBA_Video_Maker_v$Version_Portable.zip"
 
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $stage -ItemType Directory -Force | Out-Null
+$ffmpeg = Join-Path $root "ffmpeg.exe"
+if (-not (Test-Path $ffmpeg)) {
+    throw "ffmpeg.exe is required beside the project before packaging. The app no longer downloads executables at runtime."
+}
+
 Copy-Item (Join-Path $root "GBA Video Maker.exe") $stage
+Copy-Item $ffmpeg $stage
 Copy-Item (Join-Path $root "README.md") $stage
 Copy-Item (Join-Path $root "LICENSE") $stage
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $stage

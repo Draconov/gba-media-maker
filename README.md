@@ -10,9 +10,9 @@ Download the portable ZIP from the repository's **Releases** page, extract it, a
 
 No installer, Python runtime, administrator access, or devkitARM setup is required. Microsoft Edge or Google Chrome is used for the local app window, with the default browser as a fallback.
 
-On first use, the app can download a pinned Windows x64 FFmpeg executable and verify its SHA-256 checksum. You can instead place your own `ffmpeg.exe` beside the app.
+Official portable releases include a pinned Windows x64 `ffmpeg.exe` beside the app. The application does **not** download, install, or update executables at runtime. Source builds can use `ffmpeg.exe` beside the app or an `ffmpeg` available through `PATH`.
 
-> Windows may warn about an unsigned executable. Build it from source when you prefer not to run an unsigned download.
+> Windows may still warn about an unsigned executable. Building from source or code-signing release binaries are the reliable ways to establish publisher trust.
 
 ## Conversion features
 
@@ -110,6 +110,10 @@ Dithering choices:
 The GUI is served by the executable on a random loopback address under `127.0.0.1`. A random session token is included in API paths. Video processing happens locally through FFmpeg; selected videos are not uploaded to a remote service.
 
 Temporary files are stored in the operating system's temporary directory and removed when the session closes normally.
+
+## Antivirus-friendly source layout
+
+The browser interface is kept in readable files under `web/` and embedded at build time. The Go source no longer contains a compressed one-line browser script or any code that downloads an executable and starts it. Portable releases instead place a verified `ffmpeg.exe` beside the application.
 
 ## Build from source
 

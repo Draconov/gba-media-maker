@@ -58,19 +58,25 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(page, []byte(`const TOKEN="abc123"`)) {
+	if !bytes.Contains(page, []byte(`window.GBAVM_SESSION_TOKEN="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
 	if !bytes.Contains(page, []byte("GBA Video Maker 0.8.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "Smooth — 14.93 fps", "End (blank = full video)", "prefers-color-scheme:dark"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
 	}
 	if bytes.Contains(page, []byte("🎞️")) || bytes.Contains(page, []byte("class=\"brand\"")) {
 		t.Fatal("removed welcome branding returned")
+	}
+	if !bytes.Contains(appCSS, []byte("prefers-color-scheme:dark")) {
+		t.Fatal("system dark-mode stylesheet missing")
+	}
+	if !bytes.Contains(appJS, []byte("GBAVM_SESSION_TOKEN")) {
+		t.Fatal("external application script missing")
 	}
 }
 
@@ -80,18 +86,6 @@ func TestNormalizeTitle(t *testing.T) {
 		if got := normalizeTitle(in); got != want {
 			t.Fatalf("%q => %q want %q", in, got, want)
 		}
-	}
-}
-
-func TestVerifySHA256(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "x")
-	os.WriteFile(p, []byte("abc"), 0644)
-	const sum = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-	if err := verifySHA256(p, sum); err != nil {
-		t.Fatal(err)
-	}
-	if verifySHA256(p, strings.Repeat("0", 64)) == nil {
-		t.Fatal("bad hash accepted")
 	}
 }
 
@@ -222,6 +216,17 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || len(icon) < 1000 {
 		t.Fatalf("bad app icon response status=%d bytes=%d", resp.StatusCode, len(icon))
+	}
+	for _, asset := range []string{"style.css", "app.js"} {
+		resp, err = http.Get(server.URL + "/" + state.token + "/" + asset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || len(body) < 100 {
+			t.Fatalf("bad static asset %s status=%d bytes=%d", asset, resp.StatusCode, len(body))
+		}
 	}
 	resp, err = http.Get(base + "/preview?index=0&time=1.5&fit=crop")
 	if err != nil {

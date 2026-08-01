@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,11 +19,7 @@ import (
 	"time"
 )
 
-const (
-	ffmpegDownloadURL = "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffmpeg-win-x64.exe"
-	ffmpegSHA256      = "4044b3924c977ad31229d504c5d5b8685f9553124fbaff6e9c99048b42830341"
-	maxUploadBytes    = int64(8 * 1024 * 1024 * 1024)
-)
+const maxUploadBytes = int64(8 * 1024 * 1024 * 1024)
 
 type uploadedVideo struct {
 	Path   string
@@ -135,22 +130,25 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func locatePortableFFmpeg() string {
-	for _, p := range []string{filepath.Join(appDirectory(), "ffmpeg.exe"), filepath.Join(appDirectory(), "tools", "ffmpeg.exe")} {
-		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Size() > 1_000_000 {
-			return p
+func locateFFmpeg() string {
+	for _, candidate := range []string{
+		filepath.Join(appDirectory(), "ffmpeg.exe"),
+		filepath.Join(appDirectory(), "tools", "ffmpeg.exe"),
+	} {
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() && st.Size() > 1_000_000 {
+			return candidate
 		}
 	}
-	return ""
+	return commandExists("ffmpeg")
 }
 
 func newAppState(token, sessionDir string) *appState {
 	s := &appState{token: token, sessionDir: sessionDir, lastHeartbeat: time.Now(), inspectStatus: "idle"}
-	if ff := locatePortableFFmpeg(); ff != "" {
+	if ff := locateFFmpeg(); ff != "" {
 		s.ffmpegPath, s.engineStatus, s.engineProgress, s.engineMessage = ff, "ready", 100, "Conversion engine ready"
 	} else {
-		s.engineStatus = "idle"
-		s.engineMessage = "The portable conversion engine will be prepared when videos are selected."
+		s.engineStatus = "missing"
+		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Video Maker.exe, then click Check again."
 	}
 	return s
 }
@@ -189,120 +187,26 @@ func (s *appState) snapshot() publicState {
 
 func (s *appState) touch() { s.mu.Lock(); s.lastHeartbeat = time.Now(); s.mu.Unlock() }
 
-func downloadFileWithProgress(url, path string, progress func(done, total int64)) error {
-	client := &http.Client{Timeout: 30 * time.Minute}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "GBA-Video-Maker/0.8.0")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("download returned %s", resp.Status)
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	buf := make([]byte, 256*1024)
-	var done int64
-	last := time.Now()
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			if _, err := f.Write(buf[:n]); err != nil {
-				return err
-			}
-			done += int64(n)
-			if time.Since(last) > 150*time.Millisecond {
-				progress(done, resp.ContentLength)
-				last = time.Now()
-			}
-		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			return readErr
-		}
-	}
-	progress(done, resp.ContentLength)
-	return f.Sync()
-}
-
-func verifySHA256(path, expected string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
-	}
-	if !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), expected) {
-		return errors.New("safety check failed (SHA-256 mismatch)")
-	}
-	return nil
-}
-
-func (s *appState) startEngineDownload() {
+func (s *appState) refreshEngine() {
+	ff := locateFFmpeg()
 	s.mu.Lock()
-	if s.engineStatus == "ready" || s.engineStatus == "downloading" {
+	if ff == "" {
+		s.ffmpegPath = ""
+		s.engineStatus = "missing"
+		s.engineProgress = 0
+		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Video Maker.exe, then click Check again."
 		s.mu.Unlock()
 		return
 	}
-	s.engineStatus, s.engineProgress, s.engineMessage, s.ffmpegPath = "downloading", 0, "Preparing the portable conversion engine…", "__downloading__"
+	s.ffmpegPath = ff
+	s.engineStatus = "ready"
+	s.engineProgress = 100
+	s.engineMessage = "Conversion engine ready"
+	pending := len(s.videos) > 0 && s.inspectStatus != "ready"
 	s.mu.Unlock()
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logDiagnostic("engine download panic", r)
-				s.mu.Lock()
-				s.engineStatus, s.engineMessage, s.ffmpegPath = "error", "Could not prepare FFmpeg. Click Retry.", ""
-				s.mu.Unlock()
-			}
-		}()
-		target, temp := filepath.Join(appDirectory(), "ffmpeg.exe"), filepath.Join(appDirectory(), "ffmpeg.exe.download")
-		_ = os.Remove(temp)
-		err := downloadFileWithProgress(ffmpegDownloadURL, temp, func(done, total int64) {
-			p := 0
-			if total > 0 {
-				p = int(done * 100 / total)
-			}
-			if p > 99 {
-				p = 99
-			}
-			s.mu.Lock()
-			s.engineProgress, s.engineMessage = p, fmt.Sprintf("Preparing conversion engine… %d%%", p)
-			s.mu.Unlock()
-		})
-		if err == nil {
-			err = verifySHA256(temp, ffmpegSHA256)
-		}
-		if err == nil {
-			err = os.Rename(temp, target)
-		}
-		if err != nil {
-			_ = os.Remove(temp)
-			s.mu.Lock()
-			s.engineStatus, s.engineMessage, s.ffmpegPath = "error", "Engine download failed: "+err.Error(), ""
-			s.mu.Unlock()
-			return
-		}
-		s.mu.Lock()
-		s.ffmpegPath, s.engineStatus, s.engineProgress, s.engineMessage = target, "ready", 100, "Conversion engine ready"
-		pending := len(s.videos) > 0
-		s.mu.Unlock()
-		if pending {
-			s.startInspection()
-		}
-	}()
+	if pending {
+		s.startInspection()
+	}
 }
 
 func sanitizeFilename(name string) string {
@@ -417,7 +321,7 @@ func (s *appState) addUploaded(videos []uploadedVideo, appendMode bool) {
 	if s.engineStatus == "ready" {
 		s.startInspection()
 	} else {
-		s.startEngineDownload()
+		s.refreshEngine()
 	}
 }
 
@@ -697,6 +601,16 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = w.Write(appIconPNG)
 	})
+	mux.HandleFunc(prefix+"/style.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(appCSS)
+	})
+	mux.HandleFunc(prefix+"/app.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(appJS)
+	})
 	api := http.NewServeMux()
 	api.HandleFunc("/state", func(w http.ResponseWriter, r *http.Request) { s.touch(); jsonResponse(w, 200, s.snapshot()) })
 	api.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) { s.touch(); w.WriteHeader(204) })
@@ -705,7 +619,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			w.WriteHeader(405)
 			return
 		}
-		s.startEngineDownload()
+		s.refreshEngine()
 		jsonResponse(w, 202, map[string]bool{"ok": true})
 	})
 	api.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
@@ -915,8 +829,8 @@ func renderPage(token string) ([]byte, error) {
 	if token == "" {
 		return nil, errors.New("session token is empty")
 	}
-	page := strings.Replace(indexHTML, "__SESSION_TOKEN__", strconv.Quote(token), 1)
-	if page == indexHTML {
+	page := strings.Replace(appHTML, "__SESSION_TOKEN__", strconv.Quote(token), 1)
+	if page == appHTML {
 		return nil, errors.New("session token placeholder is missing")
 	}
 	return []byte(page), nil
@@ -980,48 +894,3 @@ func runWebApp(launch func(string) error) error {
 		}
 	}
 }
-
-const indexHTML = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c0f14"><meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f7fb"><link rel="icon" type="image/png" href="./icon.png"><title>GBA Video Maker 0.8.0</title>
-<style>
-:root{color-scheme:light dark;--bg:#f4f7fb;--body-top:#ffffff;--panel:#ffffff;--panel2:#eef3f8;--line:#c9d4e1;--text:#17202b;--muted:#5c6b7a;--accent:#d8bd00;--danger:#c33c4d;--green:#24874a;--button:#e8eef5;--button-line:#b8c5d4;--input:#ffffff;--label:#334252;--bar-bg:#dbe3ec;--active:#dbe7f5;--pill:#dce6f1;--pill-text:#34485c;--drag:#fff9cf;--shadow:#23364a26;--error-bg:#fff0f1;--error-line:#e1a7ae;--error-text:#7b1f2b}
-@media(prefers-color-scheme:dark){:root{--bg:#0c0f14;--body-top:#1a2230;--panel:#151a22;--panel2:#1b222d;--line:#2a3442;--text:#eef3f8;--muted:#9ba8b7;--accent:#f5d90a;--danger:#ff6c6c;--green:#62d38a;--button:#222b37;--button-line:#3b4758;--input:#10151c;--label:#c5cfdb;--bar-bg:#252e3b;--active:#283344;--pill:#263142;--pill-text:#c9d5e2;--drag:#1c2230;--shadow:#0008;--error-bg:#401f25;--error-line:#73333d;--error-text:#ffd1d1}}
-*{box-sizing:border-box}html,body{min-height:100%;height:100%}body{margin:0;background:radial-gradient(circle at top,var(--body-top),var(--bg) 55%);color:var(--text);font:14px/1.35 system-ui,Segoe UI,sans-serif}.hidden{display:none!important}.shell{width:100%;min-height:100vh;padding:22px;display:flex;flex-direction:column}.top{width:min(1180px,100%);margin:0 auto 16px;display:flex;align-items:center;justify-content:flex-end}.card{background:color-mix(in srgb,var(--panel) 96%,transparent);border:1px solid var(--line);border-radius:15px;box-shadow:0 18px 60px var(--shadow)}.welcome{width:min(1180px,100%);flex:1;min-height:260px;margin:auto;display:grid;place-items:center;text-align:center;padding:40px;cursor:pointer;border:2px dashed var(--button-line)}.welcome.drag{border-color:var(--accent);background:var(--drag)}.welcome h1{font-size:30px;margin:8px}.welcome p{color:var(--muted)}.btn{border:1px solid var(--button-line);background:var(--button);color:var(--text);border-radius:9px;padding:10px 15px;font-weight:700;cursor:pointer}.btn:hover{filter:brightness(1.08)}.btn.primary{background:var(--accent);color:#111;border-color:var(--accent)}.btn:disabled{opacity:.5;cursor:not-allowed}.loading{width:min(1180px,100%);margin:auto;padding:50px;text-align:center}.bar{height:10px;border-radius:9px;background:var(--bar-bg);overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--accent);transition:.2s}.editor{width:min(1180px,100%);margin:0 auto;display:grid;grid-template-columns:390px 1fr;gap:16px}.left,.right{padding:16px}.preview{aspect-ratio:3/2;background:#000;border:1px solid var(--line);border-radius:10px;display:grid;place-items:center;overflow:hidden}.preview img{width:100%;height:100%;image-rendering:pixelated;object-fit:contain}.preview img:not([src]){display:none}.preview-controls{display:flex;gap:8px;margin-top:10px}.clips{margin-top:14px;border:1px solid var(--line);border-radius:10px;max-height:190px;overflow:auto}.clip{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border-bottom:1px solid var(--line);cursor:pointer}.clip:last-child{border:0}.clip.active{background:var(--active)}.clip small{display:block;color:var(--muted)}.clip-info{min-width:0;flex:1}.clip-info b,.clip-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.clip-remove{flex:0 0 auto;width:24px;height:24px;border-radius:7px;border:1px solid color-mix(in srgb,#ff5a5a 70%,var(--button-line));background:color-mix(in srgb,#ff4b4b 18%,transparent);color:#ff6b6b;font-weight:900;cursor:pointer;line-height:1;padding:0}.clip-remove:hover{background:color-mix(in srgb,#ff4b4b 30%,transparent);color:#fff}.section{border:1px solid var(--line);background:var(--panel2);border-radius:11px;padding:13px;margin-bottom:11px}.section h3{font-size:14px;margin:0 0 10px;color:var(--accent)}.fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.field{display:flex;flex-direction:column;gap:5px}.field.full{grid-column:1/-1}.field.two{grid-column:span 2}label{color:var(--label);font-size:12px;font-weight:650}input,select{width:100%;background:var(--input);color:var(--text);border:1px solid var(--button-line);border-radius:7px;padding:8px}input[type=checkbox]{width:auto;accent-color:var(--accent)}.check{display:flex;align-items:center;gap:8px;padding-top:22px}.tiny{font-size:12px;color:var(--muted);margin:8px 0 0}.bottom{display:flex;align-items:center;gap:12px;justify-content:space-between}.estimate{color:var(--text);line-height:1.5}.progress-wrap{margin-top:14px}.status{display:flex;justify-content:space-between;margin-bottom:6px}.error{color:var(--error-text);background:var(--error-bg);border:1px solid var(--error-line);padding:10px;border-radius:8px;margin-top:10px}.done{margin-top:12px}.audio-row{display:flex;gap:8px;align-items:center}.audio-row audio{height:34px;flex:1}.pill{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--pill);color:var(--pill-text);font-size:11px}@media(max-width:900px){.editor{grid-template-columns:1fr}.fields{grid-template-columns:1fr 1fr}}
-</style></head><body><div class="shell"><div id="topBar" class="top hidden"><button id="resetTop" class="btn">Start over</button></div>
-<input id="picker" type="file" accept="video/*,.mkv,.webm,.avi,.mov,.mp4" multiple class="hidden">
-<section id="welcome" class="card welcome" tabindex="0"><div><h1>Drag and drop videos here</h1><p>Choose one video, several videos for one combined ROM, or a batch ZIP.</p><button class="btn primary">Choose videos</button></div></section>
-<section id="loading" class="card loading hidden"><h2 id="loadingTitle">Opening videos…</h2><p id="loadingText">Reading video information.</p><div class="bar"><i id="loadingFill"></i></div><div id="engineError" class="error hidden"></div><button id="retryEngine" class="btn hidden">Retry engine download</button></section>
-<section id="editor" class="editor hidden"><div class="card left"><div class="preview"><img id="previewImage" alt=""></div><div class="preview-controls"><button id="previewStart" class="btn">Start frame</button><button id="previewEnd" class="btn">End frame</button><button id="addVideos" class="btn">Add videos</button></div><div id="clips" class="clips"></div><p id="clipInfo" class="tiny"></p></div>
-<div class="card right"><section class="section"><h3>Quality preset</h3><div class="fields"><div class="field full"><select id="preset"><option value="best">Best quality</option><option value="balanced" selected>Balanced</option><option value="long">Long video</option><option value="small">Smallest ROM</option><option value="custom">Custom</option></select></div></div></section>
-<section class="section"><h3>Video</h3><div class="fields"><div class="field"><label>Start</label><input id="start" value="0:00"></div><div class="field"><label>End (blank = full video)</label><input id="end"></div><div class="field"><label>Speed</label><input id="speed" type="number" min="0.5" max="3" step="0.05" value="1"></div><div class="field"><label>Frame rate</label><select id="fps"><option value="smooth">Smooth — 14.93 fps</option><option value="balanced" selected>Balanced — 11.95 fps</option><option value="classic">Classic — 9.95 fps</option><option value="compact">Compact — 7.47 fps</option></select></div><div class="field"><label>Screen framing</label><select id="fit"><option value="fit">Fit with bars</option><option value="crop" selected>Crop to fill</option><option value="stretch">Stretch</option></select></div><div class="field"><label>Seek step</label><select id="seekSeconds"><option>3</option><option selected>5</option><option>10</option><option>15</option></select></div></div></section>
-<section class="section"><h3>Colour and compression</h3><div class="fields"><div class="field"><label>Palette</label><select id="paletteMode"><option value="shared" selected>Shared palette</option><option value="scene">Per-scene palette</option></select></div><div class="field"><label>Dithering</label><select id="ditherMode"><option value="off">Off</option><option value="ordered" selected>Ordered</option><option value="error">Error diffusion</option></select></div><div class="field"><label>Video compression</label><select id="compression"><option value="delta" selected>Delta + keyframes</option><option value="none">Uncompressed</option></select></div></div></section>
-<section class="section"><h3>Audio</h3><div class="fields"><div class="field"><label>Channel</label><select id="audio"><option value="mix" selected>Mix to mono</option><option value="left">Left channel</option><option value="right">Right channel</option><option value="none">No audio</option></select></div><div class="field"><label>Volume %</label><input id="volume" type="number" min="0" max="200" step="5" value="100"></div><label class="check"><input id="normalize" type="checkbox"> Normalize quiet audio</label><label class="check"><input id="limiter" type="checkbox" checked> Limiter</label><div class="field two"><label>Preview selected channel</label><div class="audio-row"><button id="audioPreview" class="btn">Create preview</button><audio id="audioPlayer" controls></audio></div></div></div></section>
-<section class="section"><h3>ROM and playback</h3><div class="fields"><div class="field two"><label>ROM title</label><input id="romTitle" maxlength="12" value=""></div><div class="field"><label>Output</label><select id="outputMode"><option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option></select></div><label class="check"><input id="loop" type="checkbox"> Loop playback</label><label class="check"><input id="resume" type="checkbox" checked> Save/resume position</label></div><p class="tiny">Controls: A pause; B restart (or return to the clip menu in menu ROMs); L/R seek and hold; Left/Right seek while playing or step frames while paused; Up/Down volume; SELECT mute; START cycles HUD; L+R toggles HUD; START+SELECT opens control help.</p></section>
-<div class="bottom"><div id="estimate" class="estimate"></div><button id="convert" class="btn primary">Create output</button></div><div id="progressWrap" class="progress-wrap hidden"><div class="status"><span id="progressText"></span><span id="progressPct"></span></div><div class="bar"><i id="progressFill"></i></div></div><div id="convertError" class="error hidden"></div><div id="done" class="done hidden"><button id="download" class="btn primary">Download output</button></div></div></section></div>
-<script>
-const TOKEN=__SESSION_TOKEN__,BASE='/'+TOKEN+'/api',$=id=>document.getElementById(id);let state=null,pollTimer=null,uploadBusy=false,selected=0,previewMode='start',audioURL='',lastPreviewKey='',romTitleAuto=true;
-function headers(x={}){return Object.assign({'X-GBA-Token':TOKEN},x)}function show(id){['welcome','loading','editor'].forEach(x=>$(x).classList.toggle('hidden',x!==id));$('topBar').classList.toggle('hidden',id!=='editor')}
-async function api(path,opt={}){opt.headers=headers(opt.headers||{});let r=await fetch(BASE+path,opt);if(!r.ok){let x;try{x=await r.json()}catch{x={error:await r.text()}}throw Error(x.error||'Request failed')};return r.status===204?null:r.json()}
-function fmt(sec){sec=Math.max(0,+sec||0);let m=Math.floor(sec/60),s=Math.floor(sec%60);return m+':'+String(s).padStart(2,'0')}function parseClock(s){if(String(s).trim()==='')return 0;let a=String(s).split(':').map(Number);if(a.some(x=>!isFinite(x)))return NaN;return a.length===3?a[0]*3600+a[1]*60+a[2]:a.length===2?a[0]*60+a[1]:a[0]}
-function titleName(n){return(n.replace(/\.[^.]+$/,'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim()||'GBA VIDEO').slice(0,12)}
-function choose(append=false){$('picker').dataset.append=append?'1':'0';$('picker').click()}$('welcome').onclick=()=>choose(false);$('welcome').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(false)}};$('addVideos').onclick=()=>choose(true);$('picker').onchange=()=>{let f=[...$('picker').files];if(f.length)upload(f,$('picker').dataset.append==='1');$('picker').value=''};
-for(const ev of ['dragenter','dragover'])document.addEventListener(ev,e=>{e.preventDefault();$('welcome').classList.add('drag')});for(const ev of ['dragleave','drop'])document.addEventListener(ev,e=>{e.preventDefault();$('welcome').classList.remove('drag')});document.addEventListener('drop',e=>{let f=[...(e.dataTransfer?.files||[])];if(f.length)upload(f,state&&state.videos?.length)});
-function upload(files,append){if(uploadBusy)return;if(!append)romTitleAuto=true;uploadBusy=true;show('loading');$('loadingTitle').textContent='Loading '+files.length+' video'+(files.length===1?'':'s')+'…';$('loadingText').textContent='Copying files into the portable workspace.';let form=new FormData();files.forEach(f=>form.append('video',f,f.name));let x=new XMLHttpRequest();x.open('POST',BASE+'/upload?append='+(append?1:0));x.setRequestHeader('X-GBA-Token',TOKEN);x.upload.onprogress=e=>{if(e.lengthComputable)$('loadingFill').style.width=Math.round(e.loaded/e.total*100)+'%'};x.onload=()=>{uploadBusy=false;if(x.status<300){lastPreviewKey='';$('previewImage').removeAttribute('src');poll()}else{showLoadError('Upload failed')}};x.onerror=()=>{uploadBusy=false;showLoadError('Upload failed')};x.send(form)}
-function showLoadError(m){show('loading');$('loadingTitle').textContent='Could not open videos';$('loadingText').textContent=m}
-async function poll(){try{state=await api('/state');render()}catch(e){console.error(e)}clearTimeout(pollTimer);pollTimer=setTimeout(poll,500)}
-function render(){if(!state)return;if(!state.videos||!state.videos.length){show('welcome');$('clipInfo').textContent='';return}if(state.inspectStatus==='waiting'||state.inspectStatus==='inspecting'){show('loading');$('loadingTitle').textContent=state.inspectStatus==='waiting'?'Preparing the app…':'Opening videos…';$('loadingText').textContent=state.inspectStatus==='waiting'?(state.engineMessage||'Preparing FFmpeg'):'Reading duration, dimensions and audio streams.';$('loadingFill').style.width=(state.engineProgress||0)+'%'}if(state.engineStatus==='error'){show('loading');$('engineError').textContent=state.engineMessage;$('engineError').classList.remove('hidden');$('retryEngine').classList.remove('hidden')}if(state.inspectStatus==='error'){show('loading');showLoadError(state.inspectError||'A video could not be inspected.')}if(state.inspectStatus==='ready'){show('editor');if(selected>=state.videos.length)selected=0;renderClips();updatePreview();estimate()}
-let ids=['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume'];ids.forEach(id=>$(id).disabled=!!state.converting);$('convert').disabled=!!state.converting;
-if(state.converting){$('progressWrap').classList.remove('hidden');$('done').classList.add('hidden');$('convertError').classList.add('hidden');$('progressText').textContent=state.progressMessage;$('progressPct').textContent=state.progress+'%';$('progressFill').style.width=state.progress+'%'}else if(state.result){$('progressWrap').classList.remove('hidden');$('progressText').textContent='Output created successfully';$('progressPct').textContent='100%';$('progressFill').style.width='100%';$('done').classList.remove('hidden')}else if(state.convertError){$('convertError').textContent=state.convertError;$('convertError').classList.remove('hidden')}}
-async function removeVideo(i){try{await api('/video/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i})});lastPreviewKey='';$('previewImage').removeAttribute('src');selected=Math.max(0,Math.min(selected,state.videos.length-2));await poll();if(!state?.videos?.length){selected=0;$('clipInfo').textContent='';show('welcome')}}catch(e){alert(e.message)}}
-function renderClips(){let h='';state.videos.forEach((v,i)=>{let inf=v.info;h+='<div class="clip '+(i===selected?'active':'')+'" data-i="'+i+'"><div class="clip-info"><b>'+(i+1)+'. '+escapeHTML(v.name)+'</b><small>'+(inf?(inf.width+'×'+inf.height+' • '+fmt(inf.duration)+(inf.audioStreams?' • audio':' • silent')):v.status)+'</small></div><button class="clip-remove" type="button" data-remove="'+i+'" title="Remove this video" aria-label="Remove '+escapeHTML(v.name)+'">×</button></div>'});$('clips').innerHTML=h;[...$('clips').querySelectorAll('.clip')].forEach(el=>el.onclick=e=>{if(e.target.closest('.clip-remove'))return;selected=+el.dataset.i;renderClips();updatePreview()});[...$('clips').querySelectorAll('.clip-remove')].forEach(el=>el.onclick=e=>{e.stopPropagation();removeVideo(+el.dataset.remove)});let v=state.videos[selected];if(v?.info)$('clipInfo').textContent='Previewing '+v.name+' • '+v.info.fps.toFixed(2)+' source fps';else $('clipInfo').textContent='';if(romTitleAuto&&state.videos[0])$('romTitle').value=titleName(state.videos[0].name);let modeSel=$('outputMode'),current=modeSel.value;if(state.videos.length===1){modeSel.innerHTML='<option value="rom">Single ROM</option>';modeSel.value='rom'}else{modeSel.innerHTML='<option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option>';modeSel.value=['playlist','menu','batch'].includes(current)?current:'playlist'}}
-function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-let previewTimer;function updatePreview(){if(!state?.videos?.[selected]?.info)return;clearTimeout(previewTimer);previewTimer=setTimeout(()=>{let v=state.videos[selected],t=previewMode==='end'?parseClock($('end').value):parseClock($('start').value);if(previewMode==='end'&&(!$('end').value.trim()||!isFinite(t)))t=v.info.duration;t=Math.min(Math.max(0,t),v.info.duration);let key=[selected,t.toFixed(3),$('fit').value,previewMode].join('|');if(key===lastPreviewKey&&$('previewImage').src)return;lastPreviewKey=key;let img=$('previewImage');img.onerror=()=>{img.removeAttribute('src')};img.src=BASE+'/preview?index='+selected+'&time='+encodeURIComponent(t)+'&fit='+$('fit').value+'&key='+encodeURIComponent(key)},160)}$('previewStart').onclick=()=>{previewMode='start';lastPreviewKey='';updatePreview()};$('previewEnd').onclick=()=>{previewMode='end';lastPreviewKey='';updatePreview()};
-function values(){return{start:$('start').value,end:$('end').value,speed:+$('speed').value,fps:$('fps').value,fit:$('fit').value,audio:$('audio').value,volume:+$('volume').value,loop:$('loop').checked,romTitle:$('romTitle').value,seekSeconds:+$('seekSeconds').value,normalize:$('normalize').checked,limiter:$('limiter').checked,resume:$('resume').checked,compression:$('compression').value,paletteMode:$('paletteMode').value,ditherMode:$('ditherMode').value,outputMode:$('outputMode').value}}
-const presets={best:{fps:'smooth',audio:'mix',paletteMode:'scene',ditherMode:'error',compression:'delta',normalize:true,limiter:true},balanced:{fps:'balanced',audio:'mix',paletteMode:'shared',ditherMode:'ordered',compression:'delta',normalize:false,limiter:true},long:{fps:'compact',audio:'mix',paletteMode:'shared',ditherMode:'ordered',compression:'delta',normalize:false,limiter:true},small:{fps:'compact',audio:'none',paletteMode:'shared',ditherMode:'off',compression:'delta',normalize:false,limiter:false}};
-function applyPreset(){let p=presets[$('preset').value];if(!p)return;Object.entries(p).forEach(([k,v])=>{let e=$(k);if(e.type==='checkbox')e.checked=v;else e.value=v});estimate();updatePreview()}$('preset').onchange=applyPreset;
-function markCustom(e){if(e.target.id!=='preset')$('preset').value='custom'}
-function estimate(){if(!state?.videos?.length)return;let v=values(),start=parseClock(v.start),endText=v.end.trim(),vb={smooth:4,balanced:5,classic:6,compact:8}[v.fps],fps=59.727500569606/vb,totalFrames=0,raw=16384+state.videos.length*96,totalDur=0;for(let x of state.videos){if(!x.info)continue;let end=endText?Math.min(parseClock(endText),x.info.duration):x.info.duration;if(!isFinite(start)||!isFinite(end)||end<=start){$('estimate').textContent='Check trim settings.';return}let d=(end-start)/v.speed,f=Math.max(1,Math.ceil(d*fps));totalFrames+=f;totalDur+=end-start;let pals=v.paletteMode==='scene'?Math.ceil(f/60):1;raw+=pals*512+(pals>1?f*2:0)+f*9600+(v.compression==='delta'?f*16:0);if(v.audio!=='none'&&x.info.audioStreams)raw+=f*4+Math.ceil((f*vb/59.7275)*16384/16)*16}let p=1048576;while(p<raw)p*=2;let bps=fps*9600+(v.audio!=='none'?16384+fps*4:0),limit=(33554432-16384)/bps*v.speed;$('estimate').innerHTML=(raw>33554432?'<b style="color:#ff8d8d">Worst-case estimate exceeds 32 MiB</b>':'Estimated cartridge: <b>'+(p/1048576)+' MiB</b>')+'<br>Worst-case data: '+(raw/1048576).toFixed(2)+' MiB • '+totalFrames+' frames • '+fps.toFixed(2)+' fps<br>Approximate single-clip duration limit: '+fmt(limit)+' <span class="pill">delta compression may improve it</span>'}
-for(let id of ['start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter'])$(id).addEventListener('input',e=>{markCustom(e);estimate();if(['start','end','fit'].includes(id))updatePreview()});$('romTitle').addEventListener('input',()=>{romTitleAuto=false});
-$('audioPreview').onclick=async()=>{try{$('audioPreview').disabled=true;let r=await fetch(BASE+'/audio-preview?index='+selected,{method:'POST',headers:headers({'Content-Type':'application/json'}),body:JSON.stringify(values())});if(!r.ok){let x=await r.json();throw Error(x.error)}let b=await r.blob();if(audioURL)URL.revokeObjectURL(audioURL);audioURL=URL.createObjectURL(b);$('audioPlayer').src=audioURL;$('audioPlayer').play()}catch(e){alert(e.message)}finally{$('audioPreview').disabled=false}};
-$('convert').onclick=async()=>{try{await api('/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values())});poll()}catch(e){$('convertError').textContent=e.message;$('convertError').classList.remove('hidden')}};$('download').onclick=()=>{let a=document.createElement('a');a.href=BASE+'/download';a.download=state.downloadName||'GBA_Video_Maker_output';a.click()};$('retryEngine').onclick=()=>api('/engine/retry',{method:'POST'});$('resetTop').onclick=async()=>{await api('/reset',{method:'POST'});state=null;selected=0;lastPreviewKey='';romTitleAuto=true;$('romTitle').value='';show('welcome')};setInterval(()=>fetch(BASE+'/heartbeat',{method:'POST',headers:headers(),keepalive:true}).catch(()=>{}),5000);window.addEventListener('pagehide',()=>fetch(BASE+'/close-intent',{method:'POST',headers:headers(),keepalive:true}).catch(()=>{}));poll();
-</script></body></html>`
