@@ -61,6 +61,7 @@ All notable changes to this project are documented here.
 
 ### Changed
 
+- Automatic GitHub Actions builds now publish/update a normal stable release using the exact VERSION tag, without build-number suffixes or a prerelease badge.
 - Added a red remove button for each loaded video in the editor, so clips can be removed without resetting the whole project.
 - Replaced the clip-menu font chevron with a clear pixel-art right arrow
 - Menu-ROM clips now return to the clip menu automatically when playback finishes

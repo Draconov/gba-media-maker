@@ -173,21 +173,3 @@ Convert only video and audio you have permission to use. Game Boy Advance, Ninte
 ## License
 
 The application source is available under the [MIT License](LICENSE).
-
-
-The app follows the Windows light/dark appearance automatically and uses the included `assets/app_icon.png` artwork for its app-window icon.
-
-
-When you add multiple videos, the app can now build one ROM that plays the clips in order, one ROM with a clip-selection menu, or a batch ZIP of separate ROMs.
-The app icon also now uses the transparent-background version of the provided artwork.
-
-
-The app icon now uses the latest user-provided icon artwork.
-
-The Windows build embeds the app icon directly into the `.exe`; the included `tools/embedicon` helper is run automatically by the build scripts.
-
-
-In multi-video menu ROMs, the selected clip uses a clear pixel-art arrow. Finishing a clip or pressing B returns to the menu.
-
-
-Each loaded video now has a red remove button in the editor, making it easy to drop clips from a multi-video project.

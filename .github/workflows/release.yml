@@ -1,33 +1,28 @@
 name: Release
 
 run-name: >-
-  ${{ github.event_name == 'push'
-      && format('Automatic release from {0}', github.sha)
-      || format('Manual release {0}', inputs.version) }}
+  ${{ github.event_name == 'workflow_dispatch'
+      && format('Publish release {0}', inputs.version)
+      || 'Publish release from VERSION' }}
 
 on:
-  # Automatically publish a prerelease after every push to main.
+  # Every push to main publishes or updates the normal release named in VERSION.
   push:
     branches:
       - main
 
-  # Also allow a versioned release to be started from Actions > Release.
+  # A stable release can also be published manually from Actions > Release.
   workflow_dispatch:
     inputs:
       version:
         description: "Version tag, for example v0.8.0"
         required: true
         type: string
-      prerelease:
-        description: "Mark the manual release as a prerelease"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: write
 
-# Do not let two pushes publish releases at the same time.
+# Do not let two pushes publish the same release simultaneously.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -70,41 +65,33 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           MANUAL_VERSION: ${{ inputs.version }}
-          MANUAL_PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             tag="$MANUAL_VERSION"
             [[ "$tag" == v* ]] || tag="v$tag"
-            prerelease="$MANUAL_PRERELEASE"
-            title="GBA Video Maker $tag"
           else
             base_version="$(tr -d '[:space:]' < VERSION)"
             if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::VERSION must contain a version such as 0.8.0"
               exit 1
             fi
-
-            # Each push needs a unique tag. Automatic builds are prereleases so
-            # they do not replace a manually published stable release as Latest.
-            tag="v${base_version}-build.${GITHUB_RUN_NUMBER}"
-            prerelease="true"
-            title="GBA Video Maker ${tag} (automatic build)"
+            tag="v${base_version}"
           fi
 
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Version must look like v0.8.0"
             exit 1
           fi
 
           version="${tag#v}"
+          title="GBA Video Maker ${tag}"
           folder="GBA_Video_Maker_v${version}_Portable"
           zip_file="${folder}.zip"
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "title=$title" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "folder=$folder" >> "$GITHUB_OUTPUT"
           echo "zip_file=$zip_file" >> "$GITHUB_OUTPUT"
 
@@ -118,6 +105,12 @@ jobs:
           -ldflags="-H windowsgui -s -w"
           -o "GBA Video Maker.exe" .
 
+      - name: Embed application icon
+        run: >-
+          go run ./tools/embedicon
+          -exe "GBA Video Maker.exe"
+          -ico "assets/app_icon.ico"
+
       - name: Package portable ZIP
         shell: bash
         env:
@@ -130,38 +123,32 @@ jobs:
           zip -9 -r "$ZIP_FILE" "$FOLDER"
           sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
 
-      - name: Publish GitHub release
+      - name: Publish normal GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_TITLE: ${{ steps.release.outputs.title }}
-          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
           ZIP_FILE: ${{ steps.release.outputs.zip_file }}
         run: |
           set -euo pipefail
 
-          prerelease_args=()
-          if [[ "$IS_PRERELEASE" == "true" ]]; then
-            prerelease_args+=(--prerelease)
-          fi
-
-          # A rerun for the same commit updates the assets instead of failing.
+          # A push to main updates the one normal release for the VERSION value.
+          # This avoids build-number tags and avoids creating prereleases.
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             git fetch --tags --force
-            tagged_sha="$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null || true)"
-            if [[ -n "$tagged_sha" && "$tagged_sha" != "$GITHUB_SHA" ]]; then
-              echo "::error::Release $RELEASE_TAG already points to another commit. Use a new version."
-              exit 1
-            fi
+            git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$RELEASE_TAG" --force
 
             gh release upload "$RELEASE_TAG" \
               "$ZIP_FILE" \
               "${ZIP_FILE}.sha256" \
               --clobber
+
             gh release edit "$RELEASE_TAG" \
               --title "$RELEASE_TITLE" \
-              "${prerelease_args[@]}"
+              --prerelease=false \
+              --latest
           else
             gh release create "$RELEASE_TAG" \
               "$ZIP_FILE" \
@@ -169,5 +156,5 @@ jobs:
               --target "$GITHUB_SHA" \
               --title "$RELEASE_TITLE" \
               --generate-notes \
-              "${prerelease_args[@]}"
+              --latest
           fi
