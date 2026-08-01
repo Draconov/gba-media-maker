@@ -2,64 +2,82 @@
 
 All notable changes to this project are documented here.
 
+## [0.8.0] - 2026-07-31
+
+### UI refinement update
+
+- Tightened the volume popup so only one black pixel remains after the final digit.
+- Added the user-provided app icon as the browser app-window icon and repository ICO asset.
+- Added automatic system light/dark mode palettes.
+- Centered the drag-and-drop screen at every window size and removed its redundant header and film emoji.
+- Restored named frame-rate choices: Smooth, Balanced, Classic, and Compact.
+- ROM titles now start from the source filename and are cropped to the 12-character GBA limit.
+- Fixed End frame previews by seeking to the final decodable frame rather than exact EOF.
+- Simplified the trim label to “End (blank = full video)”.
+
+### Player controls
+
+- Added hold-to-seek with an immediate first jump and repeated jumps approximately every 0.4 seconds
+- Added configurable 3, 5, 10, and 15-second seek steps; the selected value appears in the seek popup
+- Added D-pad Up/Down volume control with 0%, 50%, and 100% Direct Sound levels
+- Kept `SELECT` for mute/unmute
+- Moved quick HUD show/hide to the `L + R` combination
+- Added frame-by-frame D-pad Left/Right movement while paused
+- Changed `START` to cycle hidden, time-only, and full HUD modes
+- Added current frame number to the full HUD
+- Added a `START + SELECT` controls-help screen
+- Kept `B` as restart
+
+### Converter application
+
+- Added Best quality, Balanced, Long video, Smallest ROM, and Custom output presets
+- Added cartridge-size, frame-count, and approximate duration-limit estimates
+- Added start/end picture previews using crop, fit-with-bars, or stretch processing
+- Added audio-channel previews
+- Added optional loudness normalization and limiter
+- Added multi-file drag and drop
+- Added batch output as separate ROMs in a ZIP
+- Added multiple clips in one ROM with a startup selection menu
+
+### Encoding
+
+- Upgraded generated ROM metadata from GBV4 to GBV5
+- Expanded the embedded player template from 8 KiB to 16 KiB
+- Added keyframe/delta frame compression with automatic raw-frame fallback
+- Added frame indexes for compressed seeking and reconstruction
+- Added shared and scene-change palette modes
+- Added off, ordered, and error-diffusion dithering modes
+- Added per-frame palette-index synchronization
+- Added optional SRAM playback-position saving and resume prompts
+- Added per-clip assets, settings, titles, audio, palettes, and seek tables for collection ROMs
+
 ## [0.7.0] - 2026-07-31
 
 ### Added
 
-- `D-pad Left` and `D-pad Right` now mirror `L` and `R` for five-second seeking
-- `SELECT` toggles audio mute without losing playback position
-- `D-pad Up` toggles a playback HUD with current time, total duration, and a progress line
-- Temporary backward/forward arrow indicators after `L` or `R` seeking
-- Muted-audio badge shown briefly after mute-related UI activity
+- D-pad Left/Right seeking alongside L/R
+- Mute feedback, playback HUD, progress line, seek feedback, and loop indicator
+- Per-frame audio seek offsets
 
 ### Changed
 
-- The seek popup is tighter now: the number and arrow have only a 2-pixel gap, so the box is less intrusive
-- The loop icon now uses the latest provided 8x8 arrow exactly
-- The HUD now leaves a black 1-pixel row above and below the loop icon
-- The progress line now spans nearly the full screen width, with about 5-pixel margins on both sides
-- The loop icon now sits above the progress line instead of beside it
-- The seek popup uses a filled black box again, trimmed to about a 2-pixel margin around the number and arrow
-- Loop-enabled exports now show a small yellow repeat/loop icon using the exact 7x6 arrow pattern you provided, positioned above the progress line at the right side of the playback HUD
-- Mute/unmute now shows only a compact badge instead of also opening the playback HUD
-- The mute badge is tighter, with a red `X` for muted audio and a green check-style `V` for unmuted audio, while the playback progress line and seek arrows use yellow again
-- Refined the muted-audio badge to use a simple, clearly recognizable X
-- Temporary seek and mute feedback now disappear after about 0.4 seconds, and automatic playback-HUD popups are shorter overall
-- Playback progress remains visible while paused
-- Five palette entries are now reserved for consistently readable overlays, allowing dedicated red and green status icons
-- Generated ROM metadata format upgraded from GBV3 to GBV4
-- Embedded player metadata moved within the 8 KiB template to make room for the HUD renderer
+- Added a red remove button for each loaded video in the editor, so clips can be removed without resetting the whole project.
+- Replaced the clip-menu font chevron with a clear pixel-art right arrow
+- Menu-ROM clips now return to the clip menu automatically when playback finishes
+- In a menu ROM, pressing B during playback now returns to the clip menu instead of restarting the current clip
+- Embedded the custom icon directly into the Windows executable so Explorer displays it on `GBA Video Maker.exe`.
+- Replaced the app icon with the latest user-provided icon artwork.
+- The app icon now uses the transparent-background version so it looks clean in the app window
+- When multiple videos are loaded, you can now choose between **One ROM — play clips in order**, **One ROM — clip menu**, or **Separate ROMs in ZIP**
+
+- Refined seek-popup spacing and loop-icon placement
+- Upgraded generated ROM metadata to GBV4
 
 ## [0.6.0] - 2026-07-31
 
-### Added
-
-- `L` seeks backward by approximately five seconds during playback or from the end screen
-- `R` seeks forward by approximately five seconds
-- Per-frame audio seek offsets keep sound aligned after seeking
-- Freestanding ARM7TDMI player source and reproducible LLVM build scripts
-
-### Changed
-
-- Generated ROM metadata format upgraded from GBV2 to GBV3
-- GitHub Actions use Node.js 24-compatible action releases
+- Added L/R seeking and synchronized audio restart
+- Added reproducible LLVM player builds
 
 ## [0.5.0] - 2026-07-30
 
-### Added
-
-- Portable Windows GUI served locally by the Go executable
-- Drag-and-drop and native browser file selection
-- Trimming, playback speed, framing, audio-channel, volume, FPS, looping, and ROM-title controls
-- Local FFmpeg download with pinned SHA-256 verification
-- ROM-size estimation and downloadable `.gba` output
-- End-to-end upload, inspection, conversion, and download test
-
-### Changed
-
-- Replaced the earlier custom Win32 GUI and callback implementation with a browser-based local interface
-- Conversion now starts from a minimal centered video-selection screen
-
-### Fixed
-
-- Crashes caused by custom Win32 callback and file-dialog code
+- Added the portable local-web Windows GUI and complete first conversion workflow

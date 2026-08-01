@@ -1,27 +1,22 @@
-# GBA player source
+# Embedded GBA Player
 
-This directory contains the freestanding ARM7TDMI playback engine embedded in every generated ROM.
+The player is a freestanding ARM7TDMI program compiled with LLVM. It implements GBV5 clip menus, keyframe/delta decoding, scene-palette switching, audio seeking, HUD modes, controls help, volume/mute controls, and SRAM resume support.
 
-ROM controls:
-
-- `A`: pause or resume
-- `L` or `D-pad Left`: seek backward by approximately five seconds
-- `R` or `D-pad Right`: seek forward by approximately five seconds
-- `SELECT`: mute or unmute audio
-- `D-pad Up`: show or hide the progress/time HUD
-- `B` or `START`: restart
-
-The build scripts require LLVM tools (`clang`, `ld.lld`, and `llvm-objcopy`). They compile without devkitARM or libgba.
+## Build on Linux/macOS
 
 ```bash
 ./player/build.sh
 ```
 
+Requirements: `clang`, `ld.lld`, and `llvm-objcopy`.
+
+## Build on Windows PowerShell
+
 ```powershell
 ./player/build.ps1
 ```
 
-The resulting `assets/player_stub.bin` must be exactly 8192 bytes. The converter fills the GBA header and metadata when assembling each ROM.
+The resulting `assets/player_stub.bin` must be exactly **16384 bytes**. The converter patches the GBA header and the global metadata block at `0x3F00`, then begins clip descriptors and assets at `0x4000`.
 
 
-Mute/unmute feedback is shown as a compact top-right badge: a red `X` when muted and a green `V` when unmuted. Temporary seek and mute feedback now lasts about 0.4 seconds, while the playback HUD remains visible during pause.
+In multi-video menu ROMs, the selected clip uses a clear pixel-art arrow. Finishing a clip or pressing B returns to the menu.

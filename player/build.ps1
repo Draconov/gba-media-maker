@@ -12,5 +12,5 @@ $common = @("--target=arm-none-eabi", "-mcpu=arm7tdmi", "-marm", "-ffreestanding
 & llvm-objcopy -O binary (Join-Path $build "player.elf") (Join-Path $build "player.bin")
 Copy-Item (Join-Path $build "player.bin") (Join-Path $root "assets\player_stub.bin") -Force
 $file = [System.IO.File]::Open((Join-Path $root "assets\player_stub.bin"), [System.IO.FileMode]::Open)
-try { $file.SetLength(8192) } finally { $file.Dispose() }
+try { $file.SetLength(16384) } finally { $file.Dispose() }
 Write-Host "Built assets\player_stub.bin"

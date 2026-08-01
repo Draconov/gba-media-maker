@@ -16,3 +16,4 @@ player:
 
 build-windows:
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w" -o "GBA Video Maker.exe" .
+	go run ./tools/embedicon -exe "GBA Video Maker.exe" -ico "assets/app_icon.ico"
