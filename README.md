@@ -2,7 +2,7 @@
 
 A portable Windows app that converts ordinary video files into self-playing Game Boy Advance ROMs.
 
-Version **0.8.0** adds a substantially expanded player, real conversion previews, batch and multi-clip output, audio processing, scene palettes, and keyframe/delta video compression.
+Version **0.9.0** adds per-video conversion settings, drag-and-drop ordering, saved project files, a real trimming timeline, automatic ROM-size optimization, custom menu titles and optional menu thumbnails, while preserving the optimized v0.8.0 player and converter core.
 
 ## Download and run
 
@@ -149,7 +149,7 @@ On PowerShell:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.8.0
+./scripts/package-release.ps1 -Version 0.9.0
 ```
 
 ## Project layout

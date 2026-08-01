@@ -56,6 +56,7 @@ typedef unsigned int   u32;
 
 #define GLOBAL_FLAG_RESUME   0x0001u
 #define GLOBAL_FLAG_PLAYLIST 0x0002u
+#define GLOBAL_FLAG_MENU_PREVIEW 0x0004u
 #define CLIP_FLAG_AUDIO      0x0001u
 #define CLIP_FLAG_LOOP       0x0002u
 #define CLIP_FLAG_COMPRESSED 0x0004u
@@ -88,10 +89,13 @@ typedef unsigned int   u32;
 #define ACTION_FRAME_FORWARD 6
 #define ACTION_HELP          7
 #define ACTION_TOGGLE_PAUSE  8
+#define ACTION_PREV_CLIP      9
+#define ACTION_NEXT_CLIP      10
 
 #define PLAY_RESULT_RESTART_CURRENT 0
 #define PLAY_RESULT_NEXT_CLIP       1
 #define PLAY_RESULT_RETURN_MENU     2
+#define PLAY_RESULT_PREV_CLIP       3
 
 struct GlobalMetadata {
     u32 magic;
@@ -144,6 +148,7 @@ struct PlayerUI {
     u16 seek_hold_counter;
     int help_combo_latched;
     int hud_combo_latched;
+    int clip_combo_latched;
 };
 
 struct PlaybackClock {
@@ -653,7 +658,7 @@ static void toggle_hud_combo(struct PlayerUI *ui)
     ui->hud_timer = 0u;
 }
 
-static int poll_action(u16 *previous_keys, int paused, int has_audio, struct PlayerUI *ui)
+static int poll_action(u16 *previous_keys, int paused, int has_audio, int playlist_mode, struct PlayerUI *ui)
 {
     u16 now = keys_down();
     u16 pressed = (u16)(now & (u16)~(*previous_keys));
@@ -667,6 +672,20 @@ static int poll_action(u16 *previous_keys, int paused, int has_audio, struct Pla
     if (ui->help_combo_latched) {
         if ((now & (KEY_START | KEY_SELECT)) == 0u) ui->help_combo_latched = 0;
         else return ACTION_NONE;
+    }
+
+    if (playlist_mode && (now & KEY_SELECT) != 0u && (now & (KEY_LEFT | KEY_RIGHT)) != 0u) {
+        if (!ui->clip_combo_latched) {
+            ui->clip_combo_latched = 1;
+            ui->seek_hold_direction = 0;
+            ui->seek_hold_counter = 0u;
+            return (now & KEY_LEFT) ? ACTION_PREV_CLIP : ACTION_NEXT_CLIP;
+        }
+        return ACTION_NONE;
+    }
+    if (ui->clip_combo_latched) {
+        if ((now & (KEY_SELECT | KEY_LEFT | KEY_RIGHT)) == 0u) ui->clip_combo_latched = 0;
+        else if ((now & KEY_SELECT) != 0u || (now & (KEY_LEFT | KEY_RIGHT)) != 0u) return ACTION_NONE;
     }
 
     if ((now & (KEY_L | KEY_R)) == (KEY_L | KEY_R)) {
@@ -723,14 +742,14 @@ static int poll_action(u16 *previous_keys, int paused, int has_audio, struct Pla
     return ACTION_NONE;
 }
 
-static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, int *paused,
+static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, int playlist_mode, int *paused,
                              struct PlayerUI *ui)
 {
     for (;;) {
         int changed, action;
         wait_vblank();
         changed = tick_ui_timers(ui);
-        action = poll_action(previous_keys, *paused, has_audio, ui);
+        action = poll_action(previous_keys, *paused, has_audio, playlist_mode, ui);
         if (action == ACTION_TOGGLE_PAUSE) {
             *paused = !*paused; ui->hud_timer = HUD_HOLD_VBLANKS;
             if (*paused) {
@@ -773,7 +792,7 @@ static int is_menu_mode(const struct GlobalMetadata *meta)
     return meta->clip_count > 1u && !(meta->flags & GLOBAL_FLAG_PLAYLIST);
 }
 
-static void draw_help(volatile u16 *dst, int menu_mode)
+static void draw_help(volatile u16 *dst, int menu_mode, int playlist_mode)
 {
     clear_screen(dst);
     draw_text_auto(dst, 42u, 2u, "CONTROLS", UI_YELLOW);
@@ -782,21 +801,28 @@ static void draw_help(volatile u16 *dst, int menu_mode)
     draw_text_auto(dst, 3u, 21u, "START HUD MODE", UI_WHITE);
     draw_text_auto(dst, 3u, 27u, "SELECT MUTE", UI_WHITE);
     draw_text_auto(dst, 3u, 33u, "L R SEEK HOLD", UI_WHITE);
-    draw_text_auto(dst, 3u, 39u, "LEFT RIGHT SEEK", UI_WHITE);
-    draw_text_auto(dst, 3u, 45u, "PAUSED LEFT RIGHT FRAME", UI_WHITE);
-    draw_text_auto(dst, 3u, 51u, "UP DOWN VOLUME", UI_WHITE);
-    draw_text_auto(dst, 3u, 57u, "L+R HUD SHOW HIDE", UI_WHITE);
+    if (playlist_mode) {
+        draw_text_auto(dst, 3u, 39u, "SELECT+LEFT PREV CLIP", UI_WHITE);
+        draw_text_auto(dst, 3u, 45u, "SELECT+RIGHT NEXT CLIP", UI_WHITE);
+        draw_text_auto(dst, 3u, 51u, "PAUSED LEFT RIGHT FRAME", UI_WHITE);
+        draw_text_auto(dst, 3u, 57u, "UP DOWN VOLUME", UI_WHITE);
+    } else {
+        draw_text_auto(dst, 3u, 39u, "LEFT RIGHT SEEK", UI_WHITE);
+        draw_text_auto(dst, 3u, 45u, "PAUSED LEFT RIGHT FRAME", UI_WHITE);
+        draw_text_auto(dst, 3u, 51u, "UP DOWN VOLUME", UI_WHITE);
+        draw_text_auto(dst, 3u, 57u, "L+R HUD SHOW HIDE", UI_WHITE);
+    }
     draw_text_auto(dst, 3u, 63u, "START+SELECT HELP", UI_WHITE);
     draw_text_auto(dst, 22u, 72u, "PRESS ANY BUTTON", UI_YELLOW);
 }
 
 static void set_ui_palette(void);
 
-static void show_help_screen(u16 *displayed_page, int menu_mode)
+static void show_help_screen(u16 *displayed_page, int menu_mode, int playlist_mode)
 {
     volatile u16 *back = *displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
     u16 now;
-    draw_help(back, menu_mode);
+    draw_help(back, menu_mode, playlist_mode);
     wait_vblank();
     set_ui_palette();
     *displayed_page ^= 1u;
@@ -876,6 +902,20 @@ static void draw_menu_arrow(volatile u16 *dst, u32 x, u32 y, u16 colour)
     put_logical_pixel(dst, x + 2u, y + 4u, colour);
 }
 
+static void draw_menu_thumbnail(volatile u16 *dst, const u8 *pixels)
+{
+    const u32 x0 = 69u, y0 = 17u, width = 48u, height = 32u;
+    u32 x, y;
+    fill_rect(dst, x0 - 1u, y0 - 1u, width + 2u, height + 2u, UI_DARK);
+    for (y = 0u; y < height; ++y) {
+        u32 sy = divide_u32(y * FRAME_HEIGHT, height);
+        for (x = 0u; x < width; ++x) {
+            u32 sx = divide_u32(x * FRAME_WIDTH, width);
+            put_logical_pixel(dst, x0 + x, y0 + y, pixels[sy * FRAME_WIDTH + sx]);
+        }
+    }
+}
+
 static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct ClipDescriptor *clips, u32 initial_selection)
 {
     u32 selected = initial_selection < meta->clip_count ? initial_selection : (meta->default_clip < meta->clip_count ? meta->default_clip : 0u);
@@ -885,7 +925,14 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
     for (;;) {
         volatile u16 *dst = VRAM_PAGE0;
         u32 row;
-        clear_screen(dst); set_ui_palette();
+        if (meta->flags & GLOBAL_FLAG_MENU_PREVIEW) {
+            load_frame_pixels(&clips[selected], 0u, frame_a);
+            copy_palette(palette_for_frame(&clips[selected], 0u));
+            clear_screen(dst);
+            draw_menu_thumbnail(dst, frame_a);
+        } else {
+            clear_screen(dst); set_ui_palette();
+        }
         draw_text_auto(dst, 34u, 2u, "SELECT VIDEO", UI_YELLOW);
         if (selected < top) top=selected;
         if (selected >= top+10u) top=selected-9u;
@@ -933,11 +980,13 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
         if (at_end) {
             int redraw=0, action;
             wait_vblank(); if (tick_ui_timers(ui)) redraw=1;
-            action=poll_action(&previous_keys,0,has_audio,ui);
+            action=poll_action(&previous_keys,0,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,ui);
             if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
+            if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_PREV_CLIP; }
+            if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_NEXT_CLIP; }
             if (action==ACTION_HELP) {
                 playback_timer_stop(); audio_stop();
-                show_help_screen(&displayed_page, is_menu_mode(meta)); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                 playback_timer_stop(); audio_stop();
                 continue;
             }
@@ -961,11 +1010,13 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             volatile u16 *back = displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
             int action;
             if (has_next) { load_next_pixels(clip,frame+1u,current,next); render_frame_with_ui(next,frame+1u,back,clip,ui); }
-            action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,&paused,ui);
+            action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,&paused,ui);
             if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
+            if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_PREV_CLIP; }
+            if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_NEXT_CLIP; }
             if (action==ACTION_HELP) {
                 playback_timer_pause(); if (has_audio) audio_pause();
-                show_help_screen(&displayed_page, is_menu_mode(meta)); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                 playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
                 if (paused) playback_timer_pause();
                 if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
@@ -1031,7 +1082,7 @@ void main(void)
     if (meta->magic!=GBV5_MAGIC || meta->version!=5u || meta->clip_count==0u || meta->clip_descriptor_size!=96u) for(;;){}
     clips=(const struct ClipDescriptor *)rom_ptr(meta->clip_table_offset);
     REG_BG2PA=0x0100; REG_BG2PB=0; REG_BG2PC=0; REG_BG2PD=0x0100; REG_BG2X=0; REG_BG2Y=0;
-    ui.muted=0; ui.volume_level=2; ui.hud_mode=0; ui.hud_last_visible=2; ui.hud_timer=0; ui.mute_timer=0; ui.volume_timer=0; ui.seek_timer=0; ui.seek_direction=0; ui.seek_hold_direction=0; ui.seek_hold_counter=0; ui.help_combo_latched=0; ui.hud_combo_latched=0;
+    ui.muted=0; ui.volume_level=2; ui.hud_mode=0; ui.hud_last_visible=2; ui.hud_timer=0; ui.mute_timer=0; ui.volume_timer=0; ui.seek_timer=0; ui.seek_direction=0; ui.seek_hold_direction=0; ui.seek_hold_counter=0; ui.help_combo_latched=0; ui.hud_combo_latched=0; ui.clip_combo_latched=0;
 
     have_resume=load_position(meta,&saved_clip,&saved_frame);
     if (have_resume && saved_clip<meta->clip_count && saved_frame>0u && saved_frame+1u<clips[saved_clip].frame_count) {
@@ -1050,8 +1101,10 @@ void main(void)
         u32 start=(have_resume && selected==saved_clip)?saved_frame:0u;
         have_resume=0;
         result=play_clip(meta,&clips[selected],selected,start,&ui);
-        if (result == PLAY_RESULT_NEXT_CLIP && selected + 1u < meta->clip_count) {
-            selected++;
+        if (result == PLAY_RESULT_NEXT_CLIP && (meta->flags & GLOBAL_FLAG_PLAYLIST)) {
+            selected = selected + 1u < meta->clip_count ? selected + 1u : 0u;
+        } else if (result == PLAY_RESULT_PREV_CLIP && (meta->flags & GLOBAL_FLAG_PLAYLIST)) {
+            selected = selected > 0u ? selected - 1u : meta->clip_count - 1u;
         } else if (result == PLAY_RESULT_RETURN_MENU && is_menu_mode(meta)) {
             selected=select_clip_menu(meta,clips,selected);
         }

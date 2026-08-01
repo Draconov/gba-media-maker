@@ -66,6 +66,19 @@ type ClipInput struct {
 	InputPath string
 	Name      string
 	Title     string
+
+	// Custom selects the per-clip overrides below. When false, the project
+	// defaults in ProjectOptions are used.
+	Custom      bool
+	Start       float64
+	End         float64
+	Speed       float64
+	FitMode     string
+	AudioMode   string
+	Volume      float64
+	Loop        bool
+	PaletteMode string
+	DitherMode  string
 }
 
 type ProjectOptions struct {
@@ -89,6 +102,7 @@ type ProjectOptions struct {
 	PaletteMode string // shared, scene
 	DitherMode  string // off, ordered, error
 	OutputMode  string // rom, playlist, menu, batch
+	MenuPreview bool
 	KeyInterval int
 }
 
@@ -1012,12 +1026,52 @@ func appendAligned(rom []byte, data []byte) []byte {
 
 type convertedClip struct {
 	input                                           ClipInput
+	options                                         ProjectOptions
 	info                                            MediaInfo
 	frameCount, paletteCount                        int
 	hasAudio                                        bool
 	palette, paletteIndex, video, videoIndex, audio string
 	rawVideo, storedVideo                           int64
 	duration                                        float64
+}
+
+func optionsForClip(project ProjectOptions, input ClipInput) ProjectOptions {
+	if !input.Custom {
+		return project
+	}
+	clip := project
+	clip.Start = input.Start
+	clip.End = input.End
+	clip.Speed = input.Speed
+	clip.FitMode = input.FitMode
+	clip.AudioMode = input.AudioMode
+	clip.Volume = input.Volume
+	clip.Loop = input.Loop
+	clip.PaletteMode = input.PaletteMode
+	clip.DitherMode = input.DitherMode
+	return clip
+}
+
+func validateClipSettings(opt ProjectOptions, label string) error {
+	if opt.Speed < .5 || opt.Speed > 3 {
+		return fmt.Errorf("%s: speed must be between 0.5 and 3.0", label)
+	}
+	if opt.Volume < 0 || opt.Volume > 2 {
+		return fmt.Errorf("%s: volume must be between 0 and 200 percent", label)
+	}
+	if opt.FitMode != "fit" && opt.FitMode != "crop" && opt.FitMode != "stretch" {
+		return fmt.Errorf("%s: invalid screen framing", label)
+	}
+	if opt.AudioMode != "mix" && opt.AudioMode != "left" && opt.AudioMode != "right" && opt.AudioMode != "none" {
+		return fmt.Errorf("%s: invalid audio mode", label)
+	}
+	if opt.PaletteMode != "shared" && opt.PaletteMode != "scene" {
+		return fmt.Errorf("%s: invalid palette mode", label)
+	}
+	if opt.DitherMode != "off" && opt.DitherMode != "ordered" && opt.DitherMode != "error" {
+		return fmt.Errorf("%s: invalid dithering mode", label)
+	}
+	return nil
 }
 
 func validateProject(opt ProjectOptions) error {
@@ -1027,11 +1081,8 @@ func validateProject(opt ProjectOptions) error {
 	if opt.OutputPath == "" || opt.FFmpegPath == "" {
 		return errors.New("output and FFmpeg paths are required")
 	}
-	if opt.Speed < .5 || opt.Speed > 3 {
-		return errors.New("speed must be between 0.5 and 3.0")
-	}
-	if opt.Volume < 0 || opt.Volume > 2 {
-		return errors.New("volume must be between 0 and 200 percent")
+	if err := validateClipSettings(opt, "project defaults"); err != nil {
+		return err
 	}
 	if opt.VBlanks != 4 && opt.VBlanks != 5 && opt.VBlanks != 6 && opt.VBlanks != 8 {
 		return errors.New("invalid frame rate")
@@ -1042,16 +1093,18 @@ func validateProject(opt ProjectOptions) error {
 	if opt.Compression != "none" && opt.Compression != "delta" {
 		return errors.New("invalid compression mode")
 	}
-	if opt.PaletteMode != "shared" && opt.PaletteMode != "scene" {
-		return errors.New("invalid palette mode")
-	}
-	if opt.DitherMode != "off" && opt.DitherMode != "ordered" && opt.DitherMode != "error" {
-		return errors.New("invalid dithering mode")
+	for _, input := range opt.Inputs {
+		if input.Custom {
+			if err := validateClipSettings(optionsForClip(opt, input), input.Name); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-func convertClip(opt ProjectOptions, input ClipInput, tempDir string, index, total int, progress ProgressFunc) (convertedClip, error) {
+func convertClip(project ProjectOptions, input ClipInput, tempDir string, index, total int, progress ProgressFunc) (convertedClip, error) {
+	opt := optionsForClip(project, input)
 	info, err := inspectMedia(opt.FFmpegPath, input.InputPath)
 	if err != nil {
 		return convertedClip{}, fmt.Errorf("%s: %w", input.Name, err)
@@ -1093,7 +1146,7 @@ func convertClip(opt ProjectOptions, input ClipInput, tempDir string, index, tot
 	if err != nil {
 		return convertedClip{}, err
 	}
-	return convertedClip{input: input, info: info, frameCount: frameCount, paletteCount: paletteCount, hasAudio: hasAudio, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: raw, storedVideo: stored, duration: duration}, nil
+	return convertedClip{input: input, options: opt, info: info, frameCount: frameCount, paletteCount: paletteCount, hasAudio: hasAudio, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: raw, storedVideo: stored, duration: duration}, nil
 }
 
 func appendFile(rom []byte, path string) ([]byte, int, error) {
@@ -1105,7 +1158,8 @@ func appendFile(rom []byte, path string) ([]byte, int, error) {
 	return appendAligned(rom, data), off, nil
 }
 
-func writeClipDescriptor(dst []byte, c convertedClip, opt ProjectOptions, offsets map[string]int) {
+func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
+	opt := c.options
 	flags := uint16(0)
 	if c.hasAudio {
 		flags |= 1
@@ -1168,7 +1222,7 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 				return ConvertResult{}, err
 			}
 		}
-		if opt.Compression == "delta" {
+		if c.options.Compression == "delta" {
 			rom, offsets["videoIndex"], err = appendFile(rom, c.videoIndex)
 			if err != nil {
 				return ConvertResult{}, err
@@ -1186,7 +1240,7 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 			offsets["seek"] = len(rom)
 			seek := make([]byte, c.frameCount*4)
 			for frame := 0; frame < c.frameCount; frame++ {
-				off := int64(math.Floor(float64(frame*opt.VBlanks)*audioRate/gbaRefresh)) &^ 3
+				off := int64(math.Floor(float64(frame*c.options.VBlanks)*audioRate/gbaRefresh)) &^ 3
 				if len(audioData) >= 4 && off > int64(len(audioData)-4) {
 					off = int64(len(audioData)-4) &^ 3
 				}
@@ -1197,7 +1251,7 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 			offsets["audioSize"] = len(audioData)
 			rom = appendAligned(rom, audioData)
 		}
-		writeClipDescriptor(rom[clipTableOffset+i*clipDescriptorSize:clipTableOffset+(i+1)*clipDescriptorSize], c, opt, offsets)
+		writeClipDescriptor(rom[clipTableOffset+i*clipDescriptorSize:clipTableOffset+(i+1)*clipDescriptorSize], c, offsets)
 		totalFrames += c.frameCount
 		rawVideo += c.rawVideo
 		storedVideo += c.storedVideo
@@ -1215,6 +1269,9 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	}
 	if opt.OutputMode == "playlist" {
 		flags |= 0x0002
+	}
+	if opt.MenuPreview && opt.OutputMode == "menu" {
+		flags |= 0x0004
 	}
 	binary.LittleEndian.PutUint16(meta[6:8], flags)
 	binary.LittleEndian.PutUint16(meta[8:10], uint16(len(clips)))
@@ -1253,6 +1310,9 @@ func convertProject(opt ProjectOptions, progress ProgressFunc) (ConvertResult, e
 	if opt.SeekSeconds == 0 {
 		opt.SeekSeconds = 5
 	}
+	if opt.FitMode == "" {
+		opt.FitMode = "fit"
+	}
 	if opt.Compression == "" {
 		opt.Compression = "delta"
 	}
@@ -1271,7 +1331,7 @@ func convertProject(opt ProjectOptions, progress ProgressFunc) (ConvertResult, e
 	if err := validateProject(opt); err != nil {
 		return ConvertResult{}, err
 	}
-	tempDir, err := os.MkdirTemp("", "gba-video-maker-v080-")
+	tempDir, err := os.MkdirTemp("", "gba-video-maker-v090-")
 	if err != nil {
 		return ConvertResult{}, err
 	}

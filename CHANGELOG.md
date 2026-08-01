@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.0] - 2026-08-01
+
+### Added
+
+- Per-video settings with project-default inheritance for title, trim, speed, framing, audio, volume, loop, palette, and dithering
+- Drag-and-drop clip ordering plus accessible Move up and Move down controls
+- `.gbavideo` save/open support using source file paths and relinking for moved files
+- Timeline scrubbing with playhead, start/end handles, thumbnails, fine adjustment, and quick jumps
+- Smart 32 MiB optimizer with a reviewable proposal before applying changes
+- Live GBA-font clip-title preview, character validation, duplicate-title warnings, and filename reset
+- Optional selected-clip thumbnail in menu ROMs
+- Playlist previous/next controls on `SELECT + Left/Right`
+
+### Changed
+
+- Fit with bars is now the default framing mode
+- Multi-clip conversion now resolves trim, framing, audio, palette, dithering, and looping independently for each clip
+
 ## [0.8.0] - 2026-07-31
 
 ### UI refinement update

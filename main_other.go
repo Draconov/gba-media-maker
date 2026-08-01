@@ -18,7 +18,7 @@ func main() {
 	loop := flag.Bool("loop", false, "loop when playback ends")
 	seek := flag.Int("seek", 5, "seek step: 3, 5, 10 or 15 seconds")
 	vblanks := flag.Int("vblanks", 6, "VBlanks per frame: 4, 5, 6 or 8")
-	fit := flag.String("fit", "crop", "fit, crop or stretch")
+	fit := flag.String("fit", "fit", "fit, crop or stretch")
 	audio := flag.String("audio", "mix", "mix, left, right or none")
 	normalize := flag.Bool("normalize", false, "normalize audio")
 	limiter := flag.Bool("limiter", true, "apply audio limiter")

@@ -63,10 +63,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.8.0")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.9.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -362,9 +362,10 @@ func TestMultiClipMenuAndBatch(t *testing.T) {
 	b := filepath.Join(dir, "b.mkv")
 	makeFixture(t, ff, a, .7, "10")
 	makeFixture(t, ff, b, .7, "120")
-	base := ProjectOptions{Inputs: []ClipInput{{a, "A.mkv", "CAT"}, {b, "B.mkv", "INTRO"}}, FFmpegPath: ff, Start: 0, End: .6, Speed: 1, VBlanks: 8, FitMode: "fit", AudioMode: "none", Volume: 1, RomTitle: "COLLECTION", SeekSeconds: 10, Resume: true, Compression: "delta", PaletteMode: "scene", DitherMode: "off", KeyInterval: 15}
+	base := ProjectOptions{Inputs: []ClipInput{{InputPath: a, Name: "A.mkv", Title: "CAT"}, {InputPath: b, Name: "B.mkv", Title: "INTRO"}}, FFmpegPath: ff, Start: 0, End: .6, Speed: 1, VBlanks: 8, FitMode: "fit", AudioMode: "none", Volume: 1, RomTitle: "COLLECTION", SeekSeconds: 10, Resume: true, Compression: "delta", PaletteMode: "scene", DitherMode: "off", KeyInterval: 15}
 	base.OutputPath = filepath.Join(dir, "menu.gba")
 	base.OutputMode = "menu"
+	base.MenuPreview = true
 	res, err := convertProject(base, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -372,6 +373,9 @@ func TestMultiClipMenuAndBatch(t *testing.T) {
 	rom, _ := os.ReadFile(res.OutputPath)
 	if binary.LittleEndian.Uint16(rom[metadataOffset+8:]) != 2 {
 		t.Fatal("menu clip count")
+	}
+	if binary.LittleEndian.Uint16(rom[metadataOffset+6:])&0x0004 == 0 {
+		t.Fatal("menu preview flag missing")
 	}
 	base.OutputPath = filepath.Join(dir, "batch.zip")
 	base.OutputMode = "batch"
@@ -386,5 +390,70 @@ func TestMultiClipMenuAndBatch(t *testing.T) {
 	defer zr.Close()
 	if len(zr.File) != 2 {
 		t.Fatalf("batch files=%d", len(zr.File))
+	}
+}
+
+func TestPerClipOverrides(t *testing.T) {
+	ff := commandExists("ffmpeg")
+	if ff == "" {
+		t.Skip("ffmpeg missing")
+	}
+	dir := t.TempDir()
+	a := filepath.Join(dir, "default.mkv")
+	b := filepath.Join(dir, "custom.mkv")
+	makeFixture(t, ff, a, 1.0, "15")
+	makeFixture(t, ff, b, 1.0, "90")
+	opt := ProjectOptions{
+		Inputs: []ClipInput{
+			{InputPath: a, Name: "default.mkv", Title: "DEFAULT"},
+			{InputPath: b, Name: "custom.mkv", Title: "CUSTOM", Custom: true, Start: .1, End: .8, Speed: 2, FitMode: "crop", AudioMode: "none", Volume: 1, Loop: true, PaletteMode: "shared", DitherMode: "off"},
+		},
+		OutputPath: filepath.Join(dir, "per-clip.gba"), FFmpegPath: ff,
+		Start: 0, End: .9, Speed: 1, VBlanks: 6, FitMode: "fit", AudioMode: "mix", Volume: 1,
+		RomTitle: "PER CLIP", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered", OutputMode: "menu", KeyInterval: 30,
+	}
+	if _, err := convertProject(opt, nil); err != nil {
+		t.Fatal(err)
+	}
+	rom, err := os.ReadFile(opt.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := int(binary.LittleEndian.Uint32(rom[metadataOffset+12:]))
+	first := rom[table : table+clipDescriptorSize]
+	second := rom[table+clipDescriptorSize : table+2*clipDescriptorSize]
+	firstFlags := binary.LittleEndian.Uint16(first[50:52])
+	secondFlags := binary.LittleEndian.Uint16(second[50:52])
+	if firstFlags&CLIP_FLAG_AUDIO_TEST == 0 {
+		t.Fatal("default clip audio was lost")
+	}
+	if secondFlags&CLIP_FLAG_AUDIO_TEST != 0 || secondFlags&CLIP_FLAG_LOOP_TEST == 0 {
+		t.Fatalf("custom flags=%x", secondFlags)
+	}
+	firstFrames := binary.LittleEndian.Uint32(first[0:4])
+	secondFrames := binary.LittleEndian.Uint32(second[0:4])
+	if secondFrames >= firstFrames {
+		t.Fatalf("custom speed/trim not applied: first=%d second=%d", firstFrames, secondFrames)
+	}
+	if got := strings.TrimSpace(strings.TrimRight(string(second[60:72]), "\x00")); got != "CUSTOM" {
+		t.Fatalf("custom title=%q", got)
+	}
+}
+
+const (
+	CLIP_FLAG_AUDIO_TEST = 0x0001
+	CLIP_FLAG_LOOP_TEST  = 0x0002
+)
+
+func TestReorderVideos(t *testing.T) {
+	state := &appState{videos: []uploadedVideo{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}, {ID: "c", Name: "C"}}}
+	if err := state.reorderVideos([]string{"c", "a", "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := state.videos[0].ID + state.videos[1].ID + state.videos[2].ID; got != "cab" {
+		t.Fatalf("order=%s", got)
+	}
+	if err := state.reorderVideos([]string{"a", "a", "b"}); err == nil {
+		t.Fatal("duplicate order accepted")
 	}
 }

@@ -1,210 +1,698 @@
-const TOKEN = document.querySelector('meta[name="gbavm-session-token"]').content, BASE = '/' + TOKEN + '/api', $ = id => document.getElementById(id);
-let state = null, pollTimer = null, uploadBusy = false, selected = 0, previewMode = 'start', audioURL = '', lastPreviewKey = '', romTitleAuto = true;
-function headers(x = {}) { return Object.assign({ 'X-GBA-Token': TOKEN }, x); }
-function show(id) { ['welcome', 'loading', 'editor'].forEach(x => $(x).classList.toggle('hidden', x !== id)); $('topBar').classList.toggle('hidden', id !== 'editor'); }
-async function api(path, opt = {}) { opt.headers = headers(opt.headers || {}); let r = await fetch(BASE + path, opt); if (!r.ok) {
-    let x;
-    try {
-        x = await r.json();
-    }
-    catch {
-        x = { error: await r.text() };
-    }
-    throw Error(x.error || 'Request failed');
-} ; return r.status === 204 ? null : r.json(); }
-function fmt(sec) { sec = Math.max(0, +sec || 0); let m = Math.floor(sec / 60), s = Math.floor(sec % 60); return m + ':' + String(s).padStart(2, '0'); }
-function parseClock(s) { if (String(s).trim() === '')
-    return 0; let a = String(s).split(':').map(Number); if (a.some(x => !isFinite(x)))
-    return NaN; return a.length === 3 ? a[0] * 3600 + a[1] * 60 + a[2] : a.length === 2 ? a[0] * 60 + a[1] : a[0]; }
-function titleName(n) { return (n.replace(/\.[^.]+$/, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() || 'GBA VIDEO').slice(0, 12); }
-function choose(append = false) { $('picker').dataset.append = append ? '1' : '0'; $('picker').click(); }
-$('welcome').onclick = () => choose(false);
-$('welcome').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault();
-    choose(false);
-} };
-$('addVideos').onclick = () => choose(true);
-$('picker').onchange = () => { let f = [...$('picker').files]; if (f.length)
-    upload(f, $('picker').dataset.append === '1'); $('picker').value = ''; };
-for (const ev of ['dragenter', 'dragover'])
-    document.addEventListener(ev, e => { e.preventDefault(); $('welcome').classList.add('drag'); });
-for (const ev of ['dragleave', 'drop'])
-    document.addEventListener(ev, e => { e.preventDefault(); $('welcome').classList.remove('drag'); });
-document.addEventListener('drop', e => { let f = [...(e.dataTransfer?.files || [])]; if (f.length)
-    upload(f, state && state.videos?.length); });
-function upload(files, append) { if (uploadBusy)
-    return; if (!append)
-    romTitleAuto = true; uploadBusy = true; show('loading'); $('loadingTitle').textContent = 'Loading ' + files.length + ' video' + (files.length === 1 ? '' : 's') + '…'; $('loadingText').textContent = 'Copying files into the portable workspace.'; let form = new FormData(); files.forEach(f => form.append('video', f, f.name)); let x = new XMLHttpRequest(); x.open('POST', BASE + '/upload?append=' + (append ? 1 : 0)); x.setRequestHeader('X-GBA-Token', TOKEN); x.upload.onprogress = e => { if (e.lengthComputable)
-    $('loadingFill').style.width = Math.round(e.loaded / e.total * 100) + '%'; }; x.onload = () => { uploadBusy = false; if (x.status < 300) {
-    lastPreviewKey = '';
-    $('previewImage').removeAttribute('src');
-    poll();
+const TOKEN = document.querySelector('meta[name="gbavm-session-token"]').content;
+const BASE = '/' + TOKEN + '/api';
+const $ = id => document.getElementById(id);
+
+const DEFAULT_CLIP = Object.freeze({
+  start: '0:00', end: '', speed: 1, fit: 'fit', audio: 'mix', volume: 100,
+  loop: false, paletteMode: 'shared', ditherMode: 'ordered'
+});
+const FPS_VBLANKS = {smooth: 4, balanced: 5, classic: 6, compact: 8};
+const FPS_ORDER = ['smooth', 'balanced', 'classic', 'compact'];
+const ROM_LIMIT = 32 * 1024 * 1024;
+
+let state = null;
+let pollTimer = null;
+let uploadBusy = false;
+let selectedID = '';
+let editScope = 'project';
+let projectDefaults = {...DEFAULT_CLIP};
+let clipConfigs = {};
+let playheads = {};
+let lastPreviewKey = '';
+let lastThumbKey = '';
+let audioURL = '';
+let romTitleAuto = true;
+let pendingProject = null;
+let draggedID = '';
+let optimizerProposal = null;
+let scopeInitialized = false;
+
+function headers(extra = {}) { return Object.assign({'X-GBA-Token': TOKEN}, extra); }
+async function api(path, options = {}) {
+  options.headers = headers(options.headers || {});
+  const response = await fetch(BASE + path, options);
+  if (!response.ok) {
+    let body;
+    try { body = await response.json(); } catch { body = {error: await response.text()}; }
+    const error = new Error(body.error || 'Request failed');
+    error.status = response.status;
+    throw error;
+  }
+  return response.status === 204 ? null : response.json();
 }
-else {
-    showLoadError('Upload failed');
-} }; x.onerror = () => { uploadBusy = false; showLoadError('Upload failed'); }; x.send(form); }
-function showLoadError(m) { show('loading'); $('loadingTitle').textContent = 'Could not open videos'; $('loadingText').textContent = m; }
-async function poll() { try {
+function show(id) {
+  ['welcome', 'loading', 'editor'].forEach(name => $(name).classList.toggle('hidden', name !== id));
+  $('topBar').classList.toggle('hidden', id !== 'editor');
+}
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmt(seconds) {
+  seconds = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(seconds / 60);
+  return minutes + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
+}
+function precise(seconds) {
+  seconds = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(seconds / 60);
+  return minutes + ':' + (seconds % 60).toFixed(2).padStart(5, '0');
+}
+function parseClock(value) {
+  if (String(value).trim() === '') return 0;
+  const parts = String(value).split(':').map(Number);
+  if (parts.some(x => !Number.isFinite(x))) return NaN;
+  return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+    : parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0];
+}
+function clockValue(seconds) {
+  seconds = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds - minutes * 60;
+  return minutes + ':' + rest.toFixed(2).padStart(5, '0');
+}
+function titleFromFilename(name) {
+  return sanitizeMenuTitle(name.replace(/\.[^.]+$/, '')).value || 'GBA VIDEO';
+}
+function sanitizeMenuTitle(value) {
+  const upper = String(value || '').toUpperCase();
+  const invalid = /[^A-Z0-9 ]/.test(upper);
+  const cleaned = upper.replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').slice(0, 12);
+  return {value: cleaned, invalid};
+}
+function selectedIndex() { return state?.videos?.findIndex(v => v.id === selectedID) ?? -1; }
+function selectedVideo() { return state?.videos?.find(v => v.id === selectedID) || state?.videos?.[0]; }
+function cloneClip(settings) { return {...DEFAULT_CLIP, ...settings}; }
+function effectiveClip(id) {
+  const config = clipConfigs[id] || {title: 'GBA VIDEO', useProject: true, ...DEFAULT_CLIP};
+  return config.useProject ? {...projectDefaults, title: config.title, useProject: true}
+    : {...cloneClip(config), title: config.title, useProject: false};
+}
+function ensureClipConfigs() {
+  if (!state?.videos) return;
+  const valid = new Set(state.videos.map(v => v.id));
+  for (const id of Object.keys(clipConfigs)) if (!valid.has(id)) delete clipConfigs[id];
+  for (const video of state.videos) {
+    if (!clipConfigs[video.id]) {
+      clipConfigs[video.id] = {title: titleFromFilename(video.name), useProject: true, ...DEFAULT_CLIP};
+    }
+  }
+  if (!selectedID || !valid.has(selectedID)) selectedID = state.videos[0]?.id || '';
+}
+
+async function poll() {
+  try {
     state = await api('/state');
     render();
+  } catch (error) {
+    console.error(error);
+  }
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(poll, 500);
 }
-catch (e) {
-    console.error(e);
-} clearTimeout(pollTimer); pollTimer = setTimeout(poll, 500); }
 function render() {
-    if (!state)
-        return;
-    if (!state.videos || !state.videos.length) {
-        show('welcome');
-        $('clipInfo').textContent = '';
-        return;
-    }
-    if (state.inspectStatus === 'waiting' || state.inspectStatus === 'inspecting') {
-        show('loading');
-        $('loadingTitle').textContent = state.inspectStatus === 'waiting' ? 'Preparing the app…' : 'Opening videos…';
-        $('loadingText').textContent = state.inspectStatus === 'waiting' ? (state.engineMessage || 'Preparing FFmpeg') : 'Reading duration, dimensions and audio streams.';
-        $('loadingFill').style.width = (state.engineProgress || 0) + '%';
-    }
-    if (state.engineStatus === 'error' || state.engineStatus === 'missing') {
-        show('loading');
-        $('engineError').textContent = state.engineMessage;
-        $('engineError').classList.remove('hidden');
-        $('retryEngine').classList.remove('hidden');
-    }
-    if (state.inspectStatus === 'error') {
-        show('loading');
-        showLoadError(state.inspectError || 'A video could not be inspected.');
-    }
-    if (state.inspectStatus === 'ready') {
-        show('editor');
-        if (selected >= state.videos.length)
-            selected = 0;
-        renderClips();
-        updatePreview();
-        estimate();
-    }
-    let ids = ['preset', 'start', 'end', 'speed', 'fps', 'fit', 'seekSeconds', 'paletteMode', 'ditherMode', 'compression', 'audio', 'volume', 'normalize', 'limiter', 'romTitle', 'outputMode', 'loop', 'resume'];
-    ids.forEach(id => $(id).disabled = !!state.converting);
-    $('convert').disabled = !!state.converting;
-    if (state.converting) {
-        $('progressWrap').classList.remove('hidden');
-        $('done').classList.add('hidden');
-        $('convertError').classList.add('hidden');
-        $('progressText').textContent = state.progressMessage;
-        $('progressPct').textContent = state.progress + '%';
-        $('progressFill').style.width = state.progress + '%';
-    }
-    else if (state.result) {
-        $('progressWrap').classList.remove('hidden');
-        $('progressText').textContent = 'Output created successfully';
-        $('progressPct').textContent = '100%';
-        $('progressFill').style.width = '100%';
-        $('done').classList.remove('hidden');
-    }
-    else if (state.convertError) {
-        $('convertError').textContent = state.convertError;
-        $('convertError').classList.remove('hidden');
-    }
-}
-async function removeVideo(i) { try {
-    await api('/video/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: i }) });
-    lastPreviewKey = '';
-    $('previewImage').removeAttribute('src');
-    selected = Math.max(0, Math.min(selected, state.videos.length - 2));
-    await poll();
-    if (!state?.videos?.length) {
-        selected = 0;
-        $('clipInfo').textContent = '';
-        show('welcome');
-    }
-}
-catch (e) {
-    alert(e.message);
-} }
-function renderClips() { let h = ''; state.videos.forEach((v, i) => { let inf = v.info; h += '<div class="clip ' + (i === selected ? 'active' : '') + '" data-i="' + i + '"><div class="clip-info"><b>' + (i + 1) + '. ' + escapeHTML(v.name) + '</b><small>' + (inf ? (inf.width + '×' + inf.height + ' • ' + fmt(inf.duration) + (inf.audioStreams ? ' • audio' : ' • silent')) : v.status) + '</small></div><button class="clip-remove" type="button" data-remove="' + i + '" title="Remove this video" aria-label="Remove ' + escapeHTML(v.name) + '">×</button></div>'; }); $('clips').innerHTML = h; [...$('clips').querySelectorAll('.clip')].forEach(el => el.onclick = e => { if (e.target.closest('.clip-remove'))
-    return; selected = +el.dataset.i; renderClips(); updatePreview(); }); [...$('clips').querySelectorAll('.clip-remove')].forEach(el => el.onclick = e => { e.stopPropagation(); removeVideo(+el.dataset.remove); }); let v = state.videos[selected]; if (v?.info)
-    $('clipInfo').textContent = 'Previewing ' + v.name + ' • ' + v.info.fps.toFixed(2) + ' source fps';
-else
-    $('clipInfo').textContent = ''; if (romTitleAuto && state.videos[0])
-    $('romTitle').value = titleName(state.videos[0].name); let modeSel = $('outputMode'), current = modeSel.value; if (state.videos.length === 1) {
-    modeSel.innerHTML = '<option value="rom">Single ROM</option>';
-    modeSel.value = 'rom';
-}
-else {
-    modeSel.innerHTML = '<option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option>';
-    modeSel.value = ['playlist', 'menu', 'batch'].includes(current) ? current : 'playlist';
-} }
-function escapeHTML(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-let previewTimer;
-function updatePreview() { if (!state?.videos?.[selected]?.info)
-    return; clearTimeout(previewTimer); previewTimer = setTimeout(() => { let v = state.videos[selected], t = previewMode === 'end' ? parseClock($('end').value) : parseClock($('start').value); if (previewMode === 'end' && (!$('end').value.trim() || !isFinite(t)))
-    t = v.info.duration; t = Math.min(Math.max(0, t), v.info.duration); let key = [selected, t.toFixed(3), $('fit').value, previewMode].join('|'); if (key === lastPreviewKey && $('previewImage').src)
-    return; lastPreviewKey = key; let img = $('previewImage'); img.onerror = () => { img.removeAttribute('src'); }; img.src = BASE + '/preview?index=' + selected + '&time=' + encodeURIComponent(t) + '&fit=' + $('fit').value + '&key=' + encodeURIComponent(key); }, 160); }
-$('previewStart').onclick = () => { previewMode = 'start'; lastPreviewKey = ''; updatePreview(); };
-$('previewEnd').onclick = () => { previewMode = 'end'; lastPreviewKey = ''; updatePreview(); };
-function values() { return { start: $('start').value, end: $('end').value, speed: +$('speed').value, fps: $('fps').value, fit: $('fit').value, audio: $('audio').value, volume: +$('volume').value, loop: $('loop').checked, romTitle: $('romTitle').value, seekSeconds: +$('seekSeconds').value, normalize: $('normalize').checked, limiter: $('limiter').checked, resume: $('resume').checked, compression: $('compression').value, paletteMode: $('paletteMode').value, ditherMode: $('ditherMode').value, outputMode: $('outputMode').value }; }
-const presets = { best: { fps: 'smooth', audio: 'mix', paletteMode: 'scene', ditherMode: 'error', compression: 'delta', normalize: true, limiter: true }, balanced: { fps: 'balanced', audio: 'mix', paletteMode: 'shared', ditherMode: 'ordered', compression: 'delta', normalize: false, limiter: true }, long: { fps: 'compact', audio: 'mix', paletteMode: 'shared', ditherMode: 'ordered', compression: 'delta', normalize: false, limiter: true }, small: { fps: 'compact', audio: 'none', paletteMode: 'shared', ditherMode: 'off', compression: 'delta', normalize: false, limiter: false } };
-function applyPreset() { let p = presets[$('preset').value]; if (!p)
-    return; Object.entries(p).forEach(([k, v]) => { let e = $(k); if (e.type === 'checkbox')
-    e.checked = v;
-else
-    e.value = v; }); estimate(); updatePreview(); }
-$('preset').onchange = applyPreset;
-function markCustom(e) { if (e.target.id !== 'preset')
-    $('preset').value = 'custom'; }
-function estimate() { if (!state?.videos?.length)
-    return; let v = values(), start = parseClock(v.start), endText = v.end.trim(), vb = { smooth: 4, balanced: 5, classic: 6, compact: 8 }[v.fps], fps = 59.727500569606 / vb, totalFrames = 0, raw = 16384 + state.videos.length * 96, totalDur = 0; for (let x of state.videos) {
-    if (!x.info)
-        continue;
-    let end = endText ? Math.min(parseClock(endText), x.info.duration) : x.info.duration;
-    if (!isFinite(start) || !isFinite(end) || end <= start) {
-        $('estimate').textContent = 'Check trim settings.';
-        return;
-    }
-    let d = (end - start) / v.speed, f = Math.max(1, Math.ceil(d * fps));
-    totalFrames += f;
-    totalDur += end - start;
-    let pals = v.paletteMode === 'scene' ? Math.ceil(f / 60) : 1;
-    raw += pals * 512 + (pals > 1 ? f * 2 : 0) + f * 9600 + (v.compression === 'delta' ? f * 16 : 0);
-    if (v.audio !== 'none' && x.info.audioStreams)
-        raw += f * 4 + Math.ceil((f * vb / 59.7275) * 16384 / 16) * 16;
-} let p = 1048576; while (p < raw)
-    p *= 2; let bps = fps * 9600 + (v.audio !== 'none' ? 16384 + fps * 4 : 0), limit = (33554432 - 16384) / bps * v.speed; $('estimate').innerHTML = (raw > 33554432 ? '<b class="estimate-over">Worst-case estimate exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (p / 1048576) + ' MiB</b>') + '<br>Worst-case data: ' + (raw / 1048576).toFixed(2) + ' MiB • ' + totalFrames + ' frames • ' + fps.toFixed(2) + ' fps<br>Approximate single-clip duration limit: ' + fmt(limit) + ' <span class="pill">delta compression may improve it</span>'; }
-for (let id of ['start', 'end', 'speed', 'fps', 'fit', 'seekSeconds', 'paletteMode', 'ditherMode', 'compression', 'audio', 'volume', 'normalize', 'limiter'])
-    $(id).addEventListener('input', e => { markCustom(e); estimate(); if (['start', 'end', 'fit'].includes(id))
-        updatePreview(); });
-$('romTitle').addEventListener('input', () => { romTitleAuto = false; });
-$('audioPreview').onclick = async () => { try {
-    $('audioPreview').disabled = true;
-    let r = await fetch(BASE + '/audio-preview?index=' + selected, { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(values()) });
-    if (!r.ok) {
-        let x = await r.json();
-        throw Error(x.error);
-    }
-    let b = await r.blob();
-    if (audioURL)
-        URL.revokeObjectURL(audioURL);
-    audioURL = URL.createObjectURL(b);
-    $('audioPlayer').src = audioURL;
-    $('audioPlayer').play();
-}
-catch (e) {
-    alert(e.message);
-}
-finally {
-    $('audioPreview').disabled = false;
-} };
-$('convert').onclick = async () => { try {
-    await api('/convert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values()) });
-    poll();
-}
-catch (e) {
-    $('convertError').textContent = e.message;
+  if (!state) return;
+  if (!state.videos?.length) {
+    show('welcome');
+    $('clipInfo').textContent = '';
+    return;
+  }
+  if (state.inspectStatus === 'waiting' || state.inspectStatus === 'inspecting') {
+    show('loading');
+    $('loadingTitle').textContent = state.inspectStatus === 'waiting' ? 'Preparing the app…' : 'Opening videos…';
+    $('loadingText').textContent = state.inspectStatus === 'waiting'
+      ? (state.engineMessage || 'Preparing FFmpeg') : 'Reading duration, dimensions and audio streams.';
+    $('loadingFill').style.width = (state.engineProgress || 0) + '%';
+  }
+  if (state.engineStatus === 'missing' || state.engineStatus === 'error') {
+    show('loading');
+    $('engineError').textContent = state.engineMessage;
+    $('engineError').classList.remove('hidden');
+    $('retryEngine').classList.remove('hidden');
+  }
+  if (state.inspectStatus === 'error') {
+    show('loading');
+    $('loadingTitle').textContent = 'Could not open videos';
+    $('loadingText').textContent = state.inspectError || 'A video could not be inspected.';
+  }
+  if (state.inspectStatus === 'ready') {
+    show('editor');
+    ensureClipConfigs();
+    if (pendingProject) applyPendingProject();
+    renderClips();
+    updateOutputModes();
+    refreshScope(!scopeInitialized);
+    scopeInitialized = true;
+    syncTimeline(false);
+    estimate();
+  }
+  setConvertingState(!!state.converting);
+  if (state.converting) {
+    $('progressWrap').classList.remove('hidden');
+    $('done').classList.add('hidden');
+    $('convertError').classList.add('hidden');
+    $('progressText').textContent = state.progressMessage;
+    $('progressPct').textContent = state.progress + '%';
+    $('progressFill').style.width = state.progress + '%';
+  } else if (state.result) {
+    $('progressWrap').classList.remove('hidden');
+    $('progressText').textContent = 'Output created successfully';
+    $('progressPct').textContent = '100%';
+    $('progressFill').style.width = '100%';
+    $('done').classList.remove('hidden');
+  } else if (state.convertError) {
+    $('convertError').textContent = state.convertError;
     $('convertError').classList.remove('hidden');
-} };
-$('download').onclick = () => { let a = document.createElement('a'); a.href = BASE + '/download'; a.download = state.downloadName || 'GBA_Video_Maker_output'; a.click(); };
-$('retryEngine').onclick = () => api('/engine/retry', { method: 'POST' });
-$('resetTop').onclick = async () => { await api('/reset', { method: 'POST' }); state = null; selected = 0; lastPreviewKey = ''; romTitleAuto = true; $('romTitle').value = ''; show('welcome'); };
-setInterval(() => fetch(BASE + '/heartbeat', { method: 'POST', headers: headers(), keepalive: true }).catch(() => { }), 5000);
-window.addEventListener('pagehide', () => fetch(BASE + '/close-intent', { method: 'POST', headers: headers(), keepalive: true }).catch(() => { }));
+  }
+}
+function setConvertingState(busy) {
+  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','menuPreview','useProject','menuTitle'];
+  ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
+  ['convert','optimize','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
+}
+
+async function chooseNative(append) {
+  try {
+    const response = await api('/dialog/videos?append=' + (append ? '1' : '0'), {method: 'POST'});
+    if (!response?.cancelled) {
+      lastPreviewKey = '';
+      lastThumbKey = '';
+      await poll();
+    }
+  } catch (error) {
+    if (error.status === 501) {
+      $('picker').dataset.append = append ? '1' : '0';
+      $('picker').click();
+    } else alert(error.message);
+  }
+}
+function upload(files, append) {
+  if (uploadBusy || !files.length) return;
+  uploadBusy = true;
+  if (!append) romTitleAuto = true;
+  show('loading');
+  $('loadingTitle').textContent = 'Loading ' + files.length + ' video' + (files.length === 1 ? '' : 's') + '…';
+  $('loadingText').textContent = 'Copying files into the portable workspace.';
+  const form = new FormData();
+  files.forEach(file => form.append('video', file, file.name));
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', BASE + '/upload?append=' + (append ? 1 : 0));
+  xhr.setRequestHeader('X-GBA-Token', TOKEN);
+  xhr.upload.onprogress = event => { if (event.lengthComputable) $('loadingFill').style.width = Math.round(event.loaded / event.total * 100) + '%'; };
+  xhr.onload = () => {
+    uploadBusy = false;
+    if (xhr.status < 300) { lastPreviewKey = ''; lastThumbKey = ''; $('previewImage').removeAttribute('src'); poll(); }
+    else { show('loading'); $('loadingText').textContent = 'Upload failed.'; }
+  };
+  xhr.onerror = () => { uploadBusy = false; show('loading'); $('loadingText').textContent = 'Upload failed.'; };
+  xhr.send(form);
+}
+$('chooseVideos').onclick = event => { event.stopPropagation(); chooseNative(false); };
+$('addVideos').onclick = () => chooseNative(true);
+$('welcome').onclick = event => { if (!event.target.closest('button')) chooseNative(false); };
+$('welcome').onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseNative(false); } };
+$('picker').onchange = () => { const files = [...$('picker').files]; if (files.length) upload(files, $('picker').dataset.append === '1'); $('picker').value = ''; };
+for (const name of ['dragenter','dragover']) document.addEventListener(name, event => { event.preventDefault(); $('welcome').classList.add('drag'); });
+for (const name of ['dragleave','drop']) document.addEventListener(name, event => { event.preventDefault(); $('welcome').classList.remove('drag'); });
+document.addEventListener('drop', event => { const files = [...(event.dataTransfer?.files || [])]; if (files.length) upload(files, !!state?.videos?.length); });
+
+function renderClips() {
+  if (!state?.videos) return;
+  const html = state.videos.map((video, index) => {
+    const info = video.info;
+    const config = clipConfigs[video.id];
+    const status = info ? info.width + '×' + info.height + ' • ' + fmt(info.duration) + (info.audioStreams ? ' • audio' : ' • silent') : (video.error || video.status);
+    const relink = video.needsRelink ? '<button class="clip-action relink" data-relink="' + index + '" title="Relink source file">↻</button>' : '';
+    return '<div class="clip ' + (video.id === selectedID ? 'active' : '') + '" draggable="true" data-id="' + video.id + '">' +
+      '<span class="clip-handle" title="Drag to reorder">⋮⋮</span><div class="clip-info"><b>' + (index + 1) + '. ' + escapeHTML(video.name) + '</b><small>' + escapeHTML(status) + '</small>' +
+      '<span class="clip-badge ' + (config?.useProject ? '' : 'custom') + '">' + (config?.useProject ? 'Project' : 'Custom') + '</span></div>' + relink +
+      '<button class="clip-action remove" data-remove="' + index + '" title="Remove this video">×</button></div>';
+  }).join('');
+  $('clips').innerHTML = html;
+  for (const element of $('clips').querySelectorAll('.clip')) {
+    element.onclick = event => {
+      if (event.target.closest('button')) return;
+      selectedID = element.dataset.id;
+      editScope = 'clip';
+      refreshScope(true);
+      renderClips();
+      syncTimeline(true);
+    };
+    element.ondragstart = event => { draggedID = element.dataset.id; element.classList.add('dragging'); event.dataTransfer.effectAllowed = 'move'; };
+    element.ondragend = () => { draggedID = ''; element.classList.remove('dragging'); document.querySelectorAll('.drop-before').forEach(x => x.classList.remove('drop-before')); };
+    element.ondragover = event => { event.preventDefault(); if (draggedID && draggedID !== element.dataset.id) element.classList.add('drop-before'); };
+    element.ondragleave = () => element.classList.remove('drop-before');
+    element.ondrop = async event => {
+      event.preventDefault();
+      element.classList.remove('drop-before');
+      if (!draggedID || draggedID === element.dataset.id) return;
+      const ids = state.videos.map(v => v.id);
+      const from = ids.indexOf(draggedID), to = ids.indexOf(element.dataset.id);
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      await applyOrder(ids);
+    };
+  }
+  for (const button of $('clips').querySelectorAll('[data-remove]')) button.onclick = event => { event.stopPropagation(); removeVideo(+button.dataset.remove); };
+  for (const button of $('clips').querySelectorAll('[data-relink]')) button.onclick = event => { event.stopPropagation(); relinkVideo(+button.dataset.relink); };
+  const video = selectedVideo();
+  $('clipInfo').textContent = video?.info ? 'Previewing ' + video.name + ' • ' + video.info.fps.toFixed(2) + ' source fps' : (video?.error || '');
+  if (romTitleAuto && state.videos[0]) $('romTitle').value = titleFromFilename(state.videos[0].name);
+  $('moveUp').disabled = selectedIndex() <= 0 || state.converting;
+  $('moveDown').disabled = selectedIndex() < 0 || selectedIndex() >= state.videos.length - 1 || state.converting;
+}
+async function applyOrder(ids) {
+  const map = new Map(state.videos.map(v => [v.id, v]));
+  state.videos = ids.map(id => map.get(id));
+  renderClips();
+  updateOutputModes();
+  estimate();
+  try { await api('/video/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids})}); }
+  catch (error) { alert(error.message); await poll(); }
+}
+async function moveSelected(delta) {
+  const ids = state.videos.map(v => v.id);
+  const index = ids.indexOf(selectedID), target = index + delta;
+  if (index < 0 || target < 0 || target >= ids.length) return;
+  [ids[index], ids[target]] = [ids[target], ids[index]];
+  await applyOrder(ids);
+}
+$('moveUp').onclick = () => moveSelected(-1);
+$('moveDown').onclick = () => moveSelected(1);
+async function removeVideo(index) {
+  try {
+    const removedID = state.videos[index]?.id;
+    await api('/video/remove', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+    if (removedID) delete clipConfigs[removedID];
+    if (selectedID === removedID) selectedID = state.videos[Math.max(0, index - 1)]?.id || '';
+    lastPreviewKey = ''; lastThumbKey = '';
+    await poll();
+  } catch (error) { alert(error.message); }
+}
+async function relinkVideo(index) {
+  try {
+    const response = await api('/video/relink?index=' + index, {method:'POST'});
+    if (!response.cancelled) { lastPreviewKey = ''; lastThumbKey = ''; await poll(); }
+  } catch (error) { alert(error.message); }
+}
+
+function updateOutputModes() {
+  const select = $('outputMode');
+  const current = select.value;
+  if (state.videos.length === 1) {
+    select.innerHTML = '<option value="rom">Single ROM</option>';
+    select.value = 'rom';
+  } else {
+    select.innerHTML = '<option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option>';
+    select.value = ['playlist','menu','batch'].includes(current) ? current : 'playlist';
+  }
+  const enabled = state.videos.length > 1 && select.value === 'menu';
+  $('menuPreview').disabled = !enabled || !!state.converting;
+  if (!enabled) $('menuPreview').checked = false;
+}
+
+function refreshScope(force) {
+  $('editProjectDefaults').classList.toggle('active', editScope === 'project');
+  $('editSelectedClip').classList.toggle('active', editScope === 'clip');
+  $('clipIdentitySection').classList.toggle('hidden', editScope !== 'clip');
+  const config = clipConfigs[selectedID];
+  if (!config) return;
+  const custom = editScope === 'clip' && !config.useProject;
+  $('scopeBadge').textContent = editScope === 'project' ? 'Project settings' : (custom ? 'Custom settings' : 'Project settings');
+  $('scopeBadge').className = 'scope-badge ' + (custom ? 'custom' : 'project');
+  if (!force) return;
+  if (editScope === 'clip') {
+    $('useProject').checked = config.useProject;
+    $('menuTitle').value = config.title;
+    updateTitlePreview();
+  }
+  const source = editScope === 'project' ? projectDefaults : effectiveClip(selectedID);
+  for (const key of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode']) {
+    const element = $(key);
+    if (!element) continue;
+    if (element.type === 'checkbox') element.checked = !!source[key]; else element.value = source[key];
+    const disabled = editScope === 'clip' && config.useProject;
+    element.dataset.scopeDisabled = disabled ? '1' : '0';
+    element.disabled = disabled || !!state?.converting;
+  }
+  for (const element of document.querySelectorAll('.project-control')) element.classList.toggle('scope-muted', editScope === 'clip');
+  if (force) { syncTimeline(true); updatePreview(); }
+}
+$('editProjectDefaults').onclick = () => { editScope = 'project'; refreshScope(true); };
+$('editSelectedClip').onclick = () => { editScope = 'clip'; refreshScope(true); };
+$('useProject').onchange = () => {
+  const config = clipConfigs[selectedID];
+  if (!config) return;
+  if (!config.useProject && $('useProject').checked) config.useProject = true;
+  else if (config.useProject && !$('useProject').checked) Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title});
+  refreshScope(true); renderClips(); estimate();
+};
+function savePerClipField(id) {
+  const element = $(id);
+  const value = element.type === 'checkbox' ? element.checked : (element.type === 'number' ? Number(element.value) : element.value);
+  if (editScope === 'project') projectDefaults[id] = value;
+  else {
+    const config = clipConfigs[selectedID];
+    if (!config || config.useProject) return;
+    config[id] = value;
+  }
+  $('preset').value = 'custom';
+  estimate();
+  if (['start','end','fit','speed'].includes(id)) { syncTimeline(false); updatePreview(); }
+}
+for (const id of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode']) $(id).addEventListener('input', () => savePerClipField(id));
+for (const id of ['fps','seekSeconds','compression','normalize','limiter']) $(id).addEventListener('input', () => { $('preset').value = 'custom'; estimate(); });
+$('outputMode').onchange = () => { updateOutputModes(); estimate(); };
+$('menuPreview').onchange = estimate;
+$('romTitle').addEventListener('input', () => { romTitleAuto = false; });
+
+const GLYPHS = {
+  '0':0x7B6F,'1':0x2C97,'2':0x73E7,'3':0x73CF,'4':0x5BC9,'5':0x79CF,'6':0x79EF,'7':0x7292,'8':0x7BEF,'9':0x7BCF,
+  A:0x2BED,B:0x6BAE,C:0x7927,D:0x6B6E,E:0x79E7,F:0x79E4,G:0x79AF,H:0x5BED,I:0x7497,J:0x124E,K:0x5D6D,L:0x4927,M:0x5FE9,N:0x5F6D,O:0x7B6F,P:0x7BE4,Q:0x7B7B,R:0x7BED,S:0x79CF,T:0x7492,U:0x5B6F,V:0x5B6A,W:0x5BFD,X:0x5AAD,Y:0x5A92,Z:0x72A7,
+  ' ':0
+};
+function updateTitlePreview(invalid = false) {
+  const config = clipConfigs[selectedID];
+  if (!config) return;
+  const canvas = $('titlePreview'), context = canvas.getContext('2d');
+  context.imageSmoothingEnabled = false;
+  context.fillStyle = '#000'; context.fillRect(0,0,canvas.width,canvas.height);
+  context.fillStyle = '#ffdd00';
+  const scale = 4, startX = 8, startY = 6;
+  [...config.title.padEnd(12, ' ')].slice(0,12).forEach((char,index) => {
+    const bits = GLYPHS[char] || 0;
+    for (let row=0; row<5; row++) for (let col=0; col<3; col++) {
+      const bit = 14 - (row*3+col);
+      if (bits & (1<<bit)) context.fillRect(startX + index*16 + col*scale, startY + row*scale, scale, scale);
+    }
+  });
+  $('titleCount').textContent = config.title.length + '/12';
+  const duplicates = Object.entries(clipConfigs).filter(([id,c]) => id !== selectedID && c.title === config.title && config.title).length;
+  const warning = invalid ? 'Unsupported characters were replaced.' : duplicates ? 'Another clip uses the same menu title.' : '';
+  $('titleWarning').textContent = warning;
+  $('titleWarning').className = 'field full validation ' + (warning ? 'warning' : '');
+}
+$('menuTitle').oninput = () => {
+  const result = sanitizeMenuTitle($('menuTitle').value);
+  $('menuTitle').value = result.value;
+  clipConfigs[selectedID].title = result.value || 'GBA VIDEO';
+  updateTitlePreview(result.invalid);
+  renderClips();
+};
+$('resetMenuTitle').onclick = () => {
+  const video = selectedVideo();
+  if (!video) return;
+  clipConfigs[selectedID].title = titleFromFilename(video.name);
+  $('menuTitle').value = clipConfigs[selectedID].title;
+  updateTitlePreview();
+};
+
+function currentTimelineSettings() { return editScope === 'project' ? projectDefaults : effectiveClip(selectedID); }
+function syncTimeline(forceThumbs) {
+  const video = selectedVideo();
+  if (!video?.info) return;
+  const settings = currentTimelineSettings();
+  const duration = video.info.duration;
+  const step = video.info.fps > 0 ? 1 / video.info.fps : 0.04;
+  for (const id of ['timelineStart','timelineEnd','timelinePlay']) { $(id).max = duration; $(id).step = step; }
+  let start = Math.min(duration, Math.max(0, parseClock(settings.start) || 0));
+  let end = settings.end.trim() ? parseClock(settings.end) : duration;
+  if (!Number.isFinite(end)) end = duration;
+  end = Math.min(duration, Math.max(start + step, end));
+  let play = playheads[selectedID];
+  if (!Number.isFinite(play)) play = start;
+  play = Math.min(end, Math.max(start, play));
+  playheads[selectedID] = play;
+  $('timelineStart').value = start; $('timelineEnd').value = end; $('timelinePlay').value = play;
+  updateTimelineLabels();
+  if (forceThumbs) lastThumbKey = '';
+  renderTimelineThumbs();
+}
+function updateTimelineLabels() {
+  $('timelineStartText').textContent = precise($('timelineStart').value);
+  $('timelineCurrentText').textContent = precise($('timelinePlay').value);
+  $('timelineEndText').textContent = precise($('timelineEnd').value);
+}
+function renderTimelineThumbs() {
+  const video = selectedVideo();
+  if (!video?.info) return;
+  const index = selectedIndex();
+  const fit = currentTimelineSettings().fit;
+  const key = video.id + '|' + fit + '|' + video.info.duration.toFixed(3);
+  if (key === lastThumbKey) return;
+  lastThumbKey = key;
+  const count = 6;
+  $('timelineThumbs').innerHTML = Array.from({length:count}, (_,i) => {
+    const time = video.info.duration * (i + .5) / count;
+    return '<img alt="" src="' + BASE + '/preview?index=' + index + '&time=' + encodeURIComponent(time) + '&fit=' + fit + '&thumb=' + i + '">';
+  }).join('');
+}
+function updatePreview(time = playheads[selectedID]) {
+  const video = selectedVideo();
+  if (!video?.info) return;
+  const index = selectedIndex();
+  const fit = currentTimelineSettings().fit;
+  time = Math.min(video.info.duration, Math.max(0, Number(time) || 0));
+  playheads[selectedID] = time;
+  $('timelinePlay').value = time;
+  updateTimelineLabels();
+  const key = [video.id,time.toFixed(3),fit].join('|');
+  if (key === lastPreviewKey && $('previewImage').src) return;
+  lastPreviewKey = key;
+  const image = $('previewImage');
+  image.onerror = () => image.removeAttribute('src');
+  image.src = BASE + '/preview?index=' + index + '&time=' + encodeURIComponent(time) + '&fit=' + fit + '&key=' + encodeURIComponent(key);
+}
+$('timelinePlay').oninput = () => updatePreview(Number($('timelinePlay').value));
+$('timelineStart').oninput = () => {
+  let start = Number($('timelineStart').value), end = Number($('timelineEnd').value);
+  if (start >= end) { start = Math.max(0, end - Number($('timelineStart').step)); $('timelineStart').value = start; }
+  $('start').value = clockValue(start); savePerClipField('start');
+  if (Number($('timelinePlay').value) < start) updatePreview(start); else updateTimelineLabels();
+};
+$('timelineEnd').oninput = () => {
+  let start = Number($('timelineStart').value), end = Number($('timelineEnd').value);
+  if (end <= start) { end = Math.min(Number($('timelineEnd').max), start + Number($('timelineEnd').step)); $('timelineEnd').value = end; }
+  const duration = selectedVideo()?.info?.duration || end;
+  $('end').value = Math.abs(end - duration) < Number($('timelineEnd').step) ? '' : clockValue(end);
+  savePerClipField('end');
+  if (Number($('timelinePlay').value) > end) updatePreview(end); else updateTimelineLabels();
+};
+$('timeline').onwheel = event => { event.preventDefault(); const step = Number($('timelinePlay').step) || .04; updatePreview(Number($('timelinePlay').value) + (event.deltaY > 0 ? step : -step)); };
+$('timeline').onkeydown = event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); const step = Number($('timelinePlay').step) || .04; updatePreview(Number($('timelinePlay').value) + (event.key === 'ArrowRight' ? step : -step)); } };
+$('previewStart').onclick = () => updatePreview(Number($('timelineStart').value));
+$('previewEnd').onclick = () => updatePreview(Number($('timelineEnd').value));
+$('jumpBegin').onclick = () => updatePreview(0);
+$('jumpEnd').onclick = () => updatePreview(selectedVideo()?.info?.duration || 0);
+
+const PRESETS = {
+  best:{fps:'smooth',compression:'delta',normalize:true,limiter:true,defaults:{fit:'fit',audio:'mix',paletteMode:'scene',ditherMode:'error'}},
+  balanced:{fps:'balanced',compression:'delta',normalize:false,limiter:true,defaults:{fit:'fit',audio:'mix',paletteMode:'shared',ditherMode:'ordered'}},
+  long:{fps:'compact',compression:'delta',normalize:false,limiter:true,defaults:{fit:'fit',audio:'mix',paletteMode:'shared',ditherMode:'ordered'}},
+  small:{fps:'compact',compression:'delta',normalize:false,limiter:false,defaults:{fit:'fit',audio:'none',paletteMode:'shared',ditherMode:'off'}}
+};
+$('preset').onchange = () => {
+  const preset = PRESETS[$('preset').value];
+  if (!preset) return;
+  $('fps').value = preset.fps; $('compression').value = preset.compression; $('normalize').checked = preset.normalize; $('limiter').checked = preset.limiter;
+  Object.assign(projectDefaults, preset.defaults);
+  refreshScope(true); estimate();
+};
+
+function globalValues() {
+  return {
+    fps:$('fps').value, seekSeconds:Number($('seekSeconds').value), compression:$('compression').value,
+    normalize:$('normalize').checked, limiter:$('limiter').checked, resume:$('resume').checked,
+    romTitle:$('romTitle').value, outputMode:$('outputMode').value, menuPreview:$('menuPreview').checked
+  };
+}
+function values() {
+  const global = globalValues();
+  return {
+    ...global, ...projectDefaults,
+    clips: state.videos.map(video => {
+      const config = clipConfigs[video.id];
+      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,volume:Number(config.volume),loop:!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode};
+    })
+  };
+}
+function modelSnapshot() {
+  return {global:globalValues(), defaults:cloneClip(projectDefaults), clips:JSON.parse(JSON.stringify(clipConfigs))};
+}
+function modelEffective(model, id) {
+  const config = model.clips[id];
+  return config.useProject ? {...model.defaults, title:config.title} : {...config};
+}
+function estimateModel(model) {
+  if (!state?.videos?.length) return {bytes:0,frames:0,breakdown:{}};
+  const vblanks = FPS_VBLANKS[model.global.fps] || 5;
+  const fps = 59.727500569606 / vblanks;
+  let player = 16384 + state.videos.length * 96, videoBytes = 0, audioBytes = 0, paletteBytes = 0, indexBytes = 0, frames = 0;
+  for (const video of state.videos) {
+    if (!video.info) continue;
+    const clip = modelEffective(model, video.id);
+    const start = Math.max(0, parseClock(clip.start) || 0);
+    let end = clip.end?.trim() ? parseClock(clip.end) : video.info.duration;
+    if (!Number.isFinite(end)) end = video.info.duration;
+    end = Math.min(video.info.duration, end);
+    if (end <= start || !Number.isFinite(Number(clip.speed)) || clip.speed <= 0) return {error:'Check trim settings.'};
+    const displayDuration = (end - start) / Number(clip.speed);
+    const frameCount = Math.max(1, Math.ceil(displayDuration * fps));
+    frames += frameCount;
+    const compressionFactor = model.global.compression === 'delta' ? 0.68 : 1;
+    videoBytes += frameCount * 9600 * compressionFactor;
+    if (model.global.compression === 'delta') indexBytes += frameCount * 8;
+    const palettes = clip.paletteMode === 'scene' ? Math.max(1, Math.ceil(frameCount / 60)) : 1;
+    paletteBytes += palettes * 512 + (palettes > 1 ? frameCount * 2 : 0);
+    if (clip.audio !== 'none' && video.info.audioStreams) audioBytes += displayDuration * 16384 + frameCount * 4;
+  }
+  const bytes = Math.ceil(player + videoBytes + audioBytes + paletteBytes + indexBytes);
+  let cartridge = 1 << 20;
+  while (cartridge < bytes && cartridge < ROM_LIMIT) cartridge *= 2;
+  return {bytes, cartridge, frames, fps, breakdown:{player,video:videoBytes,audio:audioBytes,palettes:paletteBytes,indexes:indexBytes}};
+}
+function estimate() {
+  const result = estimateModel(modelSnapshot());
+  if (result.error) { $('estimate').textContent = result.error; return result; }
+  const over = result.bytes > ROM_LIMIT;
+  $('estimate').innerHTML = (over ? '<b class="estimate-over">Estimated data exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (result.cartridge/1048576) + ' MiB</b>') +
+    '<br>Estimated data: ' + (result.bytes/1048576).toFixed(2) + ' MiB • ' + result.frames + ' frames • ' + result.fps.toFixed(2) + ' fps' +
+    '<br>Video ' + (result.breakdown.video/1048576).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/1048576).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/1048576).toFixed(2) + ' MiB';
+  return result;
+}
+
+function makeCustomInModel(model, id) {
+  const config = model.clips[id];
+  if (config.useProject) model.clips[id] = {...model.defaults, title:config.title, useProject:false};
+  return model.clips[id];
+}
+function buildOptimizerProposal() {
+  const beforeModel = modelSnapshot();
+  const model = JSON.parse(JSON.stringify(beforeModel));
+  const changes = [];
+  let result = estimateModel(model);
+  if (result.bytes <= ROM_LIMIT) return {model,changes:['The current project already fits within 32 MiB.'],before:result,after:result,noop:true};
+  const before = result;
+  if (model.global.compression !== 'delta') {
+    model.global.compression = 'delta'; changes.push('Video compression: Uncompressed → Delta + keyframes'); result = estimateModel(model);
+  }
+  while (result.bytes > ROM_LIMIT) {
+    const index = FPS_ORDER.indexOf(model.global.fps);
+    if (index < 0 || index === FPS_ORDER.length - 1) break;
+    const old = model.global.fps, next = FPS_ORDER[index + 1]; model.global.fps = next;
+    changes.push('Frame rate: ' + (59.7275/FPS_VBLANKS[old]).toFixed(2) + ' fps → ' + (59.7275/FPS_VBLANKS[next]).toFixed(2) + ' fps');
+    result = estimateModel(model);
+  }
+  if (result.bytes > ROM_LIMIT) {
+    if (model.defaults.paletteMode === 'scene') { model.defaults.paletteMode = 'shared'; changes.push('Project palette: Per-scene → Shared'); }
+    for (const video of state.videos) {
+      const config = model.clips[video.id];
+      if (!config.useProject && config.paletteMode === 'scene') { config.paletteMode = 'shared'; changes.push(video.name + ': Per-scene palette → Shared'); }
+    }
+    result = estimateModel(model);
+  }
+  if (result.bytes > ROM_LIMIT) {
+    const candidates = state.videos.map(video => {
+      const clip = modelEffective(model, video.id);
+      const start = parseClock(clip.start) || 0;
+      const end = clip.end?.trim() ? parseClock(clip.end) : video.info.duration;
+      return {video,bytes:clip.audio === 'none' ? 0 : Math.max(0,(end-start)/clip.speed)*16384};
+    }).sort((a,b) => b.bytes-a.bytes);
+    for (const candidate of candidates) {
+      if (result.bytes <= ROM_LIMIT) break;
+      if (!candidate.bytes) continue;
+      const config = makeCustomInModel(model, candidate.video.id);
+      config.audio = 'none';
+      changes.push(candidate.video.name + ': Audio → None');
+      result = estimateModel(model);
+    }
+  }
+  if (result.bytes > ROM_LIMIT && state.videos.length) {
+    const video = state.videos.find(item => item.id === selectedID) || state.videos[state.videos.length-1];
+    const config = makeCustomInModel(model, video.id);
+    const start = parseClock(config.start) || 0;
+    const originalEnd = config.end?.trim() ? Math.min(parseClock(config.end), video.info.duration) : video.info.duration;
+    let low = start + .2, high = originalEnd, best = low;
+    for (let i=0;i<24;i++) {
+      const mid = (low+high)/2; config.end = clockValue(mid);
+      const test = estimateModel(model);
+      if (test.bytes <= ROM_LIMIT) { best=mid; low=mid; } else high=mid;
+    }
+    config.end = clockValue(best);
+    changes.push(video.name + ': End time shortened to ' + clockValue(best));
+    result = estimateModel(model);
+  }
+  return {model,changes,before,after:result,noop:false};
+}
+$('optimize').onclick = () => {
+  optimizerProposal = buildOptimizerProposal();
+  const list = optimizerProposal.changes.map(change => '<li>' + escapeHTML(change) + '</li>').join('');
+  $('optimizerSummary').innerHTML = '<p>Estimated size: <b>' + (optimizerProposal.before.bytes/1048576).toFixed(2) + ' MiB</b> → <b>' + (optimizerProposal.after.bytes/1048576).toFixed(2) + ' MiB</b></p><ul>' + list + '</ul>' +
+    (optimizerProposal.after.bytes > ROM_LIMIT ? '<p class="estimate-over">Even the strongest automatic changes may not fit; shorten more clips manually.</p>' : '');
+  $('optimizerApply').classList.toggle('hidden', optimizerProposal.noop);
+  $('optimizerModal').classList.remove('hidden');
+};
+$('optimizerCancel').onclick = () => $('optimizerModal').classList.add('hidden');
+$('optimizerApply').onclick = () => {
+  if (!optimizerProposal) return;
+  projectDefaults = cloneClip(optimizerProposal.model.defaults);
+  clipConfigs = optimizerProposal.model.clips;
+  const global = optimizerProposal.model.global;
+  for (const key of ['fps','compression']) $(key).value = global[key];
+  for (const key of ['normalize','limiter']) $(key).checked = global[key];
+  $('preset').value = 'custom';
+  $('optimizerModal').classList.add('hidden');
+  refreshScope(true); renderClips(); estimate();
+};
+
+function applyPendingProject() {
+  const settings = pendingProject;
+  pendingProject = null;
+  projectDefaults = cloneClip({start:settings.start,end:settings.end,speed:settings.speed,fit:settings.fit || 'fit',audio:settings.audio,volume:settings.volume,loop:settings.loop,paletteMode:settings.paletteMode,ditherMode:settings.ditherMode});
+  for (const key of ['fps','compression','outputMode']) if (settings[key]) $(key).value = settings[key];
+  $('seekSeconds').value = settings.seekSeconds || 5;
+  $('normalize').checked = !!settings.normalize; $('limiter').checked = !!settings.limiter; $('resume').checked = !!settings.resume; $('menuPreview').checked = !!settings.menuPreview;
+  $('romTitle').value = settings.romTitle || ''; romTitleAuto = false;
+  clipConfigs = {};
+  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered'};
+  ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
+}
+async function saveProject() {
+  try {
+    const response = await api('/project/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values())});
+    if (!response.cancelled) alert('Project saved:\n' + response.path);
+  } catch (error) { alert(error.message); }
+}
+async function openProject() {
+  try {
+    const response = await api('/project/open', {method:'POST'});
+    if (response.cancelled) return;
+    pendingProject = response.settings;
+    scopeInitialized = false;
+    clipConfigs = {}; selectedID = ''; lastPreviewKey=''; lastThumbKey='';
+    await poll();
+  } catch (error) { alert(error.message); }
+}
+$('saveProject').onclick = saveProject;
+$('openProject').onclick = openProject;
+$('openProjectWelcome').onclick = event => { event.stopPropagation(); openProject(); };
+
+$('audioPreview').onclick = async () => {
+  try {
+    $('audioPreview').disabled = true;
+    const response = await fetch(BASE + '/audio-preview?index=' + selectedIndex(), {method:'POST',headers:headers({'Content-Type':'application/json'}),body:JSON.stringify(values())});
+    if (!response.ok) { const body = await response.json(); throw new Error(body.error); }
+    const blob = await response.blob(); if (audioURL) URL.revokeObjectURL(audioURL); audioURL = URL.createObjectURL(blob); $('audioPlayer').src = audioURL; await $('audioPlayer').play();
+  } catch (error) { alert(error.message); } finally { $('audioPreview').disabled = false; }
+};
+$('convert').onclick = async () => {
+  try { await api('/convert', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values())}); poll(); }
+  catch (error) { $('convertError').textContent = error.message; $('convertError').classList.remove('hidden'); }
+};
+$('download').onclick = () => { const link = document.createElement('a'); link.href = BASE + '/download'; link.download = state.downloadName || 'GBA_Video_Maker_output'; link.click(); };
+$('retryEngine').onclick = () => api('/engine/retry', {method:'POST'});
+$('resetTop').onclick = async () => {
+  await api('/reset', {method:'POST'}); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; romTitleAuto=true; $('romTitle').value=''; show('welcome');
+};
+setInterval(() => fetch(BASE + '/heartbeat', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}), 5000);
+window.addEventListener('pagehide', () => fetch(BASE + '/close-intent', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}));
+
 poll();
