@@ -1,0 +1,23 @@
+{
+  "name": "gba-video-maker-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs",
+    "sync-player": "node scripts/sync-player.mjs",
+    "predev": "npm run sync-player",
+    "prebuild": "npm run sync-player",
+    "pretest": "npm run sync-player"
+  },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/util": "0.12.2"
+  },
+  "devDependencies": {
+    "vite": "7.3.6"
+  }
+}

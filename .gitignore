@@ -24,3 +24,6 @@ coverage.out
 Thumbs.db
 .idea/
 .vscode/
+
+website/node_modules/
+website/dist/

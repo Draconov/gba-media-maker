@@ -1,53 +1,15 @@
 # Changelog
 
-## [0.10.1] - 2026-08-02
+## [0.9.0 Menu Update] - 2026-08-03
 
-### Added
+### Menu only
+- Kept the original v0.9.0 video decoder, audio DMA playback, timing, seeking, fixed 120×80 renderer, compression, and palette capacity unchanged.
+- Replaced the single-column black menu with a blue gradient collection menu supporting up to three columns.
+- Added total clip duration, current selection status, D-pad column navigation, and a blinking selection arrow.
+- Removed selected-video thumbnails from the GBA menu and removed the obsolete checkbox from the desktop interface.
+- Expanded the embedded player area from 20 KiB to 32 KiB to hold the user-provided menu background image; media begins at 0x8000.
 
-- Selectable video resolution at project-default and per-clip scope
-- Efficient 120×80, Enhanced 180×120, and Native 240×160 modes
-- Resolution-aware live previews, size estimates, project files, and conversion results
-- Smart-optimizer resolution fallback from Native to Enhanced to Efficient
-- Hybrid-codec tests for partial 8×8 tiles at 180×120
-
-### Changed
-
-- Mode 4 DMA uploads, affine matrices, frame buffers, HUD drawing, seeking, and menu thumbnails now use each clip's descriptor dimensions
-- The Best quality preset now starts at Enhanced 180×120; the default remains Efficient 120×80
-- GBV6 remains the ROM format because its descriptors already contain source width, source height, and frame-byte fields
-
-## [0.10.0] - 2026-08-02
-
-### Added
-
-- GBV6 ROM format with 128-byte clip descriptors and codec/audio statistics
-- Hybrid frame codec that automatically chooses raw, changed-byte, repeat, or changed-8×8-tile records per frame
-- Adaptive keyframes for strong scene changes and bounded seek reconstruction
-- Blocked IMA ADPCM audio option, enabled by default, using about half the storage of PCM
-- PCM audio compatibility option
-- Codec comparison results in the conversion UI and command-line harness
-- Tile-based Mode 0 collection menu using separate gradient, text, thumbnail, and OBJ layers
-- Sprite-based mute, volume, seek, loop, and menu-arrow feedback
-- Double-buffered ADPCM decoder with timer-driven Direct Sound DMA
-
-### Changed
-
-- Mode 4 video is uploaded at 120×80 with DMA3 and enlarged to 240×160 using BG2 affine hardware instead of software 2×2 pixel expansion
-- Collection-menu blinking and selection updates now use tilemap/OAM changes rather than full bitmap redraws
-- Expanded the embedded player template to 44 KiB and moved GBV6 metadata/assets to `0xAF00`/`0xB000`
-- Video palettes now reserve entries 246–255 for menu and HUD colours
-- Balanced and size-focused presets now use hybrid video plus ADPCM audio
-
-## [0.9.1] - 2026-08-02
-
-### Added
-
-- Blue-gradient clip-selection menu with white text and a yellow selected item
-- Yellow pixel arrow that blinks approximately every 0.4 seconds
-- Status line showing clip count, combined duration, and current selection index
-- One-, two-, or three-column collection layouts with paging beyond 30 clips
-- Optional right-side selected-video thumbnail
-- Left/Right navigation between menu columns or pages
+All notable changes to this project are documented here.
 
 ## [0.9.0] - 2026-08-01
 

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#173bb5" />
+    <meta
+      name="description"
+      content="Convert videos into Game Boy Advance ROMs entirely in your browser."
+    />
+    <title>GBA Video Maker Web</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">No installation · local processing</p>
+          <h1>GBA Video Maker <span>Web</span></h1>
+          <p class="lead">
+            Drop videos here and build a playable <code>.gba</code> ROM. Your files stay on
+            this device; the browser does the conversion.
+          </p>
+        </div>
+        <a id="desktopLink" class="secondary button-link" hidden>Download desktop app</a>
+      </header>
+
+      <section class="card">
+        <label id="dropZone" class="drop-zone" for="fileInput">
+          <input id="fileInput" type="file" accept="video/*" multiple />
+          <span class="drop-icon" aria-hidden="true">＋</span>
+          <strong>Drop videos here</strong>
+          <span>or tap to choose files</span>
+        </label>
+
+        <div id="fileArea" class="file-area" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>Videos</h2>
+              <p id="fileSummary">0 videos selected</p>
+            </div>
+            <button id="clearButton" class="text-button" type="button">Clear all</button>
+          </div>
+          <div id="fileList" class="file-list"></div>
+        </div>
+      </section>
+
+      <section class="card settings-card">
+        <div class="section-heading">
+          <div>
+            <h2>ROM settings</h2>
+            <p>Fixed 120×80 v0.9 playback format.</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <label>
+            <span>Output behavior</span>
+            <select id="outputMode">
+              <option value="auto">Automatic</option>
+              <option value="menu">Menu</option>
+              <option value="playlist">Playlist</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Frame rate</span>
+            <select id="vblanks">
+              <option value="4">Smooth — 14.93 FPS</option>
+              <option value="5">Balanced — 11.95 FPS</option>
+              <option value="6" selected>Efficient — 9.95 FPS</option>
+              <option value="8">Long video — 7.47 FPS</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Screen framing</span>
+            <select id="fitMode">
+              <option value="fit">Fit with bars</option>
+              <option value="crop">Fill and crop</option>
+              <option value="stretch">Stretch</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Dithering</span>
+            <select id="ditherMode">
+              <option value="ordered" selected>Ordered</option>
+              <option value="off">Off</option>
+              <option value="error">Error diffusion</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Audio</span>
+            <select id="audioMode">
+              <option value="mix" selected>Mono mix</option>
+              <option value="none">No audio</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Seek step</span>
+            <select id="seekSeconds">
+              <option value="3">3 seconds</option>
+              <option value="5" selected>5 seconds</option>
+              <option value="10">10 seconds</option>
+              <option value="15">15 seconds</option>
+            </select>
+          </label>
+
+          <label class="wide-field">
+            <span>ROM title</span>
+            <input id="romTitle" type="text" maxlength="12" value="GBA VIDEO" />
+          </label>
+
+          <label class="check-field">
+            <input id="resume" type="checkbox" checked />
+            <span>Save and resume playback position</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card action-card">
+        <div class="action-copy">
+          <h2>Build ROM</h2>
+          <p id="compatibilityText">
+            Desktop Chrome, Edge, Firefox, or Brave recommended. Long videos can use a lot of memory.
+          </p>
+        </div>
+        <div class="action-buttons">
+          <button id="cancelButton" class="secondary" type="button" hidden>Cancel</button>
+          <button id="convertButton" class="primary" type="button" disabled>Convert to .gba</button>
+        </div>
+
+        <div id="progressArea" class="progress-area" hidden>
+          <div class="progress-labels">
+            <strong id="progressMessage">Preparing…</strong>
+            <span id="progressPercent">0%</span>
+          </div>
+          <progress id="progressBar" max="100" value="0"></progress>
+          <pre id="logOutput" aria-live="polite"></pre>
+        </div>
+
+        <div id="resultArea" class="result-area" hidden>
+          <div>
+            <strong id="resultTitle">ROM ready</strong>
+            <p id="resultDetails"></p>
+          </div>
+          <button id="downloadButton" class="primary" type="button">Download again</button>
+        </div>
+      </section>
+
+      <footer>
+        <p>
+          Conversion runs locally with ffmpeg.wasm. Closing or refreshing the tab cancels the job.
+        </p>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
