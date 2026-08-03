@@ -1,129 +1,209 @@
+<div align="center">
+  <img src="assets/app_icon.png" width="96" alt="GBA Video Maker icon">
+
 # GBA Video Maker
 
-A portable Windows app that converts ordinary video files into self-playing Game Boy Advance ROMs.
+**Turn ordinary videos into playable Game Boy Advance ROMs — in the browser or with the portable Windows app.**
 
-This **0.9.0 Menu Update** keeps the original v0.9.0 video decoder, audio DMA path, playback clock, frame scheduler, fixed 120×80 output, and ROM format behavior. Only the collection menu was upgraded: blue gradient styling, one-to-three title columns, total-duration and selection status, four-direction navigation, and a blinking selection arrow. Video thumbnails inside the GBA menu were removed.
+[![Version](https://img.shields.io/badge/version-0.9.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
+[![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
+[![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
 
-## Download and run
+Fixed **120×80 v0.9 playback**, PCM audio, seeking, playlists, multi-clip menus, custom palettes, dithering, compression, and a custom GBA menu background.
 
-Download the portable ZIP from the repository's **Releases** page, extract it, and run `GBA Video Maker.exe`.
+</div>
 
-No installer, Python runtime, administrator access, or devkitARM setup is required. Microsoft Edge or Google Chrome is used for the local app window, with the default browser as a fallback.
+## Choose your version
 
-Official portable releases include a pinned Windows x64 `ffmpeg.exe` beside the app. The application does **not** download, install, or update executables at runtime. Source builds can use `ffmpeg.exe` beside the app or an `ffmpeg` available through `PATH`.
+| | Web app | Portable desktop app |
+|---|---|---|
+| Installation | None | Extract the ZIP and run the EXE |
+| Processing | Local, inside the browser | Local, through native FFmpeg |
+| Best for | Quick conversions and short/medium videos | Long videos, repeated jobs, and maximum speed |
+| Privacy | Files stay on your device | Files stay on your device |
+| Platform | Modern desktop browsers | Windows x64 |
+| Open | **[Launch the web converter](https://draconov.github.io/gba-video-maker/)** | **[Open the latest release](../../releases/latest)** |
 
-> Windows may still warn about an unsigned executable. Building from source or code-signing release binaries are the reliable ways to establish publisher trust.
+The browser edition uses WebAssembly and may consume considerably more memory than the desktop app. For large conversions, the portable app is the safer choice.
 
-## Conversion features
+## What it can create
 
-- Select or drag one or several videos
-- Live start/end preview using the chosen crop, fit, or stretch mode
-- Shared settings for batch conversion
-- Separate `.gba` files in a ZIP, or several clips in one ROM with a startup menu
+- A normal single-video ROM
+- One ROM that plays several clips in sequence
+- One ROM with a startup clip-selection menu
+- Separate `.gba` files packaged into a ZIP
+
+The generated player keeps the proven v0.9 playback path:
+
+- Fixed **120×80** indexed video, expanded cleanly to the GBA's 240×160 display
+- Signed 8-bit mono PCM audio at **16,384 Hz**
+- Hardware DMA audio playback and hardware playback clock
+- Keyframe/delta compression with raw-frame fallback
+- No newer ADPCM decoder, multi-resolution renderer, or aggressive frame-skipping scheduler
+
+## Highlights
+
+### Video and ROM controls
+
+- Drag in one or more videos
 - Trim start and end times
-- Playback speed from 0.5× to 3×
-- Four frame-rate choices
-- Configurable 3, 5, 10, or 15-second seek step; default is 5 seconds
-- Best quality, Balanced, Long video, Smallest ROM, and Custom presets
-- Estimated cartridge size, frame count, and approximate duration limit
-- Mixed mono, left channel, right channel, or no audio
-- Audio-channel preview before conversion
-- Optional loudness normalization and limiter
-- Shared palette or scene-change palettes
-- Dithering off, ordered dithering, or error-diffusion dithering
-- Optional keyframe/delta video compression
-- Optional looping
-- Optional SRAM playback-position saving and resume prompt
+- Playback speed controls
+- Fit with bars, crop, or stretch
+- Four GBA-friendly frame-rate choices
+- Configurable 3, 5, 10, or 15-second seek step
+- Optional looping per clip
+- Optional SRAM save/resume support
 - Editable 12-character ROM title
+- Clip reordering and per-clip menu titles
+
+### Image quality
+
+- Shared palette or per-scene palettes
+- Dithering off, ordered, or error diffusion
+- Optional keyframe/delta compression
+- Uncompressed-video mode
+- Automatic raw-frame fallback when compression would be larger
+
+### Audio
+
+- Mono mix, left channel, right channel, or disabled audio
+- Per-clip volume
+- Optional loudness normalization
+- Optional limiter
+- Audio preview in the desktop editor
+
+### Multi-clip menu
+
+- Custom blue-wave background
+- One, two, or three title columns
+- Total clip duration and current selection status
+- Four-direction D-pad navigation
+- Independent blinking OBJ-sprite arrow
+- No unstable video thumbnails in the GBA menu
 
 ## Generated ROM controls
 
-| Button | Action |
+| Button | During playback |
 |---|---|
 | `A` | Pause or resume |
-| `B` | Restart the current clip |
-| `L` / `R` | Seek backward or forward by the configured amount |
-| Hold `L` / `R` | Repeat the seek approximately every 0.4 seconds |
-| `D-pad Left` / `Right` while playing | Seek backward or forward |
-| `D-pad Left` / `Right` while paused | Move one frame backward or forward |
-| `D-pad Up` / `Down` | Raise or lower volume |
+| `B` | Restart the clip, or return to the menu in menu ROMs |
+| `L` / `R` | Seek backward or forward |
+| Hold `L` / `R` | Repeat seeking approximately every 0.4 seconds |
+| `D-pad Left` / `Right` | Seek while playing; step one frame while paused |
+| `D-pad Up` / `Down` | Change volume: 0%, 50%, or 100% |
 | `SELECT` | Mute or unmute |
-| `START` | Cycle HUD: hidden, time only, time + progress/frame number |
+| `START` | Cycle HUD: hidden, time only, or full |
 | `L + R` | Quickly hide or restore the HUD |
-| `START + SELECT` | Open the complete controls-help screen |
+| `START + SELECT` | Open the controls-help screen |
+| `SELECT + Left/Right` | Previous or next clip in playlist ROMs |
 
-The GBA Direct Sound hardware provides two practical playback gain levels. The ROM therefore cycles among **0%, 50%, and 100%** volume while keeping mute as a separate `SELECT` control.
+### Menu controls
 
-The seek popup displays the actual seek amount selected during conversion. The full HUD displays elapsed/total time, current frame number, progress, and the loop icon when looping is enabled.
+| Button | In the clip menu |
+|---|---|
+| `D-pad Up` / `Down` | Move within a column |
+| `D-pad Left` / `Right` | Move between columns |
+| `A` | Play the selected clip |
 
-## Multi-clip ROMs
+The full HUD can show elapsed and total time, current frame number, progress, and the loop icon.
 
-When several videos are converted as one ROM, the player opens a clip-selection menu:
+## Desktop app
 
-- `D-pad Up` / `Down` chooses a clip
-- `A` starts the selected clip
+Download the portable ZIP from the repository's **Releases** page, extract it, and run:
 
-Each clip keeps its own palette data, compressed frame stream, audio, seek table, duration, and title.
+```text
+GBA Video Maker.exe
+```
+
+No installer, Python runtime, administrator access, or devkitARM installation is needed. Official portable packages place a pinned Windows x64 `ffmpeg.exe` beside the application. The application does not download or update executables at runtime.
+
+> [!NOTE]
+> Windows may warn about an unsigned executable. Building from source or signing release binaries is the reliable way to establish publisher trust.
+
+## Web app
+
+The standalone browser edition lives entirely under [`website/`](website/). It uses the same embedded `assets/player_stub.bin` as the desktop converter, so generated ROMs share the same playback engine and menu.
+
+The web edition currently includes the desktop converter's ROM-impacting options:
+
+- Quality presets and custom mode
+- Menu, playlist, and separate-ROM ZIP outputs
+- Frame rate, framing, palette, dithering, and compression
+- Audio channel, volume, normalization, limiter, and disabled audio
+- Trimming, speed, looping, seek step, and resume
+- Project defaults, per-clip overrides, and clip reordering
+
+Browser processing is local: selected videos are copied into FFmpeg's in-browser filesystem and are not uploaded to a project server.
+
+### Run the website locally
+
+Install Node.js, then:
+
+```bash
+cd website
+npm install
+npm test
+npm run dev
+```
+
+Build the exact static site used by GitHub Pages:
+
+```bash
+cd website
+npm run build
+npm run preview
+```
+
+GitHub Pages deployment is configured in [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 ## Resume support
 
-When **Save/resume position** is enabled, the generated ROM declares `SRAM_V113` save memory and stores the current clip and frame. On the next launch:
+When **Save/resume position** is enabled, the ROM declares `SRAM_V113` save memory and stores the current clip and frame.
+
+On the next launch:
 
 - `A` continues from the saved time
-- `B` restarts that clip from the beginning
+- `B` restarts from the beginning
 
-SRAM behavior should be tested on the intended flash cartridge because save handling varies among cartridges and emulator configurations.
+SRAM behavior should be tested on the intended flash cartridge because save handling differs among cartridges and emulator configurations.
 
-## Video format and compression
+## ROM format
 
-- Display: 240×160
-- Encoded frames: 120×80, expanded 2× by the player
-- Indexed RGB555 colour
-- Palette entries 0–249 for video
-- Palette entries 250–255 reserved for stable HUD colours
-- Signed 8-bit mono audio at 16,384 Hz
-- Power-of-two ROM padding up to the 32 MiB GBA limit
+| Property | Value |
+|---|---|
+| Display | 240×160 Mode 4 |
+| Encoded video | 120×80 indexed frames |
+| Video colours | RGB555 palette entries 0–249 |
+| UI colours | Palette entries 250–255 |
+| Audio | Signed 8-bit mono PCM, 16,384 Hz |
+| Maximum ROM size | 32 MiB |
+| Padding | Next power-of-two cartridge size |
 
-Delta compression uses:
+Delta compression stores periodic full keyframes and changed-byte runs between them. Each clip includes frame and seek metadata so the player can reconstruct frames after seeking.
 
-- periodic full keyframes;
-- per-frame changed-byte runs between keyframes;
-- automatic full-frame fallback when a delta would not be smaller;
-- a frame index for seeking and keyframe reconstruction.
+## Privacy and security
 
-Low-motion animation and static scenes usually benefit most. Highly noisy or rapidly changing footage may remain close to its uncompressed size.
+### Desktop
 
-## Palette modes
+The desktop GUI is served locally on a random `127.0.0.1` address with a random session token. FFmpeg processes selected videos locally. Temporary files are created in the operating system's temporary directory and removed after normal shutdown.
 
-**Shared palette** uses one palette for the entire clip and is the default.
+### Browser
 
-**Per-scene palette** analyzes coarse frame differences, begins a new palette at strong scene changes, and periodically refreshes very long scenes. The ROM switches palettes in sync with page flips.
+The GitHub Pages site is static. Conversion runs in the browser with WebAssembly. The project does not require a video-upload server.
 
-Dithering choices:
-
-- **Off** — cleanest pixels and fastest conversion
-- **Ordered** — stable pattern and good default balance
-- **Error diffusion** — highest detail, slower conversion, potentially busier pixels
-
-## Privacy model
-
-The GUI is served by the executable on a random loopback address under `127.0.0.1`. A random session token is included in API paths. Video processing happens locally through FFmpeg; selected videos are not uploaded to a remote service.
-
-Temporary files are stored in the operating system's temporary directory and removed when the session closes normally.
-
-## Antivirus-friendly source layout
-
-The browser interface is kept in readable files under `web/` and embedded at build time. The Go source no longer contains a compressed one-line browser script or any code that downloads an executable and starts it. Portable releases instead place a verified `ffmpeg.exe` beside the application.
+See [`SECURITY.md`](SECURITY.md) for vulnerability-reporting guidance.
 
 ## Build from source
 
 Requirements:
 
 - Go 1.23 or newer
-- FFmpeg for integration tests and conversions
-- LLVM (`clang`, `ld.lld`, and `llvm-objcopy`) when rebuilding the embedded GBA player
+- FFmpeg for conversions and integration tests
+- LLVM tools (`clang`, `ld.lld`, and `llvm-objcopy`) to rebuild the GBA player
+- Node.js and npm for the standalone website
 
-Run checks:
+Run the Go checks:
 
 ```bash
 go fmt ./...
@@ -131,7 +211,7 @@ go vet ./...
 go test ./...
 ```
 
-Rebuild the player after editing files under `player/`:
+Rebuild the embedded GBA player after changing files under `player/`:
 
 ```bash
 ./player/build.sh
@@ -145,7 +225,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
   -o "GBA Video Maker.exe" .
 ```
 
-On PowerShell:
+PowerShell helpers:
 
 ```powershell
 ./scripts/build-windows.ps1
@@ -155,25 +235,25 @@ On PowerShell:
 ## Project layout
 
 ```text
-player/                  ARM7TDMI playback-engine source and build scripts
-assets/player_stub.bin   Prebuilt 32 KiB embedded player template
-converter.go             FFmpeg pipeline, palettes, dithering, compression, ROM assembly
-webapp.go                Local HTTP API and embedded Windows GUI
-main_windows.go          Windows app-window launcher
-main_other.go            Command-line test harness for non-Windows systems
-process_*.go              Platform-specific command execution
-webapp_test.go            Unit and end-to-end tests
-.github/workflows         CI and release automation
+player/                  ARM7TDMI player source and build scripts
+assets/player_stub.bin   Prebuilt 32 KiB GBA player template
+converter.go             FFmpeg pipeline, palettes, compression, and ROM assembly
+web/                     Interface embedded in the Windows app
+website/                 Standalone GitHub Pages converter
+webapp.go                Local desktop HTTP API
+scripts/                 Desktop build and packaging helpers
+docs/                    Architecture documentation
+.github/workflows/       CI, release, and Pages deployment
 ```
 
-More implementation detail is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+More implementation details are available in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`website/README.md`](website/README.md).
 
 ## FFmpeg and legal notes
 
-FFmpeg is a separate open-source project distributed under its own licences and is not committed to this repository. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+FFmpeg is a separate open-source project distributed under its own licences and is not committed to the source repository. Official portable packages may include a verified FFmpeg binary. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-Convert only video and audio you have permission to use. Game Boy Advance, Nintendo, and related marks belong to their respective owners. This project is independent and is not affiliated with or endorsed by Nintendo.
+Convert only media you have permission to use. Game Boy Advance, Nintendo, and related marks belong to their respective owners. This independent project is not affiliated with or endorsed by Nintendo.
 
 ## License
 
-The application source is available under the [MIT License](LICENSE).
+GBA Video Maker is available under the [MIT License](LICENSE).
