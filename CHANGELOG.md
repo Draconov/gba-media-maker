@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0 Menu Sprite Fix] - 2026-08-03
+
+### Fixed
+- Converted the blinking menu arrow from framebuffer drawing into a real 16×16 OBJ sprite.
+- Arrow blinking now changes only OAM visibility; the background, titles, status text, and selected-title highlight are not redrawn.
+- The full menu framebuffer redraw now happens only when the selected clip changes.
+
 ## [0.9.0 Menu Update] - 2026-08-03
 
 ### Menu only

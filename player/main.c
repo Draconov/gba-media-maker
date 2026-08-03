@@ -34,12 +34,16 @@ typedef unsigned int   u32;
 #define REG_KEYINPUT     REG16(0x04000130)
 
 #define PALRAM           ((volatile u16 *)0x05000000)
+#define OBJ_PALRAM       ((volatile u16 *)0x05000200)
 #define VRAM_PAGE0       ((volatile u16 *)0x06000000)
 #define VRAM_PAGE1       ((volatile u16 *)0x0600A000)
+#define OBJ_TILE_VRAM    ((volatile u8 *)0x06014000)
+#define OAM              ((volatile u16 *)0x07000000)
 #define SRAM_BASE        ((volatile u8 *)0x0E000000)
 #define ROM_BASE         0x08000000u
 
 #define MODE4_BG2        0x0404
+#define MODE4_BG2_OBJ    (MODE4_BG2 | 0x1040u)
 #define PAGE_SELECT      0x0010
 #define FORCE_BLANK      0x0080
 
@@ -87,6 +91,10 @@ typedef unsigned int   u32;
 #define SEEK_REPEAT_VBLANKS 24u
 #define MENU_ARROW_BLINK_VBLANKS 24u
 #define MENU_ROWS 10u
+#define MENU_ARROW_OAM_INDEX 0u
+#define MENU_ARROW_TILE_INDEX 512u
+#define OBJ_DISABLE 0x0200u
+#define OBJ_SIZE_16 0x4000u
 
 #include "menu_background_data.h"
 
@@ -901,13 +909,53 @@ static int resume_prompt(u32 seconds)
     }
 }
 
-static void draw_menu_arrow(volatile u16 *dst, u32 x, u32 y, u16 colour)
+static void menu_arrow_tile_pixel(u32 x, u32 y, u8 colour)
 {
-    fill_rect(dst, x + 0u, y + 0u, 2u, 1u, colour);
-    fill_rect(dst, x + 0u, y + 1u, 4u, 1u, colour);
-    fill_rect(dst, x + 0u, y + 2u, 6u, 1u, colour);
-    fill_rect(dst, x + 0u, y + 3u, 4u, 1u, colour);
-    fill_rect(dst, x + 0u, y + 4u, 2u, 1u, colour);
+    u32 tile = divide_u32(y, 8u) * 2u + divide_u32(x, 8u);
+    u32 in_x = x & 7u;
+    u32 in_y = y & 7u;
+    u32 offset = tile * 32u + in_y * 4u + divide_u32(in_x, 2u);
+    u8 value = OBJ_TILE_VRAM[offset];
+    if (in_x & 1u) value = (u8)((value & 0x0Fu) | (u8)(colour << 4));
+    else value = (u8)((value & 0xF0u) | colour);
+    OBJ_TILE_VRAM[offset] = value;
+}
+
+static void menu_arrow_init(void)
+{
+    static const u8 row_widths[5] = {2u, 4u, 6u, 4u, 2u};
+    u32 i, row, x, sy;
+    for (i = 0u; i < 128u; ++i) {
+        OAM[i * 4u + 0u] = OBJ_DISABLE;
+        OAM[i * 4u + 1u] = 0u;
+        OAM[i * 4u + 2u] = 0u;
+        OAM[i * 4u + 3u] = 0u;
+    }
+    for (i = 0u; i < 128u; ++i) OBJ_TILE_VRAM[i] = 0u;
+    for (row = 0u; row < 5u; ++row) {
+        sy = 3u + row * 2u;
+        for (x = 0u; x < row_widths[row] * 2u; ++x) {
+            menu_arrow_tile_pixel(x, sy + 0u, 1u);
+            menu_arrow_tile_pixel(x, sy + 1u, 1u);
+        }
+    }
+    OBJ_PALRAM[0] = 0x0000u;
+    OBJ_PALRAM[1] = 0x037Fu;
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 0u] = OBJ_DISABLE;
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 1u] = OBJ_SIZE_16;
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 2u] = MENU_ARROW_TILE_INDEX;
+}
+
+static void menu_arrow_set(u32 x, u32 y, int visible)
+{
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 0u] = (u16)((y & 0x00FFu) | (visible ? 0u : OBJ_DISABLE));
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 1u] = (u16)((x & 0x01FFu) | OBJ_SIZE_16);
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 2u] = MENU_ARROW_TILE_INDEX;
+}
+
+static void menu_arrow_hide(void)
+{
+    OAM[MENU_ARROW_OAM_INDEX * 4u + 0u] |= OBJ_DISABLE;
 }
 
 static void draw_menu_background(volatile u16 *dst)
@@ -990,7 +1038,7 @@ static u32 menu_column_count(u32 clip_count)
 }
 
 static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta, const struct ClipDescriptor *clips,
-                           u32 selected, u32 total_seconds, int arrow_visible)
+                           u32 selected, u32 total_seconds)
 {
     char status[31];
     u32 columns = menu_column_count(meta->clip_count);
@@ -1015,10 +1063,22 @@ static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta,
             if (index >= meta->clip_count) break;
             clip = &clips[index];
             colour = index == selected ? UI_YELLOW : UI_WHITE;
-            if (index == selected && arrow_visible) draw_menu_arrow(dst, x + 1u, y + 1u, UI_YELLOW);
             draw_text(dst, x + 8u, y, clip->title, fixed_text_length(clip->title, max_chars), colour);
         }
     }
+}
+
+static void menu_arrow_position(u32 selected, u32 clip_count, u32 *x, u32 *y)
+{
+    u32 columns = menu_column_count(clip_count);
+    u32 page_size = columns * MENU_ROWS;
+    u32 page_start = divide_u32(selected, page_size) * page_size;
+    u32 relative = selected - page_start;
+    u32 column = divide_u32(relative, MENU_ROWS);
+    u32 row = relative - column * MENU_ROWS;
+    u32 column_width = divide_u32(120u, columns);
+    *x = (column * column_width + 1u) * 2u;
+    *y = (17u + row * 6u + 1u) * 2u;
 }
 
 static u32 menu_move_up(u32 selected, u32 clip_count)
@@ -1050,29 +1110,43 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
     u32 selected = initial_selection < meta->clip_count ? initial_selection : (meta->default_clip < meta->clip_count ? meta->default_clip : 0u);
     u32 total_seconds = menu_total_seconds(meta, clips);
     u32 blink_counter = 0u;
+    u32 arrow_x = 0u, arrow_y = 0u;
     int arrow_visible = 1;
     u16 prev = keys_down();
     if (meta->clip_count <= 1u) return 0u;
     set_menu_palette();
+    menu_arrow_init();
+    REG_DISPCNT = FORCE_BLANK;
     for (;;) {
         volatile u16 *dst = VRAM_PAGE0;
-        draw_clip_menu(dst, meta, clips, selected, total_seconds, arrow_visible);
-        REG_DISPCNT = MODE4_BG2;
+        draw_clip_menu(dst, meta, clips, selected, total_seconds);
+        menu_arrow_position(selected, meta->clip_count, &arrow_x, &arrow_y);
+        menu_arrow_set(arrow_x, arrow_y, 1);
+        arrow_visible = 1;
+        blink_counter = 0u;
+        if (REG_DISPCNT == FORCE_BLANK) {
+            wait_vblank();
+            REG_DISPCNT = MODE4_BG2_OBJ;
+        }
         for (;;) {
             u16 now, pressed;
             wait_vblank();
             now = keys_down(); pressed = (u16)(now & (u16)~prev); prev = now;
             if (++blink_counter >= MENU_ARROW_BLINK_VBLANKS) {
-                blink_counter = 0u; arrow_visible = !arrow_visible;
-                draw_clip_menu(dst, meta, clips, selected, total_seconds, arrow_visible);
+                blink_counter = 0u;
+                arrow_visible = !arrow_visible;
+                menu_arrow_set(arrow_x, arrow_y, arrow_visible);
             }
-            if (pressed & KEY_UP) { selected = menu_move_up(selected, meta->clip_count); break; }
-            if (pressed & KEY_DOWN) { selected = menu_move_down(selected, meta->clip_count); break; }
-            if (pressed & KEY_LEFT) { selected = selected >= MENU_ROWS ? selected - MENU_ROWS : meta->clip_count - 1u; break; }
-            if (pressed & KEY_RIGHT) { selected = selected + MENU_ROWS < meta->clip_count ? selected + MENU_ROWS : 0u; break; }
-            if (pressed & KEY_A) { while (keys_down() != 0u) wait_vblank(); return selected; }
+            if (pressed & KEY_UP) { menu_arrow_hide(); selected = menu_move_up(selected, meta->clip_count); break; }
+            if (pressed & KEY_DOWN) { menu_arrow_hide(); selected = menu_move_down(selected, meta->clip_count); break; }
+            if (pressed & KEY_LEFT) { menu_arrow_hide(); selected = selected >= MENU_ROWS ? selected - MENU_ROWS : meta->clip_count - 1u; break; }
+            if (pressed & KEY_RIGHT) { menu_arrow_hide(); selected = selected + MENU_ROWS < meta->clip_count ? selected + MENU_ROWS : 0u; break; }
+            if (pressed & KEY_A) {
+                menu_arrow_hide();
+                while (keys_down() != 0u) wait_vblank();
+                return selected;
+            }
         }
-        arrow_visible = 1; blink_counter = 0u;
     }
 }
 
