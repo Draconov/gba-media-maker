@@ -63,10 +63,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.9.0")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.10.1")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Enhanced — 180×120", "Native — 240×160"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -225,9 +225,30 @@ func decodeCompressedFrame(rom []byte, desc []byte, frame int) []byte {
 			copy(out, rom[r+8:r+8+frameBytes])
 			continue
 		}
+		if typ == 2 {
+			continue
+		}
 		p := r + 8
-		pos := 0
 		end := p + size
+		if typ == 3 {
+			const tileCols = frameWidth / 8
+			const tileCount = tileCols * (frameHeight / 8)
+			const bitmapBytes = (tileCount + 7) / 8
+			payload := rom[p:end]
+			off := bitmapBytes
+			for tile := 0; tile < tileCount; tile++ {
+				if payload[tile>>3]&(1<<uint(tile&7)) == 0 {
+					continue
+				}
+				tx, ty := (tile%tileCols)*8, (tile/tileCols)*8
+				for row := 0; row < 8; row++ {
+					copy(out[(ty+row)*frameWidth+tx:(ty+row)*frameWidth+tx+8], payload[off:off+8])
+					off += 8
+				}
+			}
+			continue
+		}
+		pos := 0
 		for p+4 <= end && pos < frameBytes {
 			skip := int(binary.LittleEndian.Uint16(rom[p : p+2]))
 			run := int(binary.LittleEndian.Uint16(rom[p+2 : p+4]))
@@ -241,7 +262,7 @@ func decodeCompressedFrame(rom []byte, desc []byte, frame int) []byte {
 	return out
 }
 
-func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
+func TestHTTPUploadInspectConvertDownloadV6(t *testing.T) {
 	ff := commandExists("ffmpeg")
 	if ff == "" {
 		t.Skip("ffmpeg missing")
@@ -288,7 +309,7 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || len(preview) < 100 {
 		t.Fatalf("end preview failed status=%d bytes=%d body=%s", resp.StatusCode, len(preview), preview)
 	}
-	conv := convertRequest{Start: "0", End: "1.2", Speed: 1, FPS: "classic", Fit: "crop", Audio: "mix", Volume: 100, RomTitle: "WEB TEST", SeekSeconds: 5, Normalize: true, Limiter: true, Resume: true, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered", OutputMode: "rom"}
+	conv := convertRequest{Start: "0", End: "1.2", Speed: 1, FPS: "classic", Fit: "crop", Audio: "mix", Volume: 100, RomTitle: "WEB TEST", SeekSeconds: 5, Normalize: true, Limiter: true, Resume: true, Compression: "hybrid", AudioCodec: "adpcm", PaletteMode: "shared", DitherMode: "ordered", OutputMode: "rom"}
 	resp = postJSON(t, base+"/convert", conv)
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -309,10 +330,10 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	if len(rom) < 1<<20 || len(rom) > romLimit || len(rom)&(len(rom)-1) != 0 {
 		t.Fatalf("bad ROM size %d", len(rom))
 	}
-	if string(rom[metadataOffset:metadataOffset+4]) != "GBV5" {
-		t.Fatal("GBV5 missing")
+	if string(rom[metadataOffset:metadataOffset+4]) != "GBV6" {
+		t.Fatal("GBV6 missing")
 	}
-	if binary.LittleEndian.Uint16(rom[metadataOffset+4:]) != 5 {
+	if binary.LittleEndian.Uint16(rom[metadataOffset+4:]) != 6 {
 		t.Fatal("version")
 	}
 	if binary.LittleEndian.Uint16(rom[metadataOffset+8:]) != 1 {
@@ -325,16 +346,22 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	desc := rom[clipOff : clipOff+clipDescriptorSize]
 	frames := int(binary.LittleEndian.Uint32(desc[0:4]))
 	flags := binary.LittleEndian.Uint16(desc[50:52])
-	if frames < 2 || flags&1 == 0 || flags&4 == 0 {
+	if frames < 2 || flags&1 == 0 || flags&4 == 0 || flags&16 == 0 || flags&32 == 0 {
 		t.Fatalf("bad desc frames=%d flags=%x", frames, flags)
+	}
+	if binary.LittleEndian.Uint32(desc[84:88]) != adpcmBlockSamples || binary.LittleEndian.Uint32(desc[88:92]) != adpcmBlockBytes {
+		t.Fatal("ADPCM metadata")
+	}
+	if binary.LittleEndian.Uint32(desc[112:116]) >= binary.LittleEndian.Uint32(desc[108:112]) {
+		t.Fatal("ADPCM did not reduce audio storage")
 	}
 	if binary.LittleEndian.Uint16(desc[52:54]) != 5 || binary.LittleEndian.Uint32(desc[40:44]) != 50 {
 		t.Fatal("seek metadata")
 	}
 	pal := int(binary.LittleEndian.Uint32(desc[24:28]))
-	want := []uint16{0, 0x18C6, 0x7FFF, 0x037F, 0x001F, 0x03E0}
+	want := []uint16{0x6145, 0x5504, 0x48C3, 0x3882, 0, 0x18C6, 0x7FFF, 0x037F, 0x001F, 0x03E0}
 	for i, w := range want {
-		got := binary.LittleEndian.Uint16(rom[pal+(250+i)*2:])
+		got := binary.LittleEndian.Uint16(rom[pal+(246+i)*2:])
 		if got != w {
 			t.Fatalf("palette %d=%x", i, got)
 		}
@@ -406,7 +433,7 @@ func TestPerClipOverrides(t *testing.T) {
 	opt := ProjectOptions{
 		Inputs: []ClipInput{
 			{InputPath: a, Name: "default.mkv", Title: "DEFAULT"},
-			{InputPath: b, Name: "custom.mkv", Title: "CUSTOM", Custom: true, Start: .1, End: .8, Speed: 2, FitMode: "crop", AudioMode: "none", Volume: 1, Loop: true, PaletteMode: "shared", DitherMode: "off"},
+			{InputPath: b, Name: "custom.mkv", Title: "CUSTOM", Custom: true, Start: .1, End: .8, Speed: 2, FitMode: "crop", AudioMode: "none", Volume: 1, Loop: true, PaletteMode: "shared", DitherMode: "off", Resolution: "enhanced"},
 		},
 		OutputPath: filepath.Join(dir, "per-clip.gba"), FFmpegPath: ff,
 		Start: 0, End: .9, Speed: 1, VBlanks: 6, FitMode: "fit", AudioMode: "mix", Volume: 1,
@@ -437,6 +464,12 @@ func TestPerClipOverrides(t *testing.T) {
 	}
 	if got := strings.TrimSpace(strings.TrimRight(string(second[60:72]), "\x00")); got != "CUSTOM" {
 		t.Fatalf("custom title=%q", got)
+	}
+	if width, height, bytes := binary.LittleEndian.Uint16(second[46:48]), binary.LittleEndian.Uint16(second[48:50]), binary.LittleEndian.Uint32(second[4:8]); width != 180 || height != 120 || bytes != 180*120 {
+		t.Fatalf("custom resolution=%dx%d frameBytes=%d", width, height, bytes)
+	}
+	if width, height := binary.LittleEndian.Uint16(first[46:48]), binary.LittleEndian.Uint16(first[48:50]); width != 120 || height != 80 {
+		t.Fatalf("default resolution=%dx%d", width, height)
 	}
 }
 

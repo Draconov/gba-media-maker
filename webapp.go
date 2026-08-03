@@ -109,6 +109,7 @@ type clipSettingsRequest struct {
 	Loop        bool    `json:"loop"`
 	PaletteMode string  `json:"paletteMode"`
 	DitherMode  string  `json:"ditherMode"`
+	Resolution  string  `json:"resolution"`
 }
 
 type convertRequest struct {
@@ -126,8 +127,10 @@ type convertRequest struct {
 	Limiter     bool                  `json:"limiter"`
 	Resume      bool                  `json:"resume"`
 	Compression string                `json:"compression"`
+	AudioCodec  string                `json:"audioCodec"`
 	PaletteMode string                `json:"paletteMode"`
 	DitherMode  string                `json:"ditherMode"`
+	Resolution  string                `json:"resolution"`
 	OutputMode  string                `json:"outputMode"`
 	MenuPreview bool                  `json:"menuPreview"`
 	Clips       []clipSettingsRequest `json:"clips"`
@@ -502,7 +505,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.9.0", Settings: req}
+	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.10.1", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -724,7 +727,7 @@ func parseOptionalEnd(value string) (float64, error) {
 	return parseTime(value)
 }
 
-func validateWebClipSettings(label string, start, end, speed, volume float64, fit, audio, palette, dither string, duration float64) error {
+func validateWebClipSettings(label string, start, end, speed, volume float64, fit, audio, palette, dither, resolution string, duration float64) error {
 	if start < 0 || start >= duration {
 		return fmt.Errorf("%s: start time is outside the video", label)
 	}
@@ -748,6 +751,9 @@ func validateWebClipSettings(label string, start, end, speed, volume float64, fi
 	}
 	if dither != "off" && dither != "ordered" && dither != "error" {
 		return fmt.Errorf("%s: invalid dithering mode", label)
+	}
+	if _, _, err := resolutionDimensions(resolution); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	return nil
 }
@@ -794,6 +800,9 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	if req.DitherMode == "" {
 		req.DitherMode = "ordered"
 	}
+	if req.Resolution == "" {
+		req.Resolution = "efficient"
+	}
 	if req.Audio == "" {
 		req.Audio = "mix"
 	}
@@ -822,7 +831,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 			if parseErr != nil {
 				return ProjectOptions{}, nil, fmt.Errorf("%s: %w", v.Name, parseErr)
 			}
-			if err := validateWebClipSettings(v.Name, clipStart, clipEnd, clipReq.Speed, clipReq.Volume, clipReq.Fit, clipReq.Audio, clipReq.PaletteMode, clipReq.DitherMode, v.Info.Duration); err != nil {
+			if err := validateWebClipSettings(v.Name, clipStart, clipEnd, clipReq.Speed, clipReq.Volume, clipReq.Fit, clipReq.Audio, clipReq.PaletteMode, clipReq.DitherMode, clipReq.Resolution, v.Info.Duration); err != nil {
 				return ProjectOptions{}, nil, err
 			}
 			input.Custom = true
@@ -835,12 +844,13 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 			input.Loop = clipReq.Loop
 			input.PaletteMode = clipReq.PaletteMode
 			input.DitherMode = clipReq.DitherMode
+			input.Resolution = clipReq.Resolution
 		}
 		inputs = append(inputs, input)
 		infos = append(infos, *v.Info)
 	}
 	if len(infos) > 0 {
-		if err := validateWebClipSettings("project defaults", start, end, req.Speed, req.Volume, req.Fit, req.Audio, req.PaletteMode, req.DitherMode, infos[0].Duration); err != nil {
+		if err := validateWebClipSettings("project defaults", start, end, req.Speed, req.Volume, req.Fit, req.Audio, req.PaletteMode, req.DitherMode, req.Resolution, infos[0].Duration); err != nil {
 			// The default end may be longer than the first clip but will be capped
 			// independently by the converter, so only enforce the shared basics.
 			if !strings.Contains(err.Error(), "end time") {
@@ -852,7 +862,10 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		req.SeekSeconds = 5
 	}
 	if req.Compression == "" {
-		req.Compression = "delta"
+		req.Compression = "hybrid"
+	}
+	if req.AudioCodec == "" {
+		req.AudioCodec = "adpcm"
 	}
 	mode := req.OutputMode
 	if len(inputs) == 1 {
@@ -869,7 +882,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	if mode == "batch" {
 		ext = ".zip"
 	}
-	output := filepath.Join(s.sessionDir, base+"_v0.9.0"+ext)
+	output := filepath.Join(s.sessionDir, base+"_v0.10.1"+ext)
 	romTitle := normalizeTitle(req.RomTitle)
 	if strings.TrimSpace(req.RomTitle) == "" {
 		romTitle = normalizeTitle(base)
@@ -880,8 +893,8 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		FitMode: req.Fit, AudioMode: req.Audio, Volume: req.Volume / 100,
 		Loop: req.Loop, RomTitle: romTitle, SeekSeconds: req.SeekSeconds,
 		Normalize: req.Normalize, Limiter: req.Limiter, Resume: req.Resume,
-		Compression: req.Compression, PaletteMode: req.PaletteMode,
-		DitherMode: req.DitherMode, OutputMode: mode, MenuPreview: req.MenuPreview,
+		Compression: req.Compression, AudioCodec: req.AudioCodec, PaletteMode: req.PaletteMode,
+		DitherMode: req.DitherMode, Resolution: req.Resolution, OutputMode: mode, MenuPreview: req.MenuPreview,
 		KeyInterval: 30,
 	}
 	return opt, infos, validateProject(opt)
@@ -1192,6 +1205,10 @@ func (s *appState) routes(page []byte) http.Handler {
 		if fit != "crop" && fit != "stretch" {
 			fit = "fit"
 		}
+		resolution := r.URL.Query().Get("resolution")
+		if _, _, err := resolutionDimensions(resolution); err != nil {
+			resolution = "efficient"
+		}
 		s.mu.Lock()
 		if idx < 0 || idx >= len(s.videos) || s.videos[idx].Info == nil {
 			s.mu.Unlock()
@@ -1230,13 +1247,13 @@ func (s *appState) routes(page []byte) http.Handler {
 			if candidate < 0 {
 				candidate = 0
 			}
-			out = filepath.Join(s.sessionDir, fmt.Sprintf("preview-%d-%d-%s.png", idx, int(candidate*1000), fit))
+			out = filepath.Join(s.sessionDir, fmt.Sprintf("preview-%d-%d-%s-%s.png", idx, int(candidate*1000), fit, resolution))
 			if st, err := os.Stat(out); err == nil && st.Size() > 0 {
 				previewErr = nil
 				break
 			}
 			_ = os.Remove(out)
-			previewErr = generatePreview(ff, video.Path, candidate, fit, out)
+			previewErr = generatePreview(ff, video.Path, candidate, fit, resolution, out)
 			if previewErr == nil {
 				if st, err := os.Stat(out); err == nil && st.Size() > 0 {
 					break

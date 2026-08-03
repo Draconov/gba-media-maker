@@ -34,3 +34,35 @@ func BenchmarkEncodeDelta(b *testing.B) {
 		_ = encodeDelta(prev, curr)
 	}
 }
+
+func BenchmarkEncodeTileDelta(b *testing.B) {
+	prev := make([]byte, frameBytes)
+	curr := make([]byte, frameBytes)
+	copy(curr, prev)
+	for tile := 0; tile < 20; tile++ {
+		tx := (tile % (frameWidth / 8)) * 8
+		ty := (tile / (frameWidth / 8)) * 8
+		for row := 0; row < 8; row++ {
+			for col := 0; col < 8; col++ {
+				curr[(ty+row)*frameWidth+tx+col] = byte(tile + 1)
+			}
+		}
+	}
+	b.ReportAllocs()
+	b.SetBytes(frameBytes)
+	for i := 0; i < b.N; i++ {
+		_ = encodeTileDelta(prev, curr, frameWidth, frameHeight)
+	}
+}
+
+func BenchmarkEncodeIMAADPCM(b *testing.B) {
+	pcm := make([]byte, audioRate)
+	for i := range pcm {
+		pcm[i] = byte(int8((i % 255) - 127))
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(pcm)))
+	for i := 0; i < b.N; i++ {
+		_ = encodeIMAADPCM(pcm)
+	}
+}

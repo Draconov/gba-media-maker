@@ -1,12 +1,24 @@
 typedef unsigned char  u8;
 typedef unsigned short u16;
 typedef unsigned int   u32;
+typedef signed char    s8;
+typedef signed short   s16;
+typedef signed int     s32;
 
 #define REG16(addr) (*(volatile u16 *)(addr))
 #define REG32(addr) (*(volatile u32 *)(addr))
 
 #define REG_DISPCNT      REG16(0x04000000)
 #define REG_VCOUNT       REG16(0x04000006)
+#define REG_BG0CNT       REG16(0x04000008)
+#define REG_BG1CNT       REG16(0x0400000A)
+#define REG_BG2CNT       REG16(0x0400000C)
+#define REG_BG0HOFS      REG16(0x04000010)
+#define REG_BG0VOFS      REG16(0x04000012)
+#define REG_BG1HOFS      REG16(0x04000014)
+#define REG_BG1VOFS      REG16(0x04000016)
+#define REG_BG2HOFS      REG16(0x04000018)
+#define REG_BG2VOFS      REG16(0x0400001A)
 #define REG_BG2PA        REG16(0x04000020)
 #define REG_BG2PB        REG16(0x04000022)
 #define REG_BG2PC        REG16(0x04000024)
@@ -14,6 +26,8 @@ typedef unsigned int   u32;
 #define REG_BG2X         REG32(0x04000028)
 #define REG_BG2Y         REG32(0x0400002C)
 #define REG_WAITCNT      REG16(0x04000204)
+#define REG_IE           REG16(0x04000200)
+#define REG_IF           REG16(0x04000202)
 #define REG_IME          REG16(0x04000208)
 
 #define REG_SOUNDCNT_L   REG16(0x04000080)
@@ -25,8 +39,14 @@ typedef unsigned int   u32;
 #define REG_DMA1DAD      REG32(0x040000C0)
 #define REG_DMA1CNT_L    REG16(0x040000C4)
 #define REG_DMA1CNT_H    REG16(0x040000C6)
+#define REG_DMA3SAD      REG32(0x040000D4)
+#define REG_DMA3DAD      REG32(0x040000D8)
+#define REG_DMA3CNT_L    REG16(0x040000DC)
+#define REG_DMA3CNT_H    REG16(0x040000DE)
 #define REG_TM0CNT_L     REG16(0x04000100)
 #define REG_TM0CNT_H     REG16(0x04000102)
+#define REG_TM1CNT_L     REG16(0x04000104)
+#define REG_TM1CNT_H     REG16(0x04000106)
 #define REG_TM2CNT_L     REG16(0x04000108)
 #define REG_TM2CNT_H     REG16(0x0400010A)
 #define REG_TM3CNT_L     REG16(0x0400010C)
@@ -34,12 +54,23 @@ typedef unsigned int   u32;
 #define REG_KEYINPUT     REG16(0x04000130)
 
 #define PALRAM           ((volatile u16 *)0x05000000)
+#define OBJ_PALRAM       ((volatile u16 *)0x05000200)
+#define OAM              ((volatile u16 *)0x07000000)
+#define BG_VRAM          ((volatile u16 *)0x06000000)
+#define OBJ_VRAM_TILE    ((volatile u16 *)0x06010000)
+#define OBJ_VRAM_BITMAP  ((volatile u16 *)0x06014000)
+#define BG_CHARBLOCK(n)   ((volatile u16 *)(0x06000000u + (u32)(n) * 0x4000u))
+#define BG_SCREENBLOCK(n) ((volatile u16 *)(0x06000000u + (u32)(n) * 0x0800u))
 #define VRAM_PAGE0       ((volatile u16 *)0x06000000)
 #define VRAM_PAGE1       ((volatile u16 *)0x0600A000)
 #define SRAM_BASE        ((volatile u8 *)0x0E000000)
 #define ROM_BASE         0x08000000u
+#define IRQ_VECTOR       (*(void (**)(void))0x03007FFCu)
 
+#define MODE0_BG0_BG1_BG2 0x1700
 #define MODE4_BG2        0x0404
+#define OBJ_ENABLE       0x1000
+#define OBJ_1D_MAP       0x0040
 #define PAGE_SELECT      0x0010
 #define FORCE_BLANK      0x0080
 
@@ -61,13 +92,21 @@ typedef unsigned int   u32;
 #define CLIP_FLAG_LOOP       0x0002u
 #define CLIP_FLAG_COMPRESSED 0x0004u
 #define CLIP_FLAG_SCENE_PAL  0x0008u
-#define GBV5_MAGIC           0x35564247u
+#define CLIP_FLAG_ADPCM      0x0010u
+#define CLIP_FLAG_HYBRID     0x0020u
+#define GBV6_MAGIC           0x36564247u
 
-#define FRAME_WIDTH       120u
-#define FRAME_HEIGHT      80u
-#define FRAME_BYTES       9600u
+#define BASE_FRAME_WIDTH   120u
+#define BASE_FRAME_HEIGHT  80u
+#define MAX_FRAME_WIDTH    240u
+#define MAX_FRAME_HEIGHT   160u
+#define MAX_FRAME_BYTES    38400u
 #define GBA_REFRESH_MILLI 59728u
 
+#define UI_BLUE_TOP       246u
+#define UI_BLUE_MID1      247u
+#define UI_BLUE_MID2      248u
+#define UI_BLUE_BOTTOM    249u
 #define UI_BLACK          250u
 #define UI_DARK           251u
 #define UI_WHITE          252u
@@ -75,10 +114,26 @@ typedef unsigned int   u32;
 #define UI_RED            254u
 #define UI_GREEN          255u
 
+#define OBJ_COL_BLACK      1u
+#define OBJ_COL_WHITE      2u
+#define OBJ_COL_YELLOW     3u
+#define OBJ_COL_RED        4u
+#define OBJ_COL_GREEN      5u
+#define OBJ_TILE_MUTE      0u
+#define OBJ_TILE_VOLUME    32u
+#define OBJ_TILE_SEEK      64u
+#define OBJ_TILE_LOOP      96u
+
 #define HUD_HOLD_VBLANKS    24u
 #define SEEK_HOLD_VBLANKS   24u
 #define VOLUME_HOLD_VBLANKS 36u
 #define SEEK_REPEAT_VBLANKS 24u
+#define ADPCM_BLOCK_SAMPLES  1024u
+#define ADPCM_BLOCK_BYTES    516u
+#define AUDIO_BUFFER_SAMPLES 2048u
+#define IRQ_TIMER1           0x0010u
+#define MENU_ARROW_BLINK_VBLANKS 24u
+#define MENU_ROWS 10u
 
 #define ACTION_NONE          0
 #define ACTION_RESTART       1
@@ -131,7 +186,16 @@ struct ClipDescriptor {
     char title[12];
     u32 uncompressed_video_size;
     u32 compressed_video_size;
-    u32 reserved[4];
+    u32 audio_pcm_samples;
+    u32 adpcm_block_samples;
+    u32 adpcm_block_bytes;
+    u32 raw_frame_count;
+    u32 byte_delta_frame_count;
+    u32 tile_delta_frame_count;
+    u32 repeat_frame_count;
+    u32 audio_pcm_bytes;
+    u32 audio_stored_bytes;
+    u32 reserved[3];
 };
 
 struct PlayerUI {
@@ -160,8 +224,18 @@ struct PlaybackClock {
 
 extern const struct GlobalMetadata gba_video_metadata;
 
-static u8 frame_a[FRAME_BYTES];
-static u8 frame_b[FRAME_BYTES];
+static u8 frame_a[MAX_FRAME_BYTES] __attribute__((aligned(4)));
+static u8 frame_b[MAX_FRAME_BYTES] __attribute__((aligned(4)));
+static u8 audio_buffers[2][AUDIO_BUFFER_SAMPLES] __attribute__((aligned(4)));
+static u8 adpcm_cache[ADPCM_BLOCK_SAMPLES] __attribute__((aligned(4)));
+static volatile int audio_adpcm_active = 0;
+static volatile int audio_current_buffer = 0;
+static volatile u32 audio_fill_mask = 0u;
+static const u8 *audio_adpcm_data = 0;
+static u32 audio_adpcm_size = 0u;
+static u32 audio_total_samples = 0u;
+static u32 audio_decode_position = 0u;
+static u32 audio_cached_block = 0xFFFFFFFFu;
 static const char sram_type[] __attribute__((used)) = "SRAM_V113";
 
 static void wait_vblank(void)
@@ -204,15 +278,14 @@ static void copy_palette(const u16 *palette)
 
 static void put_logical_pixel(volatile u16 *dst, u32 x, u32 y, u16 colour)
 {
-    u16 pair;
-    volatile u16 *row0;
-    volatile u16 *row1;
-    if (x >= FRAME_WIDTH || y >= FRAME_HEIGHT) return;
-    pair = (u16)(colour | (colour << 8));
-    row0 = dst + (y * 2u) * 120u;
-    row1 = row0 + 120u;
-    row0[x] = pair;
-    row1[x] = pair;
+    volatile u16 *cell;
+    u16 value;
+    if (x >= BASE_FRAME_WIDTH || y >= BASE_FRAME_HEIGHT) return;
+    cell = dst + y * 120u + (x >> 1);
+    value = *cell;
+    if (x & 1u) value = (u16)((value & 0x00FFu) | (colour << 8));
+    else value = (u16)((value & 0xFF00u) | colour);
+    *cell = value;
 }
 
 static void fill_rect(volatile u16 *dst, u32 x, u32 y, u32 width, u32 height, u16 colour)
@@ -318,107 +391,161 @@ static void make_frame_text(char out[6], u32 frame)
     for (i = 5; i >= 1; --i) { out[i] = (char)('0' + (frame % 10u)); frame = divide_u32(frame, 10u); }
 }
 
-static void draw_loop_icon(volatile u16 *dst, u32 x, u32 y)
+static void sprite_clear_tiles(u32 tile_offset, u32 tile_count)
 {
-    put_logical_pixel(dst,x+2u,y,UI_YELLOW); put_logical_pixel(dst,x+3u,y,UI_YELLOW); put_logical_pixel(dst,x+4u,y,UI_YELLOW); put_logical_pixel(dst,x+6u,y,UI_YELLOW);
-    put_logical_pixel(dst,x+1u,y+1u,UI_YELLOW); put_logical_pixel(dst,x+5u,y+1u,UI_YELLOW); put_logical_pixel(dst,x+6u,y+1u,UI_YELLOW);
-    put_logical_pixel(dst,x+4u,y+2u,UI_YELLOW); put_logical_pixel(dst,x+5u,y+2u,UI_YELLOW); put_logical_pixel(dst,x+6u,y+2u,UI_YELLOW);
-    put_logical_pixel(dst,x,y+3u,UI_YELLOW); put_logical_pixel(dst,x+1u,y+3u,UI_YELLOW); put_logical_pixel(dst,x+2u,y+3u,UI_YELLOW);
-    put_logical_pixel(dst,x,y+4u,UI_YELLOW); put_logical_pixel(dst,x+1u,y+4u,UI_YELLOW); put_logical_pixel(dst,x+5u,y+4u,UI_YELLOW);
-    put_logical_pixel(dst,x,y+5u,UI_YELLOW); put_logical_pixel(dst,x+2u,y+5u,UI_YELLOW); put_logical_pixel(dst,x+3u,y+5u,UI_YELLOW); put_logical_pixel(dst,x+4u,y+5u,UI_YELLOW);
+    volatile u16 *dst = OBJ_VRAM_BITMAP + tile_offset * 16u;
+    u32 i;
+    for (i = 0u; i < tile_count * 16u; ++i) dst[i] = 0u;
 }
 
-static void draw_hud(volatile u16 *dst, u32 frame, const struct ClipDescriptor *clip, int mode)
+static void sprite_set_pixel(u32 tile_offset, u32 width, u32 x, u32 y, u16 colour)
 {
-    u32 total_seconds;
-    char time_text[11];
-    char frame_text[6];
-    if (mode <= 0) return;
-    total_seconds = seconds_for_frame(clip->frame_count > 0u ? clip->frame_count - 1u : 0u, clip->vblanks_per_frame);
-    make_time_text(time_text, seconds_for_frame(frame, clip->vblanks_per_frame), total_seconds);
-    if (mode == 1) {
-        fill_rect(dst, 0u, 68u, 120u, 8u, UI_BLACK);
-        draw_text(dst, 38u, 69u, time_text, 11u, UI_WHITE);
-        return;
-    }
-    fill_rect(dst, 0u, 67u, 120u, 13u, UI_BLACK);
-    draw_text(dst, 3u, 69u, time_text, 11u, UI_WHITE);
-    make_frame_text(frame_text, frame + 1u);
-    draw_text(dst, 51u, 69u, frame_text, 6u, UI_WHITE);
-    fill_rect(dst, 5u, 77u, 110u, 2u, UI_DARK);
-    if (clip->frame_count <= 1u) fill_rect(dst, 5u, 77u, 110u, 2u, UI_YELLOW);
-    else {
-        u32 filled = divide_u32(frame * 110u, clip->frame_count - 1u);
-        if (filled > 110u) filled = 110u;
-        if (filled > 0u) fill_rect(dst, 5u, 77u, filled, 2u, UI_YELLOW);
-    }
-    if (clip->flags & CLIP_FLAG_LOOP) draw_loop_icon(dst, 108u, 69u);
+    u32 tiles_per_row = width / 8u;
+    u32 tile = tile_offset + divide_u32(y, 8u) * tiles_per_row + divide_u32(x, 8u);
+    u32 pixel = (y & 7u) * 8u + (x & 7u);
+    volatile u16 *cell = OBJ_VRAM_BITMAP + tile * 16u + (pixel >> 2);
+    u32 shift = (pixel & 3u) * 4u;
+    u16 value = *cell;
+    value = (u16)((value & (u16)~(0xFu << shift)) | ((colour & 0xFu) << shift));
+    *cell = value;
 }
 
-static void draw_speaker(volatile u16 *dst, u32 x, u32 y, int crossed)
+static void sprite_put_logical(u32 tile_offset, u32 x, u32 y, u16 colour)
 {
-    put_logical_pixel(dst,x,y+3u,UI_WHITE); put_logical_pixel(dst,x+1u,y+2u,UI_WHITE); put_logical_pixel(dst,x+1u,y+3u,UI_WHITE); put_logical_pixel(dst,x+1u,y+4u,UI_WHITE);
-    put_logical_pixel(dst,x+2u,y+1u,UI_WHITE); put_logical_pixel(dst,x+2u,y+2u,UI_WHITE); put_logical_pixel(dst,x+2u,y+3u,UI_WHITE); put_logical_pixel(dst,x+2u,y+4u,UI_WHITE); put_logical_pixel(dst,x+2u,y+5u,UI_WHITE);
-    if (crossed) {
-        put_logical_pixel(dst,x+5u,y+1u,UI_RED); put_logical_pixel(dst,x+9u,y+1u,UI_RED); put_logical_pixel(dst,x+6u,y+2u,UI_RED); put_logical_pixel(dst,x+8u,y+2u,UI_RED); put_logical_pixel(dst,x+7u,y+3u,UI_RED); put_logical_pixel(dst,x+6u,y+4u,UI_RED); put_logical_pixel(dst,x+8u,y+4u,UI_RED); put_logical_pixel(dst,x+5u,y+5u,UI_RED); put_logical_pixel(dst,x+9u,y+5u,UI_RED);
+    u32 xx, yy;
+    for (yy = 0u; yy < 2u; ++yy) for (xx = 0u; xx < 2u; ++xx) sprite_set_pixel(tile_offset, 64u, x * 2u + xx, y * 2u + yy, colour);
+}
+
+static void sprite_put_logical16(u32 tile_offset, u32 x, u32 y, u16 colour)
+{
+    u32 xx, yy;
+    for (yy = 0u; yy < 2u; ++yy) for (xx = 0u; xx < 2u; ++xx) sprite_set_pixel(tile_offset, 16u, x * 2u + xx, y * 2u + yy, colour);
+}
+
+static void sprite_fill_logical(u32 tile_offset, u32 x, u32 y, u32 width, u32 height, u16 colour)
+{
+    u32 xx, yy;
+    for (yy = 0u; yy < height; ++yy) for (xx = 0u; xx < width; ++xx) sprite_put_logical(tile_offset, x + xx, y + yy, colour);
+}
+
+static void sprite_draw_char(u32 tile_offset, u32 x, u32 y, char c, u16 colour)
+{
+    u16 bits = glyph_bits(c);
+    u32 row, col;
+    for (row = 0u; row < 5u; ++row) for (col = 0u; col < 3u; ++col) {
+        u32 bit = 14u - (row * 3u + col);
+        if (bits & (1u << bit)) sprite_put_logical(tile_offset, x + col, y + row, colour);
+    }
+}
+
+static void sprite_draw_text(u32 tile_offset, u32 x, u32 y, const char *text)
+{
+    u32 i = 0u;
+    while (text[i] != 0) { sprite_draw_char(tile_offset, x + i * 4u, y, text[i], OBJ_COL_WHITE); ++i; }
+}
+
+static void sprite_oam_wide(u32 object, u32 x, u32 y, u32 tile_offset, int visible)
+{
+    OAM[object * 4u] = visible ? (u16)(y | 0x4000u) : 0x0200u;
+    OAM[object * 4u + 1u] = (u16)(x | 0xC000u);
+    OAM[object * 4u + 2u] = (u16)(512u + tile_offset);
+    OAM[object * 4u + 3u] = 0u;
+}
+
+static void sprite_oam_square16(u32 object, u32 x, u32 y, u32 tile_offset, int visible)
+{
+    OAM[object * 4u] = visible ? (u16)y : 0x0200u;
+    OAM[object * 4u + 1u] = (u16)(x | 0x4000u);
+    OAM[object * 4u + 2u] = (u16)(512u + tile_offset);
+    OAM[object * 4u + 3u] = 0u;
+}
+
+static void setup_video_obj_palette(void)
+{
+    OBJ_PALRAM[0] = 0u;
+    OBJ_PALRAM[OBJ_COL_BLACK] = 0x0000u;
+    OBJ_PALRAM[OBJ_COL_WHITE] = 0x7FFFu;
+    OBJ_PALRAM[OBJ_COL_YELLOW] = 0x037Fu;
+    OBJ_PALRAM[OBJ_COL_RED] = 0x001Fu;
+    OBJ_PALRAM[OBJ_COL_GREEN] = 0x03E0u;
+}
+
+static void build_mute_sprite(int muted)
+{
+    u32 base = OBJ_TILE_MUTE;
+    sprite_clear_tiles(base, 32u);
+    sprite_fill_logical(base, 0u, 0u, 12u, 7u, OBJ_COL_BLACK);
+    sprite_put_logical(base,1u,3u,OBJ_COL_WHITE); sprite_put_logical(base,2u,2u,OBJ_COL_WHITE); sprite_put_logical(base,2u,3u,OBJ_COL_WHITE); sprite_put_logical(base,2u,4u,OBJ_COL_WHITE);
+    sprite_put_logical(base,3u,1u,OBJ_COL_WHITE); sprite_put_logical(base,3u,2u,OBJ_COL_WHITE); sprite_put_logical(base,3u,3u,OBJ_COL_WHITE); sprite_put_logical(base,3u,4u,OBJ_COL_WHITE); sprite_put_logical(base,3u,5u,OBJ_COL_WHITE);
+    if (muted) {
+        sprite_put_logical(base,6u,1u,OBJ_COL_RED); sprite_put_logical(base,10u,1u,OBJ_COL_RED); sprite_put_logical(base,7u,2u,OBJ_COL_RED); sprite_put_logical(base,9u,2u,OBJ_COL_RED); sprite_put_logical(base,8u,3u,OBJ_COL_RED); sprite_put_logical(base,7u,4u,OBJ_COL_RED); sprite_put_logical(base,9u,4u,OBJ_COL_RED); sprite_put_logical(base,6u,5u,OBJ_COL_RED); sprite_put_logical(base,10u,5u,OBJ_COL_RED);
     } else {
-        put_logical_pixel(dst,x+5u,y+3u,UI_GREEN); put_logical_pixel(dst,x+5u,y+4u,UI_GREEN); put_logical_pixel(dst,x+6u,y+4u,UI_GREEN); put_logical_pixel(dst,x+6u,y+5u,UI_GREEN); put_logical_pixel(dst,x+7u,y+3u,UI_GREEN); put_logical_pixel(dst,x+7u,y+4u,UI_GREEN); put_logical_pixel(dst,x+8u,y+2u,UI_GREEN); put_logical_pixel(dst,x+8u,y+3u,UI_GREEN); put_logical_pixel(dst,x+9u,y+1u,UI_GREEN); put_logical_pixel(dst,x+9u,y+2u,UI_GREEN);
+        sprite_put_logical(base,6u,3u,OBJ_COL_GREEN); sprite_put_logical(base,6u,4u,OBJ_COL_GREEN); sprite_put_logical(base,7u,4u,OBJ_COL_GREEN); sprite_put_logical(base,7u,5u,OBJ_COL_GREEN); sprite_put_logical(base,8u,3u,OBJ_COL_GREEN); sprite_put_logical(base,8u,4u,OBJ_COL_GREEN); sprite_put_logical(base,9u,2u,OBJ_COL_GREEN); sprite_put_logical(base,9u,3u,OBJ_COL_GREEN); sprite_put_logical(base,10u,1u,OBJ_COL_GREEN); sprite_put_logical(base,10u,2u,OBJ_COL_GREEN);
     }
 }
 
-static void draw_mute_badge(volatile u16 *dst, int muted)
-{
-    fill_rect(dst, 107u, 3u, 12u, 7u, UI_BLACK);
-    draw_speaker(dst, 108u, 3u, muted);
-}
-
-static void draw_volume_badge(volatile u16 *dst, int level)
+static void build_volume_sprite(int level, u32 *width_out)
 {
     const char *text = level == 2 ? "V100" : (level == 1 ? "V50" : "V0");
-    u32 text_width = text_length(text) * 4u - 1u;
-    u32 box_width = text_width + 2u;
-    u32 box_x = 119u - box_width;
-    fill_rect(dst, box_x, 3u, box_width, 7u, UI_BLACK);
-    draw_text_auto(dst, box_x + 1u, 4u, text, UI_WHITE);
+    u32 width = text_length(text) * 4u + 1u;
+    sprite_clear_tiles(OBJ_TILE_VOLUME, 32u);
+    sprite_fill_logical(OBJ_TILE_VOLUME, 0u, 0u, width, 7u, OBJ_COL_BLACK);
+    sprite_draw_text(OBJ_TILE_VOLUME, 1u, 1u, text);
+    *width_out = width;
 }
 
-static void draw_left_arrow(volatile u16 *dst, u32 x, u32 y)
+static void sprite_draw_seek_arrow(u32 base, u32 x, u32 y, int direction)
 {
-    fill_rect(dst,x,y+3u,1u,2u,UI_YELLOW); fill_rect(dst,x+1u,y+2u,1u,4u,UI_YELLOW); fill_rect(dst,x+2u,y+1u,1u,6u,UI_YELLOW); fill_rect(dst,x+3u,y+3u,4u,2u,UI_YELLOW);
-}
-
-static void draw_right_arrow(volatile u16 *dst, u32 x, u32 y)
-{
-    fill_rect(dst,x,y+3u,4u,2u,UI_YELLOW); fill_rect(dst,x+4u,y+1u,1u,6u,UI_YELLOW); fill_rect(dst,x+5u,y+2u,1u,4u,UI_YELLOW); fill_rect(dst,x+6u,y+3u,1u,2u,UI_YELLOW);
-}
-
-static u32 number_digits(u32 v) { return v >= 10u ? 2u : 1u; }
-
-static void draw_small_number(volatile u16 *dst, u32 x, u32 y, u32 value, u16 colour)
-{
-    if (value >= 10u) {
-        draw_char(dst, x, y, (char)('0' + divide_u32(value, 10u) % 10u), colour);
-        draw_char(dst, x + 4u, y, (char)('0' + value % 10u), colour);
-    } else draw_char(dst, x, y, (char)('0' + value), colour);
-}
-
-static void draw_seek_badge(volatile u16 *dst, int direction, u32 seconds)
-{
-    u32 digits = number_digits(seconds);
-    u32 number_width = digits == 2u ? 7u : 3u;
-    u32 content_width = 7u + 2u + number_width;
-    u32 box_w = content_width + 4u;
-    u32 box_x = (120u - box_w) / 2u;
-    u32 content_x = box_x + 2u;
-    fill_rect(dst, box_x, 32u, box_w, 10u, UI_BLACK);
     if (direction < 0) {
-        draw_left_arrow(dst, content_x, 33u);
-        draw_small_number(dst, content_x + 9u, 34u, seconds, UI_WHITE);
+        sprite_fill_logical(base,x,y+3u,1u,2u,OBJ_COL_YELLOW); sprite_fill_logical(base,x+1u,y+2u,1u,4u,OBJ_COL_YELLOW); sprite_fill_logical(base,x+2u,y+1u,1u,6u,OBJ_COL_YELLOW); sprite_fill_logical(base,x+3u,y+3u,4u,2u,OBJ_COL_YELLOW);
     } else {
-        draw_small_number(dst, content_x, 34u, seconds, UI_WHITE);
-        draw_right_arrow(dst, content_x + number_width + 2u, 33u);
+        sprite_fill_logical(base,x,y+3u,4u,2u,OBJ_COL_YELLOW); sprite_fill_logical(base,x+4u,y+1u,1u,6u,OBJ_COL_YELLOW); sprite_fill_logical(base,x+5u,y+2u,1u,4u,OBJ_COL_YELLOW); sprite_fill_logical(base,x+6u,y+3u,1u,2u,OBJ_COL_YELLOW);
     }
 }
+
+static u32 build_seek_sprite(int direction, u32 seconds)
+{
+    char text[3];
+    u32 digits = seconds >= 10u ? 2u : 1u;
+    u32 number_width = digits == 2u ? 7u : 3u;
+    u32 content_width = 7u + 2u + number_width;
+    u32 box_width = content_width + 4u;
+    u32 content_x = 2u;
+    sprite_clear_tiles(OBJ_TILE_SEEK, 32u);
+    sprite_fill_logical(OBJ_TILE_SEEK, 0u, 0u, box_width, 10u, OBJ_COL_BLACK);
+    if (digits == 2u) { text[0] = (char)('0' + divide_u32(seconds,10u)%10u); text[1] = (char)('0' + seconds%10u); text[2] = 0; }
+    else { text[0] = (char)('0' + seconds); text[1] = 0; }
+    if (direction < 0) { sprite_draw_seek_arrow(OBJ_TILE_SEEK, content_x, 1u, -1); sprite_draw_text(OBJ_TILE_SEEK, content_x + 9u, 2u, text); }
+    else { sprite_draw_text(OBJ_TILE_SEEK, content_x, 2u, text); sprite_draw_seek_arrow(OBJ_TILE_SEEK, content_x + number_width + 2u, 1u, 1); }
+    return box_width;
+}
+
+static void build_loop_sprite(void)
+{
+    u32 base = OBJ_TILE_LOOP;
+    sprite_clear_tiles(base, 4u);
+    sprite_put_logical16(base,2u,0u,OBJ_COL_YELLOW); sprite_put_logical16(base,3u,0u,OBJ_COL_YELLOW); sprite_put_logical16(base,4u,0u,OBJ_COL_YELLOW); sprite_put_logical16(base,6u,0u,OBJ_COL_YELLOW);
+    sprite_put_logical16(base,1u,1u,OBJ_COL_YELLOW); sprite_put_logical16(base,5u,1u,OBJ_COL_YELLOW); sprite_put_logical16(base,6u,1u,OBJ_COL_YELLOW);
+    sprite_put_logical16(base,4u,2u,OBJ_COL_YELLOW); sprite_put_logical16(base,5u,2u,OBJ_COL_YELLOW); sprite_put_logical16(base,6u,2u,OBJ_COL_YELLOW);
+    sprite_put_logical16(base,0u,3u,OBJ_COL_YELLOW); sprite_put_logical16(base,1u,3u,OBJ_COL_YELLOW); sprite_put_logical16(base,2u,3u,OBJ_COL_YELLOW);
+    sprite_put_logical16(base,0u,4u,OBJ_COL_YELLOW); sprite_put_logical16(base,1u,4u,OBJ_COL_YELLOW); sprite_put_logical16(base,5u,4u,OBJ_COL_YELLOW);
+    sprite_put_logical16(base,0u,5u,OBJ_COL_YELLOW); sprite_put_logical16(base,2u,5u,OBJ_COL_YELLOW); sprite_put_logical16(base,3u,5u,OBJ_COL_YELLOW); sprite_put_logical16(base,4u,5u,OBJ_COL_YELLOW);
+}
+
+static void update_video_sprites(const struct PlayerUI *ui, const struct ClipDescriptor *clip, int hud_mode)
+{
+    u32 width;
+    setup_video_obj_palette();
+    if (ui->mute_timer != 0u) { build_mute_sprite(ui->muted); sprite_oam_wide(0u, 214u, 6u, OBJ_TILE_MUTE, 1); }
+    else sprite_oam_wide(0u, 0u, 0u, OBJ_TILE_MUTE, 0);
+    if (ui->volume_timer != 0u) { build_volume_sprite(ui->volume_level, &width); sprite_oam_wide(1u, 238u - width * 2u, 6u, OBJ_TILE_VOLUME, 1); }
+    else sprite_oam_wide(1u, 0u, 0u, OBJ_TILE_VOLUME, 0);
+    if (ui->seek_timer != 0u && ui->seek_direction != 0) { width = build_seek_sprite(ui->seek_direction, clip->seek_seconds ? clip->seek_seconds : 5u); sprite_oam_wide(2u, 120u - width, 64u, OBJ_TILE_SEEK, 1); }
+    else sprite_oam_wide(2u, 0u, 0u, OBJ_TILE_SEEK, 0);
+    if (hud_mode >= 2 && (clip->flags & CLIP_FLAG_LOOP)) { build_loop_sprite(); sprite_oam_square16(3u, 216u, 138u, OBJ_TILE_LOOP, 1); }
+    else sprite_oam_square16(3u, 0u, 0u, OBJ_TILE_LOOP, 0);
+}
+
 
 static const u16 *palette_for_frame(const struct ClipDescriptor *clip, u32 frame)
 {
@@ -431,19 +558,57 @@ static const u16 *palette_for_frame(const struct ClipDescriptor *clip, u32 frame
     return (const u16 *)rom_ptr(clip->palette_offset + index * 512u);
 }
 
-static void apply_delta(const u8 *payload, u32 size, u8 *dst)
+static u32 clip_frame_bytes(const struct ClipDescriptor *clip)
+{
+    u32 expected = (u32)clip->source_width * (u32)clip->source_height;
+    if (clip->source_width == 0u || clip->source_height == 0u ||
+        clip->source_width > MAX_FRAME_WIDTH || clip->source_height > MAX_FRAME_HEIGHT ||
+        expected > MAX_FRAME_BYTES) return 0u;
+    if (clip->frame_bytes != expected) return 0u;
+    return expected;
+}
+
+static void apply_delta(const u8 *payload, u32 size, u8 *dst, u32 frame_bytes)
 {
     u32 pos = 0u, off = 0u;
-    while (off + 4u <= size && pos < FRAME_BYTES) {
+    while (off + 4u <= size && pos < frame_bytes) {
         u32 skip = read16(payload + off), run = read16(payload + off + 2u);
         off += 4u;
         pos += skip;
-        if (pos > FRAME_BYTES) pos = FRAME_BYTES;
-        if (run > FRAME_BYTES - pos) run = FRAME_BYTES - pos;
+        if (pos > frame_bytes) pos = frame_bytes;
+        if (run > frame_bytes - pos) run = frame_bytes - pos;
         if (off + run > size) run = size - off;
         copy_bytes(dst + pos, payload + off, run);
         pos += run;
         off += run;
+    }
+}
+
+static void apply_tile_delta(const u8 *payload, u32 size, u8 *dst, u32 width, u32 height)
+{
+    u32 tile_columns = (width + 7u) / 8u;
+    u32 tile_rows = (height + 7u) / 8u;
+    u32 tile_count = tile_columns * tile_rows;
+    u32 bitmap_bytes = (tile_count + 7u) / 8u;
+    u32 tile, off = bitmap_bytes;
+    if (size < bitmap_bytes) return;
+    for (tile = 0u; tile < tile_count; ++tile) {
+        u32 row, tx, ty, tile_width, tile_height, tile_bytes;
+        if ((payload[tile >> 3] & (1u << (tile & 7u))) == 0u) continue;
+        {
+            u32 tile_row = divide_u32(tile, tile_columns);
+            u32 tile_column = tile - tile_row * tile_columns;
+            tx = tile_column * 8u;
+            ty = tile_row * 8u;
+        }
+        tile_width = tx + 8u <= width ? 8u : width - tx;
+        tile_height = ty + 8u <= height ? 8u : height - ty;
+        tile_bytes = tile_width * tile_height;
+        if (off + tile_bytes > size) return;
+        for (row = 0u; row < tile_height; ++row) {
+            copy_bytes(dst + (ty + row) * width + tx, payload + off, tile_width);
+            off += tile_width;
+        }
     }
 }
 
@@ -453,10 +618,36 @@ static const u8 *compressed_record(const struct ClipDescriptor *clip, u32 frame)
     return rom_ptr(clip->video_offset + read32(index + frame * 4u));
 }
 
+static void apply_record(const u8 *record, u8 *dst, const struct ClipDescriptor *clip)
+{
+    u32 type = read32(record);
+    u32 size = read32(record + 4u);
+    u32 frame_bytes = clip_frame_bytes(clip);
+    const u8 *payload = record + 8u;
+    if (frame_bytes == 0u) return;
+    if (type == 0u) {
+        if (size >= frame_bytes) copy_bytes(dst, payload, frame_bytes);
+    } else if (type == 1u) {
+        apply_delta(payload, size, dst, frame_bytes);
+    } else if (type == 2u) {
+        /* Repeat previous frame: destination already contains it. */
+    } else if (type == 3u) {
+        apply_tile_delta(payload, size, dst, clip->source_width, clip->source_height);
+    }
+}
+
+static void clear_frame(u8 *dst, u32 frame_bytes)
+{
+    u32 i;
+    for (i = 0u; i < frame_bytes; ++i) dst[i] = 0u;
+}
+
 static void load_frame_pixels(const struct ClipDescriptor *clip, u32 frame, u8 *dst)
 {
+    u32 frame_bytes = clip_frame_bytes(clip);
+    if (frame_bytes == 0u) { clear_frame(dst, MAX_FRAME_BYTES); return; }
     if (!(clip->flags & CLIP_FLAG_COMPRESSED)) {
-        copy_bytes(dst, rom_ptr(clip->video_offset + frame * FRAME_BYTES), FRAME_BYTES);
+        copy_bytes(dst, rom_ptr(clip->video_offset + frame * frame_bytes), frame_bytes);
         return;
     }
     {
@@ -468,63 +659,158 @@ static void load_frame_pixels(const struct ClipDescriptor *clip, u32 frame, u8 *
             --base;
         }
         record = compressed_record(clip, base);
-        if (read32(record) != 0u || read32(record + 4u) < FRAME_BYTES) {
-            u32 i; for (i = 0; i < FRAME_BYTES; ++i) dst[i] = 0u;
-        } else copy_bytes(dst, record + 8u, FRAME_BYTES);
+        if (read32(record) != 0u || read32(record + 4u) < frame_bytes) clear_frame(dst, frame_bytes);
+        else copy_bytes(dst, record + 8u, frame_bytes);
         while (base < frame) {
             ++base;
-            record = compressed_record(clip, base);
-            if (read32(record) == 0u) copy_bytes(dst, record + 8u, FRAME_BYTES);
-            else apply_delta(record + 8u, read32(record + 4u), dst);
+            apply_record(compressed_record(clip, base), dst, clip);
         }
     }
 }
 
 static void load_next_pixels(const struct ClipDescriptor *clip, u32 frame, const u8 *current, u8 *dst)
 {
+    u32 frame_bytes = clip_frame_bytes(clip);
+    if (frame_bytes == 0u) { clear_frame(dst, MAX_FRAME_BYTES); return; }
     if (!(clip->flags & CLIP_FLAG_COMPRESSED)) {
-        copy_bytes(dst, rom_ptr(clip->video_offset + frame * FRAME_BYTES), FRAME_BYTES);
+        copy_bytes(dst, rom_ptr(clip->video_offset + frame * frame_bytes), frame_bytes);
         return;
     }
-    copy_bytes(dst, current, FRAME_BYTES);
-    {
-        const u8 *record = compressed_record(clip, frame);
-        if (read32(record) == 0u) copy_bytes(dst, record + 8u, FRAME_BYTES);
-        else apply_delta(record + 8u, read32(record + 4u), dst);
+    copy_bytes(dst, current, frame_bytes);
+    apply_record(compressed_record(clip, frame), dst, clip);
+}
+
+static void put_source_pixel(volatile u16 *dst, u32 width, u32 height, u32 x, u32 y, u16 colour)
+{
+    volatile u16 *cell;
+    u16 value;
+    if (x >= width || y >= height) return;
+    cell = dst + y * 120u + (x >> 1);
+    value = *cell;
+    if (x & 1u) value = (u16)((value & 0x00FFu) | (colour << 8));
+    else value = (u16)((value & 0xFF00u) | colour);
+    *cell = value;
+}
+
+static u32 scale_base_x(u32 x, u32 width) { return divide_u32(x * width, BASE_FRAME_WIDTH); }
+static u32 scale_base_y(u32 y, u32 height) { return divide_u32(y * height, BASE_FRAME_HEIGHT); }
+
+static void fill_video_rect(volatile u16 *dst, const struct ClipDescriptor *clip,
+                            u32 x, u32 y, u32 width, u32 height, u16 colour)
+{
+    u32 sx0 = scale_base_x(x, clip->source_width);
+    u32 sy0 = scale_base_y(y, clip->source_height);
+    u32 sx1 = scale_base_x(x + width, clip->source_width);
+    u32 sy1 = scale_base_y(y + height, clip->source_height);
+    u32 sx, sy;
+    if (sx1 <= sx0) sx1 = sx0 + 1u;
+    if (sy1 <= sy0) sy1 = sy0 + 1u;
+    for (sy = sy0; sy < sy1 && sy < clip->source_height; ++sy)
+        for (sx = sx0; sx < sx1 && sx < clip->source_width; ++sx)
+            put_source_pixel(dst, clip->source_width, clip->source_height, sx, sy, colour);
+}
+
+static void draw_video_char(volatile u16 *dst, const struct ClipDescriptor *clip,
+                            u32 x, u32 y, char c, u16 colour)
+{
+    u16 bits = glyph_bits(c);
+    u32 row, col;
+    for (row = 0u; row < 5u; ++row) for (col = 0u; col < 3u; ++col) {
+        u32 bit = 14u - (row * 3u + col);
+        if (bits & (1u << bit)) fill_video_rect(dst, clip, x + col, y + row, 1u, 1u, colour);
     }
 }
 
-static void render_pixels(const u8 *src, volatile u16 *dst)
+static void draw_video_text(volatile u16 *dst, const struct ClipDescriptor *clip,
+                            u32 x, u32 y, const char *text, u32 length, u16 colour)
 {
-    u32 y, x;
-    for (y = 0; y < FRAME_HEIGHT; ++y) {
-        volatile u16 *row0 = dst + (y * 2u) * 120u;
-        volatile u16 *row1 = row0 + 120u;
-        for (x = 0; x < FRAME_WIDTH; ++x) {
-            u16 p = src[y * FRAME_WIDTH + x];
-            p = (u16)(p | (p << 8));
-            row0[x] = p; row1[x] = p;
-        }
+    u32 i;
+    for (i = 0u; i < length; ++i) draw_video_char(dst, clip, x + i * 4u, y, text[i], colour);
+}
+
+static void draw_hud(volatile u16 *dst, u32 frame, const struct ClipDescriptor *clip, int mode)
+{
+    u32 total_seconds;
+    char time_text[11];
+    char frame_text[6];
+    if (mode <= 0) return;
+    total_seconds = seconds_for_frame(clip->frame_count > 0u ? clip->frame_count - 1u : 0u, clip->vblanks_per_frame);
+    make_time_text(time_text, seconds_for_frame(frame, clip->vblanks_per_frame), total_seconds);
+    if (mode == 1) {
+        fill_video_rect(dst, clip, 0u, 68u, 120u, 8u, UI_BLACK);
+        draw_video_text(dst, clip, 38u, 69u, time_text, 11u, UI_WHITE);
+        return;
     }
+    fill_video_rect(dst, clip, 0u, 67u, 120u, 13u, UI_BLACK);
+    draw_video_text(dst, clip, 3u, 69u, time_text, 11u, UI_WHITE);
+    make_frame_text(frame_text, frame + 1u);
+    draw_video_text(dst, clip, 51u, 69u, frame_text, 6u, UI_WHITE);
+    fill_video_rect(dst, clip, 5u, 77u, 110u, 2u, UI_DARK);
+    if (clip->frame_count <= 1u) fill_video_rect(dst, clip, 5u, 77u, 110u, 2u, UI_YELLOW);
+    else {
+        u32 filled = divide_u32(frame * 110u, clip->frame_count - 1u);
+        if (filled > 110u) filled = 110u;
+        if (filled > 0u) fill_video_rect(dst, clip, 5u, 77u, filled, 2u, UI_YELLOW);
+    }
+}
+
+static void render_pixels(const u8 *src, volatile u16 *dst, const struct ClipDescriptor *clip)
+{
+    u32 y, width = clip->source_width, height = clip->source_height;
+    if (clip_frame_bytes(clip) == 0u) return;
+    for (y = 0u; y < height; ++y) {
+        REG_DMA3CNT_H = 0u;
+        REG_DMA3SAD = (u32)(src + y * width);
+        REG_DMA3DAD = (u32)(dst + y * 120u);
+        REG_DMA3CNT_L = (u16)(width / 4u);
+        REG_DMA3CNT_H = 0x8400u; /* Immediate, 32-bit, enabled. */
+    }
+    REG_DMA3CNT_H = 0u;
+}
+
+static void set_video_display(u16 page, const struct ClipDescriptor *clip)
+{
+    u32 pa = divide_u32((u32)clip->source_width * 256u, 240u);
+    u32 pd = divide_u32((u32)clip->source_height * 256u, 160u);
+    if (pa == 0u) pa = 0x0080u;
+    if (pd == 0u) pd = 0x0080u;
+    REG_BG2CNT = 0u;
+    REG_BG2PA = (u16)pa;
+    REG_BG2PB = 0u;
+    REG_BG2PC = 0u;
+    REG_BG2PD = (u16)pd;
+    REG_BG2X = 0u;
+    REG_BG2Y = 0u;
+    REG_DISPCNT = (u16)(MODE4_BG2 | OBJ_ENABLE | OBJ_1D_MAP | (page ? PAGE_SELECT : 0u));
+}
+
+static void set_base_display(u16 page)
+{
+    REG_BG2CNT = 0u;
+    REG_BG2PA = 0x0080u;
+    REG_BG2PB = 0u;
+    REG_BG2PC = 0u;
+    REG_BG2PD = 0x0080u;
+    REG_BG2X = 0u;
+    REG_BG2Y = 0u;
+    REG_DISPCNT = (u16)(MODE4_BG2 | OBJ_ENABLE | OBJ_1D_MAP | (page ? PAGE_SELECT : 0u));
 }
 
 static void render_frame_with_ui(const u8 *pixels, u32 frame, volatile u16 *dst,
                                  const struct ClipDescriptor *clip, const struct PlayerUI *ui)
 {
     int hud_mode = ui->hud_mode;
-    render_pixels(pixels, dst);
+    render_pixels(pixels, dst, clip);
     if (ui->hud_timer != 0u && hud_mode < 2) hud_mode = 2;
     draw_hud(dst, frame, clip, hud_mode);
-    if (ui->mute_timer != 0u) draw_mute_badge(dst, ui->muted);
-    if (ui->volume_timer != 0u) draw_volume_badge(dst, ui->volume_level);
-    if (ui->seek_timer != 0u && ui->seek_direction != 0) draw_seek_badge(dst, ui->seek_direction, clip->seek_seconds ? clip->seek_seconds : 5u);
+    update_video_sprites(ui, clip, hud_mode);
 }
 
-static void show_rendered_page(u16 *displayed_page, const u16 *palette)
+static void show_rendered_page(u16 *displayed_page, const u16 *palette, const struct ClipDescriptor *clip)
 {
     copy_palette(palette);
     *displayed_page ^= 1u;
-    REG_DISPCNT = *displayed_page ? (MODE4_BG2 | PAGE_SELECT) : MODE4_BG2;
+    set_video_display(*displayed_page, clip);
 }
 
 static void render_and_show(const u8 *pixels, u32 frame, u16 *displayed_page,
@@ -533,7 +819,7 @@ static void render_and_show(const u8 *pixels, u32 frame, u16 *displayed_page,
     volatile u16 *back = *displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
     render_frame_with_ui(pixels, frame, back, clip, ui);
     wait_vblank();
-    show_rendered_page(displayed_page, palette_for_frame(clip, frame));
+    show_rendered_page(displayed_page, palette_for_frame(clip, frame), clip);
 }
 
 static u16 sound_control(const struct PlayerUI *ui, int reset)
@@ -544,9 +830,111 @@ static u16 sound_control(const struct PlayerUI *ui, int reset)
     return v;
 }
 
+static const s16 ima_step_table[89] = {
+    7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,
+    157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,
+    1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,
+    10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767
+};
+static const s8 ima_index_table[16] = {-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8};
+
+static s32 clamp_s32(s32 value, s32 low, s32 high)
+{
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
+
+static void decode_adpcm_block(u32 block)
+{
+    const u32 block_bytes = ADPCM_BLOCK_BYTES;
+    const u8 *src;
+    s32 predictor, index;
+    u32 sample;
+    if (block * block_bytes + block_bytes > audio_adpcm_size) {
+        for (sample = 0u; sample < ADPCM_BLOCK_SAMPLES; ++sample) adpcm_cache[sample] = 0u;
+        audio_cached_block = block;
+        return;
+    }
+    src = audio_adpcm_data + block * block_bytes;
+    predictor = (s16)read16(src);
+    index = src[2];
+    if (index > 88) index = 88;
+    adpcm_cache[0] = (u8)(s8)clamp_s32(predictor >> 8, -128, 127);
+    for (sample = 1u; sample < ADPCM_BLOCK_SAMPLES; ++sample) {
+        u32 packed_index = sample - 1u;
+        u8 packed = src[4u + (packed_index >> 1)];
+        s32 nibble = (packed_index & 1u) ? (packed >> 4) : (packed & 15u);
+        s32 step = ima_step_table[index];
+        s32 delta = step >> 3;
+        if (nibble & 4) delta += step;
+        if (nibble & 2) delta += step >> 1;
+        if (nibble & 1) delta += step >> 2;
+        if (nibble & 8) predictor -= delta; else predictor += delta;
+        predictor = clamp_s32(predictor, -32768, 32767);
+        index = clamp_s32(index + ima_index_table[nibble], 0, 88);
+        adpcm_cache[sample] = (u8)(s8)clamp_s32(predictor >> 8, -128, 127);
+    }
+    audio_cached_block = block;
+}
+
+static void audio_decode_fill(u8 *dst)
+{
+    u32 i;
+    for (i = 0u; i < AUDIO_BUFFER_SAMPLES; ++i) {
+        if (audio_decode_position >= audio_total_samples) {
+            dst[i] = 0u;
+        } else {
+            u32 block = divide_u32(audio_decode_position, ADPCM_BLOCK_SAMPLES);
+            u32 within = audio_decode_position % ADPCM_BLOCK_SAMPLES;
+            if (audio_cached_block != block) decode_adpcm_block(block);
+            dst[i] = adpcm_cache[within];
+            ++audio_decode_position;
+        }
+    }
+}
+
+static void audio_dma_buffer(int index)
+{
+    REG_DMA1CNT_H = 0u;
+    REG_DMA1SAD = (u32)audio_buffers[index];
+    REG_DMA1DAD = (u32)&REG_FIFO_A;
+    REG_DMA1CNT_L = 4u;
+    REG_DMA1CNT_H = 0xB640u;
+}
+
+static void audio_irq_handler(void)
+{
+    u16 pending = REG_IF;
+    if (pending & IRQ_TIMER1) {
+        REG_IF = IRQ_TIMER1;
+        if (audio_adpcm_active) {
+            int old = audio_current_buffer;
+            int next = old ^ 1;
+            audio_dma_buffer(next);
+            audio_current_buffer = next;
+            audio_fill_mask |= (1u << (u32)old);
+        }
+    }
+}
+
+static void audio_irq_init(void)
+{
+    REG_IME = 0u;
+    IRQ_VECTOR = audio_irq_handler;
+    REG_IF = 0x3FFFu;
+    REG_IE = (u16)(REG_IE | IRQ_TIMER1);
+    REG_IME = 1u;
+}
+
 static void audio_stop(void)
 {
-    REG_TM0CNT_H = 0; REG_DMA1CNT_H = 0; REG_SOUNDCNT_H = 0x0800;
+    REG_TM0CNT_H = 0u;
+    REG_TM1CNT_H = 0u;
+    REG_DMA1CNT_H = 0u;
+    REG_SOUNDCNT_H = 0x0800u;
+    audio_adpcm_active = 0;
+    audio_fill_mask = 0u;
 }
 
 static void audio_apply_state(const struct PlayerUI *ui)
@@ -554,24 +942,76 @@ static void audio_apply_state(const struct PlayerUI *ui)
     REG_SOUNDCNT_H = sound_control(ui, 0);
 }
 
-static void audio_start_at(const u8 *audio, u32 byte_offset, int paused, const struct PlayerUI *ui)
+static void audio_start_at(const struct ClipDescriptor *clip, const u8 *audio, u32 offset, int paused, const struct PlayerUI *ui)
 {
     audio_stop();
-    REG_SOUNDCNT_X = 0x0080; REG_SOUNDCNT_L = 0; REG_SOUNDBIAS = 0x0200;
+    REG_SOUNDCNT_X = 0x0080u;
+    REG_SOUNDCNT_L = 0u;
+    REG_SOUNDBIAS = 0x0200u;
     REG_SOUNDCNT_H = sound_control(ui, 1);
-    REG_DMA1SAD = (u32)(audio + (byte_offset & ~3u)); REG_DMA1DAD = (u32)&REG_FIFO_A;
-    REG_DMA1CNT_L = 4; REG_DMA1CNT_H = 0xB640;
-    if (!paused) { REG_TM0CNT_L = 0xFC00; REG_TM0CNT_H = 0x0080; }
+    if (clip->flags & CLIP_FLAG_ADPCM) {
+        audio_adpcm_data = audio;
+        audio_adpcm_size = clip->audio_size;
+        audio_total_samples = clip->audio_pcm_samples;
+        audio_decode_position = offset < audio_total_samples ? offset : audio_total_samples;
+        audio_cached_block = 0xFFFFFFFFu;
+        audio_decode_fill(audio_buffers[0]);
+        audio_decode_fill(audio_buffers[1]);
+        audio_current_buffer = 0;
+        audio_fill_mask = 0u;
+        audio_adpcm_active = 1;
+        audio_dma_buffer(0);
+        REG_TM1CNT_L = (u16)(0u - AUDIO_BUFFER_SAMPLES);
+        if (!paused) {
+            REG_TM1CNT_H = 0x00C4u;
+            REG_TM0CNT_L = 0xFC00u;
+            REG_TM0CNT_H = 0x0080u;
+        }
+    } else {
+        REG_DMA1SAD = (u32)(audio + (offset & ~3u));
+        REG_DMA1DAD = (u32)&REG_FIFO_A;
+        REG_DMA1CNT_L = 4u;
+        REG_DMA1CNT_H = 0xB640u;
+        if (!paused) { REG_TM0CNT_L = 0xFC00u; REG_TM0CNT_H = 0x0080u; }
+    }
 }
 
-static void audio_pause(void) { REG_TM0CNT_H = 0; }
-static void audio_resume(void) { REG_TM0CNT_L = 0xFC00; REG_TM0CNT_H = 0x0080; }
+static void audio_pause(void)
+{
+    REG_TM0CNT_H = 0u;
+    if (audio_adpcm_active) REG_TM1CNT_H = 0u;
+}
+
+static void audio_resume(void)
+{
+    if (audio_adpcm_active) REG_TM1CNT_H = 0x00C4u;
+    REG_TM0CNT_L = 0xFC00u;
+    REG_TM0CNT_H = 0x0080u;
+}
+
+static void audio_service(void)
+{
+    u32 mask;
+    if (!audio_adpcm_active) return;
+    REG_IME = 0u;
+    mask = audio_fill_mask;
+    audio_fill_mask = 0u;
+    REG_IME = 1u;
+    if (mask & 1u) audio_decode_fill(audio_buffers[0]);
+    if (mask & 2u) audio_decode_fill(audio_buffers[1]);
+}
 
 static u32 audio_offset_for_frame(const struct ClipDescriptor *clip, u32 frame)
 {
     u32 offset;
     if (clip->seek_table_offset == 0u || frame >= clip->frame_count) return 0u;
-    offset = read32(rom_ptr(clip->seek_table_offset + frame * 4u)) & ~3u;
+    offset = read32(rom_ptr(clip->seek_table_offset + frame * 4u));
+    if (clip->flags & CLIP_FLAG_ADPCM) {
+        if (clip->audio_pcm_samples == 0u) return 0u;
+        if (offset >= clip->audio_pcm_samples) offset = clip->audio_pcm_samples - 1u;
+        return offset;
+    }
+    offset &= ~3u;
     if (clip->audio_size < 4u) return 0u;
     if (offset > clip->audio_size - 4u) offset = (clip->audio_size - 4u) & ~3u;
     return offset;
@@ -748,6 +1188,7 @@ static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, in
     for (;;) {
         int changed, action;
         wait_vblank();
+        audio_service();
         changed = tick_ui_timers(ui);
         action = poll_action(previous_keys, *paused, has_audio, playlist_mode, ui);
         if (action == ACTION_TOGGLE_PAUSE) {
@@ -817,16 +1258,18 @@ static void draw_help(volatile u16 *dst, int menu_mode, int playlist_mode)
 }
 
 static void set_ui_palette(void);
+static void hide_all_sprites(void);
 
 static void show_help_screen(u16 *displayed_page, int menu_mode, int playlist_mode)
 {
+    hide_all_sprites();
     volatile u16 *back = *displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
     u16 now;
     draw_help(back, menu_mode, playlist_mode);
     wait_vblank();
     set_ui_palette();
     *displayed_page ^= 1u;
-    REG_DISPCNT = *displayed_page ? (MODE4_BG2 | PAGE_SELECT) : MODE4_BG2;
+    set_base_display(*displayed_page);
     while (keys_down() != 0u) wait_vblank();
     do { wait_vblank(); now = keys_down(); } while (now == 0u);
     while (keys_down() != 0u) wait_vblank();
@@ -834,8 +1277,7 @@ static void show_help_screen(u16 *displayed_page, int menu_mode, int playlist_mo
 
 static void set_ui_palette(void)
 {
-    u32 i;
-    for (i=0;i<256u;++i) PALRAM[i]=0;
+    PALRAM[UI_BLUE_TOP]=0x6145; PALRAM[UI_BLUE_MID1]=0x5504; PALRAM[UI_BLUE_MID2]=0x48C3; PALRAM[UI_BLUE_BOTTOM]=0x3882;
     PALRAM[UI_BLACK]=0x0000; PALRAM[UI_DARK]=0x18C6; PALRAM[UI_WHITE]=0x7FFF; PALRAM[UI_YELLOW]=0x037F; PALRAM[UI_RED]=0x001F; PALRAM[UI_GREEN]=0x03E0;
 }
 
@@ -877,7 +1319,7 @@ static int resume_prompt(u32 seconds)
     draw_text(dst, 38u, 32u, time_text, 5u, UI_WHITE);
     draw_text_auto(dst, 28u, 45u, "A CONTINUE", UI_WHITE);
     draw_text_auto(dst, 28u, 53u, "B RESTART", UI_WHITE);
-    REG_DISPCNT = MODE4_BG2;
+    set_base_display(0u);
     while (keys_down()!=0u) wait_vblank();
     for (;;) {
         u16 p; wait_vblank(); p=keys_down();
@@ -886,69 +1328,314 @@ static int resume_prompt(u32 seconds)
     }
 }
 
-static void draw_menu_arrow(volatile u16 *dst, u32 x, u32 y, u16 colour)
+static u32 fixed_text_length(const char *text, u32 maximum)
 {
-    /* A clear five-pixel right arrow instead of the tiny font chevron. */
-    put_logical_pixel(dst, x + 2u, y + 0u, colour);
-    put_logical_pixel(dst, x + 2u, y + 1u, colour);
-    put_logical_pixel(dst, x + 3u, y + 1u, colour);
-    put_logical_pixel(dst, x + 0u, y + 2u, colour);
-    put_logical_pixel(dst, x + 1u, y + 2u, colour);
-    put_logical_pixel(dst, x + 2u, y + 2u, colour);
-    put_logical_pixel(dst, x + 3u, y + 2u, colour);
-    put_logical_pixel(dst, x + 4u, y + 2u, colour);
-    put_logical_pixel(dst, x + 2u, y + 3u, colour);
-    put_logical_pixel(dst, x + 3u, y + 3u, colour);
-    put_logical_pixel(dst, x + 2u, y + 4u, colour);
+    u32 n = 0u;
+    while (n < maximum && text[n] != 0) ++n;
+    return n;
 }
 
-static void draw_menu_thumbnail(volatile u16 *dst, const u8 *pixels)
+static u32 append_decimal(char *out, u32 pos, u32 value)
 {
-    const u32 x0 = 69u, y0 = 17u, width = 48u, height = 32u;
-    u32 x, y;
-    fill_rect(dst, x0 - 1u, y0 - 1u, width + 2u, height + 2u, UI_DARK);
-    for (y = 0u; y < height; ++y) {
-        u32 sy = divide_u32(y * FRAME_HEIGHT, height);
-        for (x = 0u; x < width; ++x) {
-            u32 sx = divide_u32(x * FRAME_WIDTH, width);
-            put_logical_pixel(dst, x0 + x, y0 + y, pixels[sy * FRAME_WIDTH + sx]);
+    char temp[5];
+    u32 count = 0u, i;
+    if (value > 999u) value = 999u;
+    do {
+        temp[count++] = (char)('0' + value % 10u);
+        value = divide_u32(value, 10u);
+    } while (value != 0u && count < 4u);
+    for (i = 0u; i < count; ++i) out[pos++] = temp[count - i - 1u];
+    return pos;
+}
+
+static void make_duration_text(char out[5], u32 seconds)
+{
+    u32 minutes = divide_u32(seconds, 60u), remainder = seconds % 60u;
+    if (minutes > 99u) minutes = 99u;
+    out[0] = (char)('0' + divide_u32(minutes, 10u));
+    out[1] = (char)('0' + minutes % 10u);
+    out[2] = ':';
+    out[3] = (char)('0' + divide_u32(remainder, 10u));
+    out[4] = (char)('0' + remainder % 10u);
+}
+
+static void make_menu_status(char out[31], u32 clip_count, u32 selected, u32 total_seconds)
+{
+    const char clips_label[] = " CLIPS TOTAL ";
+    char duration[5];
+    u32 pos = 0u, i;
+    make_duration_text(duration, total_seconds);
+    pos = append_decimal(out, pos, clip_count);
+    for (i = 0u; i < 13u; ++i) out[pos++] = clips_label[i];
+    for (i = 0u; i < 5u; ++i) out[pos++] = duration[i];
+    out[pos++] = ' ';
+    pos = append_decimal(out, pos, selected + 1u);
+    out[pos++] = '/';
+    pos = append_decimal(out, pos, clip_count);
+    while (pos < 30u) out[pos++] = 0;
+    out[30] = 0;
+}
+
+static u32 menu_total_seconds(const struct GlobalMetadata *meta, const struct ClipDescriptor *clips)
+{
+    u32 i, total = 0u;
+    for (i = 0u; i < meta->clip_count; ++i) total += seconds_for_frame(clips[i].frame_count, clips[i].vblanks_per_frame);
+    return total;
+}
+
+static void hide_all_sprites(void)
+{
+    u32 i;
+    for (i = 0u; i < 128u; ++i) {
+        OAM[i * 4u] = 0x0200u;
+        OAM[i * 4u + 1u] = 0u;
+        OAM[i * 4u + 2u] = 0u;
+        OAM[i * 4u + 3u] = 0u;
+    }
+}
+
+static void tile_set_4bpp(volatile u16 *tiles, u32 tile, u32 x, u32 y, u16 colour)
+{
+    u32 pixel = y * 8u + x;
+    volatile u16 *cell = tiles + tile * 16u + (pixel >> 2);
+    u32 shift = (pixel & 3u) * 4u;
+    u16 value = *cell;
+    value = (u16)((value & (u16)~(0xFu << shift)) | ((colour & 0xFu) << shift));
+    *cell = value;
+}
+
+static void build_menu_tiles(void)
+{
+    volatile u16 *background = BG_CHARBLOCK(0);
+    volatile u16 *font = BG_CHARBLOCK(1);
+    volatile u16 *obj = OBJ_VRAM_TILE;
+    u32 i, tile, row, col;
+    for (i = 0u; i < 128u; ++i) background[i] = 0u;
+    for (tile = 0u; tile < 4u; ++tile) {
+        for (row = 0u; row < 8u; ++row) for (col = 0u; col < 8u; ++col) tile_set_4bpp(background, tile, col, row, (u16)(6u + tile));
+    }
+    for (i = 0u; i < 4096u; ++i) font[i] = 0u;
+    for (row = 0u; row < 8u; ++row) for (col = 0u; col < 8u; ++col) tile_set_4bpp(font, 1u, col, row, 12u);
+    for (i = 32u; i <= 90u; ++i) {
+        u16 bits = glyph_bits((char)i);
+        u32 colour_variant;
+        for (colour_variant = 0u; colour_variant < 2u; ++colour_variant) {
+            u32 glyph_tile = 2u + (i - 32u) + colour_variant * 64u;
+            u16 pixel_colour = colour_variant ? 13u : 12u;
+            for (row = 0u; row < 5u; ++row) {
+                for (col = 0u; col < 3u; ++col) {
+                    u32 bit = 14u - (row * 3u + col);
+                    if (bits & (1u << bit)) {
+                        tile_set_4bpp(font, glyph_tile, 1u + col * 2u, 1u + row, pixel_colour);
+                        tile_set_4bpp(font, glyph_tile, 2u + col * 2u, 1u + row, pixel_colour);
+                    }
+                }
+            }
         }
     }
+    for (i = 0u; i < 16u; ++i) obj[i] = 0u;
+    for (row = 0u; row < 8u; ++row) {
+        u32 width = row < 4u ? row + 2u : 9u - row;
+        if (width > 7u) width = 7u;
+        for (col = 0u; col < width; ++col) tile_set_4bpp(obj, 0u, col, row, 1u);
+    }
+    OBJ_PALRAM[0] = 0u;
+    OBJ_PALRAM[1] = PALRAM[UI_YELLOW];
+}
+
+static void menu_clear_maps(void)
+{
+    volatile u16 *bg0 = BG_SCREENBLOCK(28);
+    volatile u16 *bg1 = BG_SCREENBLOCK(29);
+    volatile u16 *bg2 = BG_SCREENBLOCK(30);
+    u32 i, x, y;
+    for (i = 0u; i < 1024u; ++i) { bg0[i] = 0u; bg1[i] = 0u; bg2[i] = 0u; }
+    for (y = 0u; y < 20u; ++y) {
+        u32 shade = y < 5u ? 0u : (y < 10u ? 1u : (y < 15u ? 2u : 3u));
+        for (x = 0u; x < 30u; ++x) bg0[y * 32u + x] = (u16)(shade | (15u << 12));
+    }
+}
+
+static u16 menu_glyph_tile(char c, int yellow)
+{
+    u32 code = (u8)c;
+    if (code < 32u || code > 90u) code = 32u;
+    return (u16)(2u + code - 32u + (yellow ? 64u : 0u));
+}
+
+static void menu_write_text(u32 x, u32 y, const char *text, u32 maximum, int yellow)
+{
+    volatile u16 *map = BG_SCREENBLOCK(29);
+    u32 i, length = fixed_text_length(text, maximum);
+    for (i = 0u; i < length && x + i < 30u; ++i) map[y * 32u + x + i] = (u16)(menu_glyph_tile(text[i], yellow) | (15u << 12));
+}
+
+static void menu_draw_separator(void)
+{
+    volatile u16 *map = BG_SCREENBLOCK(29);
+    u32 x;
+    for (x = 0u; x < 30u; ++x) map[3u * 32u + x] = (u16)(1u | (15u << 12));
+}
+
+static void menu_draw_thumbnail(const u8 *pixels, const struct ClipDescriptor *clip)
+{
+    volatile u16 *tiles = BG_CHARBLOCK(2);
+    volatile u16 *map = BG_SCREENBLOCK(30);
+    u32 tile_x, tile_y, px, py;
+    for (tile_y = 0u; tile_y < 4u; ++tile_y) {
+        for (tile_x = 0u; tile_x < 6u; ++tile_x) {
+            u32 tile = tile_y * 6u + tile_x;
+            for (py = 0u; py < 8u; ++py) {
+                for (px = 0u; px < 8u; px += 2u) {
+                    u32 dx0 = tile_x * 8u + px;
+                    u32 dx1 = dx0 + 1u;
+                    u32 dy = tile_y * 8u + py;
+                    u32 sx0 = divide_u32(dx0 * clip->source_width, 48u);
+                    u32 sx1 = divide_u32(dx1 * clip->source_width, 48u);
+                    u32 sy = divide_u32(dy * clip->source_height, 32u);
+                    tiles[tile * 32u + py * 4u + (px >> 1)] = (u16)(pixels[sy * clip->source_width + sx0] | ((u16)pixels[sy * clip->source_width + sx1] << 8));
+                }
+            }
+            map[(6u + tile_y) * 32u + 23u + tile_x] = (u16)(tile | (15u << 12));
+        }
+    }
+    {
+        volatile u16 *text = BG_SCREENBLOCK(29);
+        u32 x, y;
+        for (x = 22u; x < 30u; ++x) { text[5u * 32u + x] = (u16)(1u | (15u << 12)); text[10u * 32u + x] = (u16)(1u | (15u << 12)); }
+        for (y = 5u; y <= 10u; ++y) { text[y * 32u + 22u] = (u16)(1u | (15u << 12)); text[y * 32u + 29u] = (u16)(1u | (15u << 12)); }
+    }
+}
+
+static u32 menu_column_count(u32 clip_count, int preview)
+{
+    if (preview || clip_count <= MENU_ROWS) return 1u;
+    if (clip_count <= MENU_ROWS * 2u) return 2u;
+    return 3u;
+}
+
+static void menu_set_arrow(u32 selected, u32 page_start, u32 column_width, int visible)
+{
+    u32 local = selected - page_start;
+    u32 column = divide_u32(local, MENU_ROWS);
+    u32 row = local % MENU_ROWS;
+    u32 x = column * column_width * 8u + 2u;
+    u32 y = (5u + row) * 8u;
+    OAM[0] = visible ? (u16)y : 0x0200u;
+    OAM[1] = (u16)x;
+    OAM[2] = 0u;
+}
+
+static void setup_menu_display(const u16 *palette, int preview)
+{
+    hide_all_sprites();
+    if (palette) copy_palette(palette);
+    set_ui_palette();
+    build_menu_tiles();
+    menu_clear_maps();
+    REG_BG0CNT = (u16)(2u | (0u << 2) | (28u << 8));
+    REG_BG1CNT = (u16)(0u | (1u << 2) | (29u << 8));
+    REG_BG2CNT = (u16)(1u | (2u << 2) | 0x0080u | (30u << 8));
+    REG_BG0HOFS = REG_BG0VOFS = 0u;
+    REG_BG1HOFS = REG_BG1VOFS = 0u;
+    REG_BG2HOFS = REG_BG2VOFS = 0u;
+    REG_DISPCNT = (u16)(MODE0_BG0_BG1_BG2 | OBJ_ENABLE | OBJ_1D_MAP | (preview ? 0u : 0u));
+}
+
+static void draw_clip_menu_tiles(const struct GlobalMetadata *meta, const struct ClipDescriptor *clips,
+                                 u32 selected, u32 total_seconds, int preview, int arrow_visible)
+{
+    char status[31];
+    volatile u16 *textmap = BG_SCREENBLOCK(29);
+    u32 columns = menu_column_count(meta->clip_count, preview);
+    u32 page_size = columns * MENU_ROWS;
+    u32 page_start = divide_u32(selected, page_size) * page_size;
+    u32 column_width = preview ? 22u : divide_u32(30u, columns);
+    u32 max_chars = preview ? 18u : (columns >= 3u ? 8u : 12u);
+    u32 column, row, i;
+    for (i = 0u; i < 1024u; ++i) textmap[i] = 0u;
+    menu_write_text(9u, 0u, "SELECT VIDEO", 12u, 0);
+    make_menu_status(status, meta->clip_count, selected, total_seconds);
+    menu_write_text(0u, 2u, status, 30u, 0);
+    menu_draw_separator();
+    for (column = 0u; column < columns; ++column) {
+        u32 x = column * column_width;
+        for (row = 0u; row < MENU_ROWS; ++row) {
+            u32 index = page_start + column * MENU_ROWS + row;
+            if (index >= meta->clip_count) break;
+            menu_write_text(x + 1u, 5u + row, clips[index].title, max_chars, index == selected);
+        }
+    }
+    if (preview) menu_draw_thumbnail(frame_a, &clips[selected]);
+    menu_set_arrow(selected, page_start, column_width, arrow_visible);
+}
+
+static u32 menu_move_up(u32 selected, u32 clip_count, int preview)
+{
+    u32 columns = menu_column_count(clip_count, preview);
+    u32 page_size = columns * MENU_ROWS;
+    u32 page_start = divide_u32(selected, page_size) * page_size;
+    u32 column = divide_u32(selected - page_start, MENU_ROWS);
+    u32 first = page_start + column * MENU_ROWS;
+    u32 last = first + MENU_ROWS - 1u;
+    if (last >= clip_count) last = clip_count - 1u;
+    return selected > first ? selected - 1u : last;
+}
+
+static u32 menu_move_down(u32 selected, u32 clip_count, int preview)
+{
+    u32 columns = menu_column_count(clip_count, preview);
+    u32 page_size = columns * MENU_ROWS;
+    u32 page_start = divide_u32(selected, page_size) * page_size;
+    u32 column = divide_u32(selected - page_start, MENU_ROWS);
+    u32 first = page_start + column * MENU_ROWS;
+    u32 last = first + MENU_ROWS - 1u;
+    if (last >= clip_count) last = clip_count - 1u;
+    return selected < last ? selected + 1u : first;
 }
 
 static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct ClipDescriptor *clips, u32 initial_selection)
 {
     u32 selected = initial_selection < meta->clip_count ? initial_selection : (meta->default_clip < meta->clip_count ? meta->default_clip : 0u);
-    u32 top = 0u;
+    u32 loaded_thumbnail = 0xFFFFFFFFu;
+    u32 total_seconds = menu_total_seconds(meta, clips);
+    u32 blink_counter = 0u;
+    int preview = (meta->flags & GLOBAL_FLAG_MENU_PREVIEW) != 0u;
+    int arrow_visible = 1;
     u16 prev = keys_down();
     if (meta->clip_count <= 1u) return 0u;
+    if (preview) {
+        load_frame_pixels(&clips[selected], 0u, frame_a);
+        setup_menu_display(palette_for_frame(&clips[selected], 0u), preview);
+        loaded_thumbnail = selected;
+    } else setup_menu_display(0, preview);
+    draw_clip_menu_tiles(meta, clips, selected, total_seconds, preview, arrow_visible);
     for (;;) {
-        volatile u16 *dst = VRAM_PAGE0;
-        u32 row;
-        if (meta->flags & GLOBAL_FLAG_MENU_PREVIEW) {
+        u16 now, pressed;
+        wait_vblank();
+        now = keys_down(); pressed = (u16)(now & (u16)~prev); prev = now;
+        if (++blink_counter >= MENU_ARROW_BLINK_VBLANKS) {
+            u32 columns = menu_column_count(meta->clip_count, preview);
+            u32 page_size = columns * MENU_ROWS;
+            u32 page_start = divide_u32(selected, page_size) * page_size;
+            u32 column_width = preview ? 22u : divide_u32(30u, columns);
+            blink_counter = 0u; arrow_visible = !arrow_visible;
+            menu_set_arrow(selected, page_start, column_width, arrow_visible);
+        }
+        if (pressed & KEY_UP) selected = menu_move_up(selected, meta->clip_count, preview);
+        else if (pressed & KEY_DOWN) selected = menu_move_down(selected, meta->clip_count, preview);
+        else if (pressed & KEY_LEFT) selected = selected >= MENU_ROWS ? selected - MENU_ROWS : meta->clip_count - 1u;
+        else if (pressed & KEY_RIGHT) selected = selected + MENU_ROWS < meta->clip_count ? selected + MENU_ROWS : 0u;
+        else if (pressed & KEY_A) { while (keys_down() != 0u) wait_vblank(); hide_all_sprites(); return selected; }
+        else continue;
+        if (preview && loaded_thumbnail != selected) {
             load_frame_pixels(&clips[selected], 0u, frame_a);
             copy_palette(palette_for_frame(&clips[selected], 0u));
-            clear_screen(dst);
-            draw_menu_thumbnail(dst, frame_a);
-        } else {
-            clear_screen(dst); set_ui_palette();
+            set_ui_palette();
+            loaded_thumbnail = selected;
         }
-        draw_text_auto(dst, 34u, 2u, "SELECT VIDEO", UI_YELLOW);
-        if (selected < top) top=selected;
-        if (selected >= top+10u) top=selected-9u;
-        for (row=0u; row<10u && top+row<meta->clip_count; ++row) {
-            const struct ClipDescriptor *clip=&clips[top+row];
-            u16 col=(top+row==selected)?UI_YELLOW:UI_WHITE;
-            if (top+row==selected) draw_menu_arrow(dst,1u,10u+row*6u,col);
-            draw_text(dst,8u,10u+row*6u,clip->title,12u,col);
-        }
-        REG_DISPCNT=MODE4_BG2;
-        for (;;) {
-            u16 now, pressed; wait_vblank(); now=keys_down(); pressed=(u16)(now & (u16)~prev); prev=now;
-            if (pressed & KEY_UP) { selected = selected==0u ? meta->clip_count-1u : selected-1u; break; }
-            if (pressed & KEY_DOWN) { selected = selected+1u>=meta->clip_count ? 0u : selected+1u; break; }
-            if (pressed & KEY_A) { while(keys_down()!=0u) wait_vblank(); return selected; }
-        }
+        arrow_visible = 1; blink_counter = 0u;
+        draw_clip_menu_tiles(meta, clips, selected, total_seconds, preview, arrow_visible);
     }
 }
 
@@ -968,18 +1655,18 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     audio_stop(); REG_DISPCNT=FORCE_BLANK;
     copy_palette(palette_for_frame(clip,frame));
     render_frame_with_ui(current,frame,VRAM_PAGE0,clip,ui);
-    wait_vblank(); REG_DISPCNT=MODE4_BG2;
+    wait_vblank(); set_video_display(0u, clip);
     previous_keys=keys_down();
     playback_clock_init(&clock, clip->vblanks_per_frame);
     playback_timer_reset();
     playback_clock_advance(&clock);
-    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
+    if (has_audio) audio_start_at(clip,audio,audio_offset_for_frame(clip,frame),0,ui);
     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
 
     for (;;) {
         if (at_end) {
             int redraw=0, action;
-            wait_vblank(); if (tick_ui_timers(ui)) redraw=1;
+            wait_vblank(); audio_service(); if (tick_ui_timers(ui)) redraw=1;
             action=poll_action(&previous_keys,0,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,ui);
             if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
             if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_PREV_CLIP; }
@@ -997,7 +1684,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1); load_frame_pixels(clip,target,current); frame=target; at_end=0; paused=0;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
-                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
+                    if (has_audio) audio_start_at(clip,audio,audio_offset_for_frame(clip,frame),0,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
                 }
                 continue;
@@ -1009,7 +1696,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             int has_next = frame + 1u < clip->frame_count;
             volatile u16 *back = displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
             int action;
-            if (has_next) { load_next_pixels(clip,frame+1u,current,next); render_frame_with_ui(next,frame+1u,back,clip,ui); }
+            if (has_next) { load_next_pixels(clip,frame+1u,current,next); audio_service(); render_frame_with_ui(next,frame+1u,back,clip,ui); }
             action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,&paused,ui);
             if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
             if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_PREV_CLIP; }
@@ -1019,7 +1706,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                 show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                 playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
                 if (paused) playback_timer_pause();
-                if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
+                if (has_audio) audio_start_at(clip,audio,audio_offset_for_frame(clip,frame),paused,ui);
                 continue;
             }
             if (action==ACTION_UI_REFRESH) { render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down(); continue; }
@@ -1031,7 +1718,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     load_frame_pixels(clip,target,current); frame=target; ui->hud_timer=HUD_HOLD_VBLANKS;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); playback_timer_pause();
-                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),1,ui);
+                    if (has_audio) audio_start_at(clip,audio,audio_offset_for_frame(clip,frame),1,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
                 }
                 continue;
@@ -1043,13 +1730,13 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     load_frame_pixels(clip,target,current); frame=target;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); if (paused) playback_timer_pause();
-                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
+                    if (has_audio) audio_start_at(clip,audio,audio_offset_for_frame(clip,frame),paused,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
                 }
                 continue;
             }
             if (has_next) {
-                show_rendered_page(&displayed_page,palette_for_frame(clip,frame+1u));
+                show_rendered_page(&displayed_page,palette_for_frame(clip,frame+1u),clip);
                 { u8 *tmp=current; current=next; next=tmp; }
                 ++frame; playback_clock_advance(&clock);
                 if ((meta->flags & GLOBAL_FLAG_RESUME) && (frame % 10u == 0u)) save_position(clip_index,frame);
@@ -1078,8 +1765,8 @@ void main(void)
     u32 selected=0u, saved_clip=0u, saved_frame=0u;
     int have_resume=0;
 
-    REG_IME=0; REG_WAITCNT=0x4317; REG_DISPCNT=FORCE_BLANK; playback_timer_stop();
-    if (meta->magic!=GBV5_MAGIC || meta->version!=5u || meta->clip_count==0u || meta->clip_descriptor_size!=96u) for(;;){}
+    REG_IME=0; REG_WAITCNT=0x4317; REG_DISPCNT=FORCE_BLANK; playback_timer_stop(); audio_irq_init();
+    if (meta->magic!=GBV6_MAGIC || meta->version!=6u || meta->clip_count==0u || meta->clip_descriptor_size!=128u) for(;;){}
     clips=(const struct ClipDescriptor *)rom_ptr(meta->clip_table_offset);
     REG_BG2PA=0x0100; REG_BG2PB=0; REG_BG2PC=0; REG_BG2PD=0x0100; REG_BG2X=0; REG_BG2Y=0;
     ui.muted=0; ui.volume_level=2; ui.hud_mode=0; ui.hud_last_visible=2; ui.hud_timer=0; ui.mute_timer=0; ui.volume_timer=0; ui.seek_timer=0; ui.seek_direction=0; ui.seek_hold_direction=0; ui.seek_hold_counter=0; ui.help_combo_latched=0; ui.hud_combo_latched=0; ui.clip_combo_latched=0;

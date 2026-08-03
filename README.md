@@ -2,7 +2,7 @@
 
 A portable Windows app that converts ordinary video files into self-playing Game Boy Advance ROMs.
 
-Version **0.9.0** adds per-video conversion settings, drag-and-drop ordering, saved project files, a real trimming timeline, automatic ROM-size optimization, custom menu titles and optional menu thumbnails, while preserving the optimized v0.8.0 player and converter core.
+Version **0.10.1** adds project-wide or per-clip output resolution choices—Efficient 120×80, Enhanced 180×120, and Native 240×160—on top of the v0.10 hardware renderer, tiled menu, sprite HUD, hybrid video codec, adaptive keyframes, and PCM/IMA ADPCM audio.
 
 ## Download and run
 
@@ -17,10 +17,11 @@ Official portable releases include a pinned Windows x64 `ffmpeg.exe` beside the 
 ## Conversion features
 
 - Select or drag one or several videos
-- Live start/end preview using the chosen crop, fit, or stretch mode
+- Live start/end preview using the chosen crop, fit, stretch, and output-resolution settings
 - Shared settings for batch conversion
 - Separate `.gba` files in a ZIP, or several clips in one ROM with a startup menu
 - Trim start and end times
+- Per-project or per-clip video resolution: Efficient 120×80, Enhanced 180×120, or Native 240×160
 - Playback speed from 0.5× to 3×
 - Four frame-rate choices
 - Configurable 3, 5, 10, or 15-second seek step; default is 5 seconds
@@ -31,7 +32,8 @@ Official portable releases include a pinned Windows x64 `ffmpeg.exe` beside the 
 - Optional loudness normalization and limiter
 - Shared palette or scene-change palettes
 - Dithering off, ordered dithering, or error-diffusion dithering
-- Optional keyframe/delta video compression
+- Hybrid adaptive video compression with raw, byte-delta, repeat, and 8×8 tile-delta records
+- PCM or blocked IMA ADPCM audio storage; ADPCM is the default
 - Optional looping
 - Optional SRAM playback-position saving and resume prompt
 - Editable 12-character ROM title
@@ -58,7 +60,7 @@ The seek popup displays the actual seek amount selected during conversion. The f
 
 ## Multi-clip ROMs
 
-When several videos are converted as one ROM, the player opens a clip-selection menu:
+When several videos are converted as one menu ROM, the player opens a hardware-tiled clip-selection screen:
 
 - `D-pad Up` / `Down` chooses a clip
 - `A` starts the selected clip
@@ -77,21 +79,26 @@ SRAM behavior should be tested on the intended flash cartridge because save hand
 ## Video format and compression
 
 - Display: 240×160
-- Encoded frames: 120×80, expanded 2× by the player
+- Encoded frames: selectable 120×80, 180×120, or native 240×160
+- Mode 4 BG2 affine scaling maps the selected source resolution to the 240×160 display
+- DMA3 row uploads and page flipping
 - Indexed RGB555 colour
-- Palette entries 0–249 for video
-- Palette entries 250–255 reserved for stable HUD colours
+- Palette entries 0–245 for video
+- Palette entries 246–255 reserved for menu/HUD colours
 - Signed 8-bit mono audio at 16,384 Hz
+- Blocked IMA ADPCM by default, with PCM available
 - Power-of-two ROM padding up to the 32 MiB GBA limit
 
-Delta compression uses:
+Hybrid compression evaluates every frame and can store:
 
-- periodic full keyframes;
-- per-frame changed-byte runs between keyframes;
-- automatic full-frame fallback when a delta would not be smaller;
-- a frame index for seeking and keyframe reconstruction.
+- a complete keyframe;
+- changed-byte runs;
+- a repeat-previous-frame marker;
+- changed 8×8 tiles.
 
-Low-motion animation and static scenes usually benefit most. Highly noisy or rapidly changing footage may remain close to its uncompressed size.
+The encoder selects the smallest valid record automatically, inserts keyframes at strong scene changes, limits reconstruction-chain length, and falls back to a full frame whenever compression would not help. Low-motion animation, screen recordings, pixel art, and static scenes benefit most. Noisy or rapidly changing footage can remain close to raw size.
+
+The result panel reports raw, byte-delta, tile-delta, and repeat-frame counts plus video and audio storage ratios.
 
 ## Palette modes
 
@@ -104,6 +111,18 @@ Dithering choices:
 - **Off** — cleanest pixels and fastest conversion
 - **Ordered** — stable pattern and good default balance
 - **Error diffusion** — highest detail, slower conversion, potentially busier pixels
+
+## Resolution modes
+
+- **Efficient — 120×80:** smallest frames and longest practical duration; each source pixel is displayed as a 2×2 block. This remains the default.
+- **Enhanced — 180×120:** 2.25× as many source pixels as Efficient and a visible detail improvement, while still using hardware scaling.
+- **Native — 240×160:** full GBA display resolution with no enlargement, but approximately four times the raw video data of Efficient.
+
+Resolution can be inherited from project defaults or overridden for individual clips. The preview deliberately downsamples to the chosen source resolution and scales back with nearest-neighbour filtering, so it approximates the pixel detail that the ROM will display. The final result still depends on palette quantization, dithering, frame rate, compression, and the source video.
+
+## Hardware renderer
+
+The ROM no longer expands frames pixel-by-pixel in software. DMA copies each selected-resolution frame into the hidden Mode 4 page, and BG2 affine scaling maps 120×80 or 180×120 to the 240×160 display; native 240×160 uses a 1:1 affine matrix. Temporary mute, volume, seek, and loop feedback use OBJ sprites. Collection menus use tiled backgrounds plus a sprite arrow, so blinking and selection movement require only tilemap/OAM updates.
 
 ## Privacy model
 
@@ -149,14 +168,14 @@ On PowerShell:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.9.0
+./scripts/package-release.ps1 -Version 0.10.1
 ```
 
 ## Project layout
 
 ```text
 player/                  ARM7TDMI playback-engine source and build scripts
-assets/player_stub.bin   Prebuilt 16 KiB embedded player template
+assets/player_stub.bin   Prebuilt 44 KiB GBV6 player template
 converter.go             FFmpeg pipeline, palettes, dithering, compression, ROM assembly
 webapp.go                Local HTTP API and embedded Windows GUI
 main_windows.go          Windows app-window launcher
