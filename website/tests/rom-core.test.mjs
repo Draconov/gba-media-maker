@@ -106,3 +106,40 @@ test("browser core creates a structurally valid GBV5 ROM", async () => {
   for (let index = 0xa0; index < 0xbd; index += 1) checksumSum += rom[index];
   assert.equal(rom[0xbd], (-0x19 - checksumSum) & 0xff);
 });
+
+test("browser core supports uncompressed video and per-scene palette metadata", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const frameCount = 130;
+  const frames = new Uint8Array(RGB_FRAME_BYTES * frameCount);
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const base = frame * RGB_FRAME_BYTES;
+    const red = frame < 65 ? 220 : 20;
+    const blue = frame < 65 ? 20 : 220;
+    for (let pixel = 0; pixel < FRAME_BYTES; pixel += 1) {
+      frames[base + pixel * 3] = red;
+      frames[base + pixel * 3 + 1] = 30;
+      frames[base + pixel * 3 + 2] = blue;
+    }
+  }
+
+  const clip = convertRawClip({
+    framesRGB: frames,
+    title: "SCENES",
+    vblanks: 8,
+    paletteMode: "scene",
+    ditherMode: "off",
+    compression: "none",
+  });
+  assert.equal(clip.compressed, false);
+  assert.equal(clip.videoIndex.length, 0);
+  assert.equal(clip.video.length, frameCount * FRAME_BYTES);
+  assert.equal(clip.paletteCount >= 2, true);
+  assert.equal(clip.paletteIndex.length, frameCount * 2);
+
+  const result = assembleROM(playerStub, [clip], { romTitle: "SCENES", outputMode: "menu", resume: false });
+  const flags = u16(result.rom, ASSET_OFFSET + 50);
+  assert.equal((flags & 0x0004) === 0, true);
+  assert.equal((flags & 0x0008) !== 0, true);
+  assert.equal(u32(result.rom, ASSET_OFFSET + 12), 0);
+  assert.equal(u32(result.rom, ASSET_OFFSET + 28) !== 0, true);
+});

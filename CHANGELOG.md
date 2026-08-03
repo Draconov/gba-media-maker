@@ -142,3 +142,11 @@ All notable changes to this project are documented here.
 - Fixed hidden result/progress elements appearing before a conversion by enforcing the HTML `hidden` attribute.
 - Added per-clip looping, start/end trimming, playback speed, and volume controls.
 - Added a browser ROM-core test that verifies the loop flag is written into clip metadata.
+
+## Web parity and menu arrow alignment
+
+- Aligned the independent OBJ menu arrow with the selected title instead of the gap between rows.
+- Removed the ambiguous web-only Automatic output mode.
+- Added the desktop output choices: playlist ROM, menu ROM, and separate ROMs in a ZIP.
+- Added browser presets, per-scene palettes, uncompressed video, left/right audio selection, normalization, limiter, project defaults, per-clip overrides, clip reordering, and per-clip looping.
+- Reworked browser media inspection so ffprobe failure falls back to browser metadata and reports useful FFmpeg diagnostics.

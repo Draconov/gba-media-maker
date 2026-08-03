@@ -47,11 +47,22 @@
 
         <div class="settings-grid">
           <label>
-            <span>Output behavior</span>
+            <span>Preset</span>
+            <select id="preset">
+              <option value="best">Best quality</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="long">Long video</option>
+              <option value="small">Smallest ROM</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Output</span>
             <select id="outputMode">
-              <option value="auto">Automatic</option>
-              <option value="menu">Menu</option>
-              <option value="playlist">Playlist</option>
+              <option value="playlist">One ROM — play clips in order</option>
+              <option value="menu" selected>One ROM — clip menu</option>
+              <option value="batch">Separate ROMs in ZIP</option>
             </select>
           </label>
 
@@ -59,34 +70,52 @@
             <span>Frame rate</span>
             <select id="vblanks">
               <option value="4">Smooth — 14.93 FPS</option>
-              <option value="5">Balanced — 11.95 FPS</option>
-              <option value="6" selected>Efficient — 9.95 FPS</option>
-              <option value="8">Long video — 7.47 FPS</option>
+              <option value="5" selected>Balanced — 11.95 FPS</option>
+              <option value="6">Classic — 9.95 FPS</option>
+              <option value="8">Compact — 7.47 FPS</option>
             </select>
           </label>
 
           <label>
             <span>Screen framing</span>
             <select id="fitMode">
-              <option value="fit">Fit with bars</option>
-              <option value="crop">Fill and crop</option>
+              <option value="fit" selected>Fit with bars</option>
+              <option value="crop">Crop to fill</option>
               <option value="stretch">Stretch</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Palette</span>
+            <select id="paletteMode">
+              <option value="shared" selected>Shared palette</option>
+              <option value="scene">Per-scene palette</option>
             </select>
           </label>
 
           <label>
             <span>Dithering</span>
             <select id="ditherMode">
-              <option value="ordered" selected>Ordered</option>
               <option value="off">Off</option>
+              <option value="ordered" selected>Ordered</option>
               <option value="error">Error diffusion</option>
             </select>
           </label>
 
           <label>
-            <span>Audio</span>
+            <span>Video compression</span>
+            <select id="compression">
+              <option value="delta" selected>Delta + keyframes</option>
+              <option value="none">Uncompressed</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Audio channel</span>
             <select id="audioMode">
-              <option value="mix" selected>Mono mix</option>
+              <option value="mix" selected>Mix to mono</option>
+              <option value="left">Left channel</option>
+              <option value="right">Right channel</option>
               <option value="none">No audio</option>
             </select>
           </label>
@@ -101,9 +130,44 @@
             </select>
           </label>
 
+          <label>
+            <span>Default start (seconds)</span>
+            <input id="defaultStart" type="number" min="0" step="0.1" value="0" />
+          </label>
+
+          <label>
+            <span>Default end (blank = full)</span>
+            <input id="defaultEnd" type="number" min="0" step="0.1" />
+          </label>
+
+          <label>
+            <span>Default speed</span>
+            <input id="defaultSpeed" type="number" min="0.5" max="3" step="0.05" value="1" />
+          </label>
+
+          <label>
+            <span>Default volume %</span>
+            <input id="defaultVolume" type="number" min="0" max="200" step="5" value="100" />
+          </label>
+
+          <label class="check-field">
+            <input id="defaultLoop" type="checkbox" />
+            <span>Loop playback</span>
+          </label>
+
           <label class="wide-field">
             <span>ROM title</span>
             <input id="romTitle" type="text" maxlength="12" value="GBA VIDEO" />
+          </label>
+
+          <label class="check-field">
+            <input id="normalize" type="checkbox" />
+            <span>Normalize quiet audio</span>
+          </label>
+
+          <label class="check-field">
+            <input id="limiter" type="checkbox" checked />
+            <span>Limiter</span>
           </label>
 
           <label class="check-field">

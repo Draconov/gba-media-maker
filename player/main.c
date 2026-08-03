@@ -929,7 +929,11 @@ static void menu_arrow_tile_pixel(u32 x, u32 y, u8 colour)
 
 static void menu_arrow_init(void)
 {
-    static const u8 row_widths[5] = {2u, 4u, 6u, 4u, 2u};
+    /*
+     * Eight-pixel-wide arrow. The visible artwork starts three rows into the
+     * 16x16 OBJ so menu_arrow_position can align it exactly with the 3x5 font.
+     */
+    static const u8 row_widths[5] = {2u, 3u, 4u, 3u, 2u};
     u32 i, row, x, sy;
     for (i = 0u; i < 128u; ++i) {
         OAM[i * 4u + 0u] = OBJ_DISABLE;
@@ -1083,8 +1087,13 @@ static void menu_arrow_position(u32 selected, u32 clip_count, u32 *x, u32 *y)
     u32 column = divide_u32(relative, MENU_ROWS);
     u32 row = relative - column * MENU_ROWS;
     u32 column_width = divide_u32(120u, columns);
-    *x = (column * column_width + 1u) * 2u;
-    *y = (17u + row * 6u + 1u) * 2u;
+    u32 text_x = (column * column_width + 8u) * 2u;
+
+    /* The visible arrow is 8 pixels wide. Leave exactly two blank pixels. */
+    *x = text_x - 8u - 2u;
+
+    /* Visible arrow pixels begin at OBJ row 3; align them with the text top. */
+    *y = (17u + row * 6u) * 2u - 3u;
 }
 
 static u32 menu_move_up(u32 selected, u32 clip_count)

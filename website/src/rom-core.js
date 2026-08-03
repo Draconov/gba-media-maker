@@ -372,11 +372,13 @@ function concatenate(parts, totalLength) {
   return result;
 }
 
-function buildHistogram(framesRGB, frameCount) {
+function buildHistogram(framesRGB, startFrame, endFrame) {
   const histogram = new Uint32Array(32768);
+  const frameCount = Math.max(1, endFrame - startFrame);
   const samples = Math.min(frameCount, 60);
   for (let sample = 0; sample < samples; sample += 1) {
-    const frame = samples === 1 ? 0 : Math.round((sample * (frameCount - 1)) / (samples - 1));
+    const relative = samples === 1 ? 0 : Math.round((sample * (frameCount - 1)) / (samples - 1));
+    const frame = startFrame + relative;
     const start = frame * RGB_FRAME_BYTES;
     const end = start + RGB_FRAME_BYTES;
     for (let i = start; i < end; i += 3) {
@@ -389,6 +391,43 @@ function buildHistogram(framesRGB, frameCount) {
   return histogram;
 }
 
+function detectSceneStarts(framesRGB, frameCount) {
+  if (frameCount <= 1) return [0];
+  const starts = [0];
+  const signatureLength = 10 * 15 * 3;
+  const previous = new Uint8Array(signatureLength);
+  const current = new Uint8Array(signatureLength);
+  let lastStart = 0;
+  let havePrevious = false;
+
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const frameStart = frame * RGB_FRAME_BYTES;
+    let position = 0;
+    for (let y = 4; y < FRAME_HEIGHT; y += 8) {
+      for (let x = 4; x < FRAME_WIDTH; x += 8) {
+        const source = frameStart + (y * FRAME_WIDTH + x) * 3;
+        current[position++] = framesRGB[source];
+        current[position++] = framesRGB[source + 1];
+        current[position++] = framesRGB[source + 2];
+      }
+    }
+    if (havePrevious) {
+      let difference = 0;
+      for (let index = 0; index < signatureLength; index += 1) {
+        difference += Math.abs(current[index] - previous[index]);
+      }
+      const average = Math.floor(difference / signatureLength);
+      if ((frame - lastStart >= 10 && average >= 42) || frame - lastStart >= 120) {
+        starts.push(frame);
+        lastStart = frame;
+      }
+    }
+    previous.set(current);
+    havePrevious = true;
+  }
+  return starts;
+}
+
 function alignAudio(audioInput, frameCount, vblanks) {
   const displaySeconds = (frameCount * vblanks) / GBA_REFRESH;
   const required = Math.ceil(displaySeconds * AUDIO_RATE);
@@ -398,21 +437,58 @@ function alignAudio(audioInput, frameCount, vblanks) {
   return audio;
 }
 
-export function convertRawClip({ framesRGB, audio = new Uint8Array(), title, vblanks, ditherMode = "ordered", keyInterval = 30, seekSeconds = 5, loop = false, report }) {
+export function convertRawClip({
+  framesRGB,
+  audio = new Uint8Array(),
+  title,
+  vblanks,
+  paletteMode = "shared",
+  ditherMode = "ordered",
+  compression = "delta",
+  keyInterval = 30,
+  seekSeconds = 5,
+  loop = false,
+  report,
+}) {
   if (!(framesRGB instanceof Uint8Array)) throw new TypeError("framesRGB must be a Uint8Array");
   if (framesRGB.length % RGB_FRAME_BYTES !== 0) throw new Error("FFmpeg produced an incomplete frame stream.");
   const frameCount = framesRGB.length / RGB_FRAME_BYTES;
   if (frameCount < 1) throw new Error("No video frames were produced.");
+  if (paletteMode !== "shared" && paletteMode !== "scene") throw new Error("Invalid palette mode.");
+  if (compression !== "delta" && compression !== "none") throw new Error("Invalid compression mode.");
 
-  report?.(0.02, "Building the 250-colour video palette…");
-  const histogram = buildHistogram(framesRGB, frameCount);
-  const palette = quantizePalette(histogram);
-  report?.(0.12, "Preparing palette lookup table…");
-  const lookup = createPaletteLookup(palette, (fraction) => report?.(0.12 + fraction * 0.18, "Preparing palette lookup table…"));
-  const paletteBytes = paletteToBytes(palette);
+  report?.(0.02, paletteMode === "scene" ? "Detecting scene changes…" : "Building the shared video palette…");
+  const sceneStarts = paletteMode === "scene" ? detectSceneStarts(framesRGB, frameCount) : [0];
+  const paletteCount = sceneStarts.length;
+  const frameScene = new Uint16Array(frameCount);
+  const palettes = [];
+  const lookups = [];
+  const paletteParts = [];
 
-  const videoIndex = new Uint8Array(frameCount * 4);
-  const records = [];
+  for (let scene = 0; scene < paletteCount; scene += 1) {
+    const sceneStart = sceneStarts[scene];
+    const sceneEnd = scene + 1 < paletteCount ? sceneStarts[scene + 1] : frameCount;
+    for (let frame = sceneStart; frame < sceneEnd; frame += 1) frameScene[frame] = scene;
+    report?.(0.04 + (scene / paletteCount) * 0.22, `Building palette ${scene + 1} of ${paletteCount}…`);
+    const palette = quantizePalette(buildHistogram(framesRGB, sceneStart, sceneEnd));
+    const lookup = createPaletteLookup(palette, (fraction) => {
+      const sceneProgress = (scene + fraction) / paletteCount;
+      report?.(0.1 + sceneProgress * 0.18, `Preparing palette ${scene + 1} of ${paletteCount}…`);
+    });
+    palettes.push(palette);
+    lookups.push(lookup);
+    paletteParts.push(paletteToBytes(palette));
+  }
+
+  const paletteBytes = concatenate(paletteParts, paletteParts.reduce((sum, part) => sum + part.length, 0));
+  const paletteIndex = paletteCount > 1 ? new Uint8Array(frameCount * 2) : new Uint8Array();
+  if (paletteCount > 1) {
+    for (let frame = 0; frame < frameCount; frame += 1) setU16(paletteIndex, frame * 2, frameScene[frame]);
+  }
+
+  const compressed = compression === "delta";
+  const videoIndex = compressed ? new Uint8Array(frameCount * 4) : new Uint8Array();
+  const videoParts = [];
   let videoLength = 0;
   const previous = new Uint8Array(FRAME_BYTES);
   const current = new Uint8Array(FRAME_BYTES);
@@ -421,38 +497,46 @@ export function convertRawClip({ framesRGB, audio = new Uint8Array(), title, vbl
 
   for (let frame = 0; frame < frameCount; frame += 1) {
     const sourceStart = frame * RGB_FRAME_BYTES;
+    const scene = frameScene[frame];
     quantizeFrame(
       framesRGB.subarray(sourceStart, sourceStart + RGB_FRAME_BYTES),
       current,
-      palette,
-      lookup,
+      palettes[scene],
+      lookups[scene],
       ditherMode,
       errorCurrent,
       errorNext,
     );
 
-    setU32(videoIndex, frame * 4, videoLength);
-    let type = 0;
-    let payload = current;
-    if (frame > 0 && frame % Math.max(1, keyInterval) !== 0) {
-      const delta = encodeDelta(previous, current);
-      if (delta.length < current.length) {
-        type = 1;
-        payload = delta;
+    if (compressed) {
+      setU32(videoIndex, frame * 4, videoLength);
+      let type = 0;
+      let payload = current;
+      if (frame > 0 && frame % Math.max(1, keyInterval) !== 0) {
+        const delta = encodeDelta(previous, current);
+        if (delta.length < current.length) {
+          type = 1;
+          payload = delta;
+        }
       }
+      const record = makeRecord(type, payload);
+      videoParts.push(record);
+      videoLength += record.length;
+    } else {
+      const rawFrame = current.slice();
+      videoParts.push(rawFrame);
+      videoLength += rawFrame.length;
     }
-    const record = makeRecord(type, payload);
-    records.push(record);
-    videoLength += record.length;
+
     previous.set(current);
     if (frame % 8 === 0 || frame + 1 === frameCount) {
-      report?.(0.3 + ((frame + 1) / frameCount) * 0.58, `Encoding frame ${frame + 1} of ${frameCount}…`);
+      report?.(0.3 + ((frame + 1) / frameCount) * 0.6, `Encoding frame ${frame + 1} of ${frameCount}…`);
     }
   }
 
   const hasAudio = audio.length > 0;
   const alignedAudio = hasAudio ? alignAudio(audio, frameCount, vblanks) : new Uint8Array();
-  report?.(0.92, "Finalizing clip data…");
+  report?.(0.94, "Finalizing clip data…");
   return {
     title,
     frameCount,
@@ -461,10 +545,12 @@ export function convertRawClip({ framesRGB, audio = new Uint8Array(), title, vbl
     seekSeconds,
     loop,
     hasAudio,
+    compressed,
     palette: paletteBytes,
-    paletteCount: 1,
+    paletteIndex,
+    paletteCount,
     videoIndex,
-    video: concatenate(records, videoLength),
+    video: concatenate(videoParts, videoLength),
     audio: alignedAudio,
     rawVideoSize: frameCount * FRAME_BYTES,
     storedVideoSize: videoLength,
@@ -475,18 +561,19 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   let flags = 0;
   if (clip.hasAudio) flags |= 1;
   if (clip.loop) flags |= 2;
-  flags |= 4; // delta-compressed frame records
+  if (clip.compressed) flags |= 4;
+  if (clip.paletteCount > 1) flags |= 8;
   let seekFrames = Math.round((clip.seekSeconds * GBA_REFRESH) / clip.vblanks);
   if (seekFrames < 1) seekFrames = 1;
 
   setU32(rom, descriptorOffset, clip.frameCount);
   setU32(rom, descriptorOffset + 4, FRAME_BYTES);
   setU32(rom, descriptorOffset + 8, offsets.video);
-  setU32(rom, descriptorOffset + 12, offsets.videoIndex);
+  setU32(rom, descriptorOffset + 12, offsets.videoIndex || 0);
   setU32(rom, descriptorOffset + 16, offsets.audio || 0);
   setU32(rom, descriptorOffset + 20, clip.audio.length);
   setU32(rom, descriptorOffset + 24, offsets.palette);
-  setU32(rom, descriptorOffset + 28, 0);
+  setU32(rom, descriptorOffset + 28, offsets.paletteIndex || 0);
   setU32(rom, descriptorOffset + 32, offsets.seek || 0);
   setU32(rom, descriptorOffset + 36, AUDIO_RATE);
   setU32(rom, descriptorOffset + 40, seekFrames);
@@ -495,7 +582,7 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   setU16(rom, descriptorOffset + 48, FRAME_HEIGHT);
   setU16(rom, descriptorOffset + 50, flags);
   setU16(rom, descriptorOffset + 52, clip.seekSeconds);
-  setU16(rom, descriptorOffset + 54, 1);
+  setU16(rom, descriptorOffset + 54, clip.paletteCount);
   setU16(rom, descriptorOffset + 56, clip.keyInterval);
   rom.set(safeRomTitle(clip.title), descriptorOffset + 60);
   setU32(rom, descriptorOffset + 72, clip.rawVideoSize);
@@ -527,7 +614,8 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
   for (const clip of clips) {
     const offsets = {};
     offsets.palette = writer.writeAligned(clip.palette);
-    offsets.videoIndex = writer.writeAligned(clip.videoIndex);
+    if (clip.paletteIndex.length) offsets.paletteIndex = writer.writeAligned(clip.paletteIndex);
+    if (clip.videoIndex.length) offsets.videoIndex = writer.writeAligned(clip.videoIndex);
     offsets.video = writer.writeAligned(clip.video);
     if (clip.hasAudio) {
       offsets.seek = writer.writeAligned(buildSeekTable(clip));

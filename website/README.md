@@ -105,3 +105,20 @@ Each uploaded clip also has its own:
 - volume multiplier from 0 to 2
 
 The page follows the operating system light/dark preference and uses the same colour variables as the desktop interface.
+
+## Desktop conversion-setting parity
+
+The web edition now exposes the desktop converter's ROM-impacting options:
+
+- Best quality, Balanced, Long video, Smallest ROM, and Custom presets
+- Menu ROM, playlist ROM, and separate ROMs in a ZIP
+- Four frame-rate choices
+- Fit, crop, and stretch framing
+- Shared and per-scene palettes
+- Off, ordered, and error-diffusion dithering
+- Delta/keyframe and uncompressed video
+- Mixed, left, right, and disabled audio
+- Volume, normalization, limiter, trimming, speed, looping, seek step, and resume
+- Project defaults plus per-clip overrides and clip reordering
+
+Browser security still prevents a project file from silently reopening local video paths. A future browser project format can preserve settings and ask the user to reselect the source files.

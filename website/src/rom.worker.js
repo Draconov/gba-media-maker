@@ -20,6 +20,7 @@ self.addEventListener("message", (event) => {
       });
       self.postMessage({ type: "clip", id, clip }, [
         clip.palette.buffer,
+        clip.paletteIndex.buffer,
         clip.videoIndex.buffer,
         clip.video.buffer,
         clip.audio.buffer,
