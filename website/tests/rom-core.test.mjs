@@ -82,6 +82,7 @@ test("browser core creates a structurally valid GBV5 ROM", async () => {
     ditherMode: "off",
     keyInterval: 30,
     seekSeconds: 5,
+    loop: true,
   });
   const result = assembleROM(playerStub, [clip], { romTitle: "WEB TEST", outputMode: "rom", resume: true });
   const rom = result.rom;
@@ -93,6 +94,7 @@ test("browser core creates a structurally valid GBV5 ROM", async () => {
   assert.equal(u32(rom, ASSET_OFFSET), 3);
   assert.equal(u16(rom, ASSET_OFFSET + 46), 120);
   assert.equal(u16(rom, ASSET_OFFSET + 48), 80);
+  assert.equal((u16(rom, ASSET_OFFSET + 50) & 0x0002) !== 0, true);
   assert.equal(result.paddedSize >= 1024 * 1024, true);
   assert.equal((result.paddedSize & (result.paddedSize - 1)) === 0, true);
 

@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#173bb5" />
+    <meta name="theme-color" content="#f4f7fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c0f14" media="(prefers-color-scheme: dark)" />
     <meta
       name="description"
       content="Convert videos into Game Boy Advance ROMs entirely in your browser."
@@ -13,15 +14,10 @@
   <body>
     <main class="shell">
       <header class="hero">
-        <div>
-          <p class="eyebrow">No installation · local processing</p>
+        <div class="hero-title-row">
           <h1>GBA Video Maker <span>Web</span></h1>
-          <p class="lead">
-            Drop videos here and build a playable <code>.gba</code> ROM. Your files stay on
-            this device; the browser does the conversion.
-          </p>
+          <a id="desktopLink" class="secondary button-link" hidden>Download desktop app</a>
         </div>
-        <a id="desktopLink" class="secondary button-link" hidden>Download desktop app</a>
       </header>
 
       <section class="card">
@@ -45,11 +41,8 @@
       </section>
 
       <section class="card settings-card">
-        <div class="section-heading">
-          <div>
-            <h2>ROM settings</h2>
-            <p>Fixed 120×80 v0.9 playback format.</p>
-          </div>
+        <div class="section-heading settings-heading">
+          <h2>ROM settings</h2>
         </div>
 
         <div class="settings-grid">

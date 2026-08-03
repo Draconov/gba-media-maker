@@ -27,3 +27,6 @@ Thumbs.db
 
 website/node_modules/
 website/dist/
+
+# Generated from assets/player_stub.bin by website/scripts/sync-player.mjs
+website/public/player_stub.bin

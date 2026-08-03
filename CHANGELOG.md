@@ -132,3 +132,13 @@ All notable changes to this project are documented here.
 ## [0.5.0] - 2026-07-30
 
 - Added the portable local-web Windows GUI and complete first conversion workflow
+
+## Web interface update
+
+- Matched the browser interface to the desktop app's light and dark colour palettes.
+- Added automatic system-theme switching through `prefers-color-scheme`.
+- Removed the hero tagline, description, and fixed-format note requested for the cleaner layout.
+- Moved the desktop-download button onto the same row as the website title.
+- Fixed hidden result/progress elements appearing before a conversion by enforcing the HTML `hidden` attribute.
+- Added per-clip looping, start/end trimming, playback speed, and volume controls.
+- Added a browser ROM-core test that verifies the loop flag is written into clip metadata.

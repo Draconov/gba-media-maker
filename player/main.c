@@ -37,7 +37,7 @@ typedef unsigned int   u32;
 #define OBJ_PALRAM       ((volatile u16 *)0x05000200)
 #define VRAM_PAGE0       ((volatile u16 *)0x06000000)
 #define VRAM_PAGE1       ((volatile u16 *)0x0600A000)
-#define OBJ_TILE_VRAM    ((volatile u8 *)0x06014000)
+#define OBJ_TILE_VRAM    ((volatile u16 *)0x06014000)
 #define OAM              ((volatile u16 *)0x07000000)
 #define SRAM_BASE        ((volatile u8 *)0x0E000000)
 #define ROM_BASE         0x08000000u
@@ -914,11 +914,17 @@ static void menu_arrow_tile_pixel(u32 x, u32 y, u8 colour)
     u32 tile = divide_u32(y, 8u) * 2u + divide_u32(x, 8u);
     u32 in_x = x & 7u;
     u32 in_y = y & 7u;
-    u32 offset = tile * 32u + in_y * 4u + divide_u32(in_x, 2u);
-    u8 value = OBJ_TILE_VRAM[offset];
+    u32 byte_offset = tile * 32u + in_y * 4u + divide_u32(in_x, 2u);
+    u32 halfword_index = byte_offset >> 1;
+    u32 byte_shift = (byte_offset & 1u) * 8u;
+    u16 halfword = OBJ_TILE_VRAM[halfword_index];
+    u8 value = (u8)(halfword >> byte_shift);
+
     if (in_x & 1u) value = (u8)((value & 0x0Fu) | (u8)(colour << 4));
     else value = (u8)((value & 0xF0u) | colour);
-    OBJ_TILE_VRAM[offset] = value;
+
+    halfword = (u16)((halfword & (u16)~(0x00FFu << byte_shift)) | ((u16)value << byte_shift));
+    OBJ_TILE_VRAM[halfword_index] = halfword;
 }
 
 static void menu_arrow_init(void)
@@ -931,7 +937,7 @@ static void menu_arrow_init(void)
         OAM[i * 4u + 2u] = 0u;
         OAM[i * 4u + 3u] = 0u;
     }
-    for (i = 0u; i < 128u; ++i) OBJ_TILE_VRAM[i] = 0u;
+    for (i = 0u; i < 64u; ++i) OBJ_TILE_VRAM[i] = 0u;
     for (row = 0u; row < 5u; ++row) {
         sy = 3u + row * 2u;
         for (x = 0u; x < row_widths[row] * 2u; ++x) {
@@ -1114,9 +1120,11 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
     int arrow_visible = 1;
     u16 prev = keys_down();
     if (meta->clip_count <= 1u) return 0u;
+    /* Force blank first so CPU writes to OBJ VRAM, OAM, and palettes are
+       unrestricted while the sprite graphics are prepared. */
+    REG_DISPCNT = FORCE_BLANK;
     set_menu_palette();
     menu_arrow_init();
-    REG_DISPCNT = FORCE_BLANK;
     for (;;) {
         volatile u16 *dst = VRAM_PAGE0;
         draw_clip_menu(dst, meta, clips, selected, total_seconds);

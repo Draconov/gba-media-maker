@@ -55,6 +55,15 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 ** unit).toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+function numericOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function clampNumber(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, numericOr(value, minimum)));
+}
+
 function titleFromFile(file) {
   return file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 12) || "VIDEO";
 }
@@ -65,9 +74,19 @@ function addFiles(fileList) {
     if (!file.type.startsWith("video/") && !/\.(mp4|mov|mkv|webm|avi|m4v|mpeg|mpg)$/i.test(file.name)) continue;
     const key = `${file.name}:${file.size}:${file.lastModified}`;
     if (existing.has(key)) continue;
-    entries.push({ id: crypto.randomUUID(), file, title: titleFromFile(file) });
+    entries.push({
+      id: crypto.randomUUID(),
+      file,
+      title: titleFromFile(file),
+      loop: false,
+      start: 0,
+      end: 0,
+      speed: 1,
+      volume: 1,
+    });
     existing.add(key);
   }
+  if (fileList.length) resetResult();
   renderFiles();
 }
 
@@ -90,15 +109,31 @@ function renderFiles() {
     small.textContent = formatBytes(entry.file.size);
     fileName.append(strong, small);
 
-    const label = document.createElement("label");
-    const labelText = document.createElement("span");
-    labelText.textContent = "Menu title";
+    const titleLabel = document.createElement("label");
+    const titleText = document.createElement("span");
+    titleText.textContent = "Menu title";
     const titleInput = document.createElement("input");
     titleInput.type = "text";
     titleInput.maxLength = 12;
     titleInput.value = entry.title;
-    titleInput.addEventListener("input", () => { entry.title = titleInput.value; });
-    label.append(labelText, titleInput);
+    titleInput.addEventListener("input", () => {
+      entry.title = titleInput.value;
+      resetResult();
+    });
+    titleLabel.append(titleText, titleInput);
+
+    const loopLabel = document.createElement("label");
+    loopLabel.className = "clip-loop";
+    const loopInput = document.createElement("input");
+    loopInput.type = "checkbox";
+    loopInput.checked = entry.loop;
+    loopInput.addEventListener("change", () => {
+      entry.loop = loopInput.checked;
+      resetResult();
+    });
+    const loopText = document.createElement("span");
+    loopText.textContent = "Loop";
+    loopLabel.append(loopInput, loopText);
 
     const remove = document.createElement("button");
     remove.className = "icon-button";
@@ -108,10 +143,45 @@ function renderFiles() {
     remove.textContent = "×";
     remove.addEventListener("click", () => {
       entries = entries.filter((candidate) => candidate.id !== entry.id);
+      resetResult();
       renderFiles();
     });
 
-    row.append(fileName, label, remove);
+    const details = document.createElement("details");
+    details.className = "clip-options";
+    const summary = document.createElement("summary");
+    summary.textContent = "Trim, speed and volume";
+    const optionsGrid = document.createElement("div");
+    optionsGrid.className = "clip-options-grid";
+
+    const numberControl = (text, value, min, max, step, onInput, placeholder = "") => {
+      const label = document.createElement("label");
+      const caption = document.createElement("span");
+      caption.textContent = text;
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = String(min);
+      input.max = String(max);
+      input.step = String(step);
+      input.value = value ? String(value) : "";
+      input.placeholder = placeholder;
+      input.addEventListener("input", () => {
+        onInput(input.value);
+        resetResult();
+      });
+      label.append(caption, input);
+      return label;
+    };
+
+    optionsGrid.append(
+      numberControl("Start time (seconds)", entry.start, 0, 86400, 0.1, (value) => { entry.start = numericOr(value, 0); }, "0"),
+      numberControl("End time (seconds)", entry.end, 0, 86400, 0.1, (value) => { entry.end = numericOr(value, 0); }, "Full video"),
+      numberControl("Playback speed", entry.speed, 0.25, 4, 0.05, (value) => { entry.speed = value === "" ? 1 : numericOr(value, 1); }),
+      numberControl("Volume", entry.volume, 0, 2, 0.05, (value) => { entry.volume = value === "" ? 1 : numericOr(value, 1); })
+    );
+    details.append(summary, optionsGrid);
+
+    row.append(fileName, titleLabel, loopLabel, remove, details);
     elements.fileList.append(row);
   }
 }
@@ -125,6 +195,7 @@ function setBusy(busy) {
   for (const control of [elements.outputMode, elements.vblanks, elements.fitMode, elements.ditherMode, elements.audioMode, elements.seekSeconds, elements.romTitle, elements.resume]) {
     control.disabled = busy;
   }
+  for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
 }
 
 function resetResult() {
@@ -256,25 +327,58 @@ async function readProbe(inputName, index) {
   return { duration, hasAudio: Boolean(audioStream) };
 }
 
-function videoFilter(fitMode, vblanks) {
+function clipTiming(entry, sourceDuration) {
+  const start = clampNumber(entry.start, 0, Math.max(0, sourceDuration - 0.01));
+  const requestedEnd = numericOr(entry.end, 0);
+  const end = requestedEnd > start ? Math.min(requestedEnd, sourceDuration) : sourceDuration;
+  const speed = clampNumber(entry.speed, 0.25, 4);
+  const volume = clampNumber(entry.volume, 0, 2);
+  if (end <= start) throw new Error(`${entry.title || entry.file.name}: end time must be after start time.`);
+  return { start, end, sourceDuration: end - start, outputDuration: (end - start) / speed, speed, volume };
+}
+
+function trimArguments(timing) {
+  const args = [];
+  if (timing.start > 0.0001) args.push("-ss", timing.start.toFixed(3));
+  if (timing.sourceDuration > 0.0001) args.push("-t", timing.sourceDuration.toFixed(3));
+  return args;
+}
+
+function atempoFilter(speed) {
+  const factors = [];
+  let remaining = speed;
+  while (remaining > 2.0001) {
+    factors.push(2);
+    remaining /= 2;
+  }
+  while (remaining < 0.4999) {
+    factors.push(0.5);
+    remaining /= 0.5;
+  }
+  factors.push(remaining);
+  return factors.map((factor) => `atempo=${factor.toFixed(5)}`).join(",");
+}
+
+function videoFilter(fitMode, vblanks, speed = 1) {
   const fps = GBA_REFRESH / vblanks;
   let scale;
   if (fitMode === "crop") scale = "scale=120:80:force_original_aspect_ratio=increase,crop=120:80";
   else if (fitMode === "stretch") scale = "scale=120:80";
   else scale = "scale=120:80:force_original_aspect_ratio=decrease,pad=120:80:(ow-iw)/2:(oh-ih)/2:black";
-  return `${scale},fps=${fps.toFixed(10)},format=rgb24`;
+  return `${scale},setpts=PTS/${speed.toFixed(5)},fps=${fps.toFixed(10)},format=rgb24`;
 }
 
-async function extractFrames(inputName, index, options, duration) {
+async function extractFrames(inputName, index, options, timing) {
   const outputName = `frames-${index}.rgb`;
-  const estimatedFrames = Math.max(1, Math.ceil(duration * (GBA_REFRESH / options.vblanks)));
+  const estimatedFrames = Math.max(1, Math.ceil(timing.outputDuration * (GBA_REFRESH / options.vblanks)));
   const estimatedBytes = estimatedFrames * RGB_FRAME_BYTES;
   if (estimatedBytes > MAX_RAW_FRAME_BYTES) {
     throw new Error(`This clip would need about ${(estimatedBytes / 1048576).toFixed(0)} MiB of raw browser memory. Use a shorter clip, a lower frame rate, or the desktop app.`);
   }
   const exitCode = await ffmpeg.exec([
-    "-hide_banner", "-loglevel", "error", "-i", inputName, "-an",
-    "-vf", videoFilter(options.fitMode, options.vblanks),
+    "-hide_banner", "-loglevel", "error", "-i", inputName,
+    ...trimArguments(timing),
+    "-an", "-vf", videoFilter(options.fitMode, options.vblanks, timing.speed),
     "-pix_fmt", "rgb24", "-f", "rawvideo", outputName,
   ]);
   if (exitCode !== 0) throw new Error("FFmpeg could not decode the video frames.");
@@ -284,12 +388,19 @@ async function extractFrames(inputName, index, options, duration) {
   return frames;
 }
 
-async function extractAudio(inputName, index, options, probe) {
+async function extractAudio(inputName, index, options, probe, timing) {
   if (options.audioMode === "none" || !probe.hasAudio) return new Uint8Array();
   const outputName = `audio-${index}.s8`;
+  const filters = [
+    atempoFilter(timing.speed),
+    `volume=${timing.volume.toFixed(3)}`,
+    `aresample=${AUDIO_RATE}:async=1:first_pts=0`,
+    "alimiter=limit=0.95:attack=5:release=50",
+  ].filter(Boolean).join(",");
   const exitCode = await ffmpeg.exec([
-    "-hide_banner", "-loglevel", "error", "-i", inputName, "-map", "0:a:0", "-vn",
-    "-af", `aresample=${AUDIO_RATE}:async=1:first_pts=0,alimiter=limit=0.95:attack=5:release=50`,
+    "-hide_banner", "-loglevel", "error", "-i", inputName,
+    ...trimArguments(timing),
+    "-map", "0:a:0", "-vn", "-af", filters,
     "-ac", "1", "-ar", String(AUDIO_RATE), "-f", "s8", outputName,
   ]);
   if (exitCode !== 0) throw new Error("FFmpeg could not decode the audio stream.");
@@ -326,10 +437,11 @@ async function performConversion() {
     try {
       mapped(0.03, "Inspecting media…");
       const probe = await readProbe(inputName, index);
+      const timing = clipTiming(entry, probe.duration);
       mapped(0.08, "Extracting 120×80 frames…");
-      const framesRGB = await extractFrames(inputName, index, options, probe.duration);
+      const framesRGB = await extractFrames(inputName, index, options, timing);
       mapped(0.31, probe.hasAudio && options.audioMode !== "none" ? "Extracting audio…" : "No audio selected.");
-      const audio = await extractAudio(inputName, index, options, probe);
+      const audio = await extractAudio(inputName, index, options, probe, timing);
       mapped(0.38, "Encoding the GBA clip…");
       const clip = await runRomTask("encodeClip", {
         framesRGB,
@@ -339,7 +451,7 @@ async function performConversion() {
         ditherMode: options.ditherMode,
         keyInterval: 30,
         seekSeconds: options.seekSeconds,
-        loop: false,
+        loop: Boolean(entry.loop),
       }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.6, message));
       clips.push(clip);
     } finally {
@@ -423,11 +535,17 @@ function configureCompatibilityMessage() {
   if (mobile) elements.compatibilityText.textContent = "Mobile browsers can run out of memory quickly. Short clips only; use the desktop app for longer videos.";
 }
 
+
+for (const control of [elements.outputMode, elements.vblanks, elements.fitMode, elements.ditherMode, elements.audioMode, elements.seekSeconds, elements.romTitle, elements.resume]) {
+  control.addEventListener("change", resetResult);
+  if (control.tagName === "INPUT" && control.type === "text") control.addEventListener("input", resetResult);
+}
+
 elements.fileInput.addEventListener("change", () => {
   addFiles(elements.fileInput.files);
   elements.fileInput.value = "";
 });
-elements.clearButton.addEventListener("click", () => { entries = []; renderFiles(); });
+elements.clearButton.addEventListener("click", () => { entries = []; resetResult(); renderFiles(); });
 elements.convertButton.addEventListener("click", startConversion);
 elements.cancelButton.addEventListener("click", cancelConversion);
 elements.downloadButton.addEventListener("click", downloadResult);

@@ -91,3 +91,17 @@ Rebuild the desktop/player project normally so `assets/player_stub.bin` is updat
 ## Important browser limitation
 
 ffmpeg.wasm and the raw 120×80 frame stream both live in browser memory during conversion. The worker rejects a clip when its estimated raw frame stream exceeds 384 MiB. This is intentional: huge jobs should use the desktop version instead of crashing the browser tab.
+
+## Current browser controls
+
+Project-wide controls include output behaviour, frame rate, screen framing, dithering, audio, seek step, ROM title, and save/resume behaviour.
+
+Each uploaded clip also has its own:
+
+- menu title
+- loop toggle
+- start and end trim times
+- playback-speed multiplier from 0.25x to 4x
+- volume multiplier from 0 to 2
+
+The page follows the operating system light/dark preference and uses the same colour variables as the desktop interface.
