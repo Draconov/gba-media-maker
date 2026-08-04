@@ -294,6 +294,16 @@ static void draw_text_auto(volatile u16 *dst, u32 x, u32 y, const char *text, u1
     draw_text(dst, x, y, text, text_length(text), colour);
 }
 
+static void draw_text_plain(volatile u16 *dst, u32 x, u32 y, const char *text, u32 length, u16 colour)
+{
+    draw_text(dst, x, y, text, length, colour);
+}
+
+static void draw_text_auto_plain(volatile u16 *dst, u32 x, u32 y, const char *text, u16 colour)
+{
+    draw_text(dst, x, y, text, text_length(text), colour);
+}
+
 static u32 divide_u32(u32 numerator, u32 denominator)
 {
     u32 quotient = 0u, remainder = 0u;
@@ -985,6 +995,7 @@ static void draw_menu_background(volatile u16 *dst)
     fill_rect(dst, 0u, 14u, 120u, 1u, UI_WHITE);
 }
 
+
 static u32 fixed_text_length(const char *text, u32 maximum)
 {
     u32 n = 0u;
@@ -1016,21 +1027,26 @@ static void make_duration_text(char out[5], u32 seconds)
     out[4] = (char)('0' + remainder % 10u);
 }
 
-static void make_menu_status(char out[31], u32 clip_count, u32 selected, u32 total_seconds)
+static void make_clip_position_text(char out[16], u32 clip_count, u32 selected)
 {
-    const char clips_label[] = " CLIPS  TOTAL ";
-    char duration[5];
+    const char prefix[] = "CLIP ";
     u32 pos = 0u, i;
-    make_duration_text(duration, total_seconds);
-    pos = append_decimal(out, pos, clip_count);
-    for (i = 0u; i < 14u; ++i) out[pos++] = clips_label[i];
-    for (i = 0u; i < 5u; ++i) out[pos++] = duration[i];
-    out[pos++] = ' '; out[pos++] = ' ';
+    for (i = 0u; i < 5u; ++i) out[pos++] = prefix[i];
     pos = append_decimal(out, pos, selected + 1u);
     out[pos++] = '/';
     pos = append_decimal(out, pos, clip_count);
-    while (pos < 30u) out[pos++] = 0;
-    out[30] = 0;
+    out[pos] = 0;
+}
+
+static void make_total_text(char out[16], u32 total_seconds)
+{
+    const char prefix[] = "TOTAL ";
+    char duration[5];
+    u32 pos = 0u, i;
+    make_duration_text(duration, total_seconds);
+    for (i = 0u; i < 6u; ++i) out[pos++] = prefix[i];
+    for (i = 0u; i < 5u; ++i) out[pos++] = duration[i];
+    out[pos] = 0;
 }
 
 static u32 menu_total_seconds(const struct GlobalMetadata *meta, const struct ClipDescriptor *clips)
@@ -1050,7 +1066,8 @@ static u32 menu_column_count(u32 clip_count)
 static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta, const struct ClipDescriptor *clips,
                            u32 selected, u32 total_seconds)
 {
-    char status[31];
+    char clip_position[16];
+    char total_text[16];
     u32 columns = menu_column_count(meta->clip_count);
     u32 page_size = columns * MENU_ROWS;
     u32 page_start = divide_u32(selected, page_size) * page_size;
@@ -1059,9 +1076,11 @@ static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta,
     u32 column, row;
 
     draw_menu_background(dst);
-    draw_text_auto(dst, 36u, 2u, "SELECT VIDEO", UI_WHITE);
-    make_menu_status(status, meta->clip_count, selected, total_seconds);
-    draw_text(dst, 2u, 8u, status, fixed_text_length(status, 29u), UI_WHITE);
+    draw_text_auto_plain(dst, 36u, 2u, "SELECT VIDEO", UI_WHITE);
+    make_clip_position_text(clip_position, meta->clip_count, selected);
+    make_total_text(total_text, total_seconds);
+    draw_text_auto_plain(dst, 2u, 8u, clip_position, UI_WHITE);
+    draw_text_auto_plain(dst, 74u, 8u, total_text, UI_WHITE);
 
     for (column = 0u; column < columns; ++column) {
         u32 x = column * column_width;
@@ -1073,9 +1092,10 @@ static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta,
             if (index >= meta->clip_count) break;
             clip = &clips[index];
             colour = index == selected ? UI_YELLOW : UI_WHITE;
-            draw_text(dst, x + 8u, y, clip->title, fixed_text_length(clip->title, max_chars), colour);
+            draw_text_plain(dst, x + 8u, y, clip->title, fixed_text_length(clip->title, max_chars), colour);
         }
     }
+
 }
 
 static void menu_arrow_position(u32 selected, u32 clip_count, u32 *x, u32 *y)

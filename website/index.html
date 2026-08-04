@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="./favicon.ico" sizes="any" />
+    <link rel="icon" href="./icon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./site.webmanifest" />
     <meta name="theme-color" content="#f4f7fb" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0c0f14" media="(prefers-color-scheme: dark)" />
     <meta
@@ -15,7 +19,10 @@
     <main class="shell">
       <header class="hero">
         <div class="hero-title-row">
-          <h1>GBA Video Maker <span>Web</span></h1>
+          <div class="site-brand">
+            <img class="site-icon" src="./icon.png" alt="" width="256" height="256" />
+            <h1>GBA Video Maker <span>Web</span></h1>
+          </div>
           <a id="desktopLink" class="secondary button-link" hidden>Download desktop app</a>
         </div>
       </header>
