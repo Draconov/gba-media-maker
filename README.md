@@ -33,6 +33,7 @@ The browser edition uses WebAssembly and may consume considerably more memory th
 - One ROM that plays several clips in sequence
 - One ROM with a startup clip-selection menu
 - Separate `.gba` files packaged into a ZIP
+- Single-video conversions automatically switch to numbered ROM parts inside one ZIP when one cartridge is not enough (desktop app)
 
 The generated player keeps the proven v0.9 playback path:
 
@@ -45,6 +46,8 @@ The generated player keeps the proven v0.9 playback path:
 ## Highlights
 
 ### Video and ROM controls
+
+- **Automatic long-video split (desktop):** no special mode is required. Create a normal single-video ROM; when it cannot safely fit, the app selects the largest safe source-time segment for each part, verifies the encoded size, continues from the exact ending timestamp, and exports `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` in one ZIP
 
 - Drag in one or more videos
 - Trim start and end times
@@ -81,6 +84,11 @@ The generated player keeps the proven v0.9 playback path:
 - Four-direction D-pad navigation
 - Independent blinking OBJ-sprite arrow
 - No unstable video thumbnails in the GBA menu
+
+
+### Automatic long-video handling
+
+For one source video, choose the normal **Single ROM** output and convert as usual. The desktop app checks the minimum required data before encoding and also verifies the real encoded size afterward. When one cartridge would exceed the safe limit, the result automatically changes from a `.gba` file to a `_PARTS.zip` package containing sequential ROMs plus `PARTS.txt`. No manual split mode is exposed.
 
 ## Generated ROM controls
 

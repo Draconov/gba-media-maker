@@ -918,7 +918,11 @@ func (s *appState) startConversion(req convertRequest) error {
 		}
 		s.result = &result
 		s.progress = 100
-		s.progressMessage = "Output created successfully"
+		if result.AutoSplit {
+			s.progressMessage = fmt.Sprintf("Video was automatically split into %d numbered ROMs", result.ClipCount)
+		} else {
+			s.progressMessage = "Output created successfully"
+		}
 		s.downloadName = filepath.Base(result.OutputPath)
 	}()
 	return nil

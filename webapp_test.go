@@ -63,10 +63,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.9.0 — Menu Update")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.9.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -454,5 +454,120 @@ func TestReorderVideos(t *testing.T) {
 	}
 	if err := state.reorderVideos([]string{"a", "a", "b"}); err == nil {
 		t.Fatal("duplicate order accepted")
+	}
+}
+
+func TestAutomaticLongVideoSplit(t *testing.T) {
+	ff := commandExists("ffmpeg")
+	if ff == "" {
+		t.Skip("ffmpeg missing")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "long-test.mkv")
+	makeFixture(t, ff, input, 8.0, "45")
+	output := filepath.Join(dir, "long-test.zip")
+	opt := ProjectOptions{
+		Inputs:     []ClipInput{{InputPath: input, Name: "MY_VIDEO.mp4", Title: "MY VIDEO"}},
+		OutputPath: output, FFmpegPath: ff, Start: 0, End: 8, Speed: 1,
+		VBlanks: 8, FitMode: "fit", AudioMode: "none", Volume: 1,
+		RomTitle: "MY VIDEO", SeekSeconds: 5, Compression: "none",
+		PaletteMode: "shared", DitherMode: "off", OutputMode: "longsplit", KeyInterval: 30,
+	}
+	res, err := convertLongVideoSplitWithBudget(opt, 260*1024, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OutputKind != "zip" || res.ClipCount < 2 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	zr, err := zip.OpenReader(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	romCount := 0
+	var manifest string
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, ".gba") {
+			romCount++
+			want := fmt.Sprintf("MY_VIDEO_PART_%02d.gba", romCount)
+			if f.Name != want {
+				t.Fatalf("part name=%q want %q", f.Name, want)
+			}
+			if f.UncompressedSize64 > romLimit {
+				t.Fatalf("part exceeds ROM limit: %d", f.UncompressedSize64)
+			}
+		}
+		if f.Name == "PARTS.txt" {
+			r, err := f.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := io.ReadAll(r)
+			r.Close()
+			manifest = string(b)
+		}
+	}
+	if romCount != res.ClipCount || manifest == "" {
+		t.Fatalf("roms=%d result=%d manifest=%q", romCount, res.ClipCount, manifest)
+	}
+	if !strings.Contains(manifest, "00:00:00.000") || !strings.Contains(manifest, "00:00:08.000") {
+		t.Fatalf("manifest timestamps missing:\n%s", manifest)
+	}
+}
+
+func TestBuildOptionsUsesNormalSingleROMModeForAutomaticSplitting(t *testing.T) {
+	dir := t.TempDir()
+	state := &appState{
+		sessionDir: dir,
+		ffmpegPath: "ffmpeg",
+		videos: []uploadedVideo{{
+			ID: "one", Path: filepath.Join(dir, "movie.mp4"), Name: "movie.mp4",
+			Info:   &MediaInfo{Duration: 3000, Width: 1920, Height: 1080, FPS: 30, AudioStreams: 1, AudioChannels: 2},
+			Status: "ready",
+		}},
+	}
+	req := convertRequest{
+		Start: "0", Speed: 1, FPS: "compact", Fit: "fit", Audio: "mix", Volume: 100,
+		RomTitle: "MY VIDEO", SeekSeconds: 5, Compression: "delta",
+		PaletteMode: "shared", DitherMode: "ordered", OutputMode: "rom",
+	}
+	opt, _, err := state.buildOptions(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.OutputMode != "rom" || filepath.Ext(opt.OutputPath) != ".gba" {
+		t.Fatalf("mode=%q output=%q", opt.OutputMode, opt.OutputPath)
+	}
+}
+
+func TestSingleROMAutomaticallySplitsWhenBudgetIsExceeded(t *testing.T) {
+	ff := commandExists("ffmpeg")
+	if ff == "" {
+		t.Skip("ffmpeg missing")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "automatic-test.mkv")
+	makeFixture(t, ff, input, 8.0, "45")
+	output := filepath.Join(dir, "automatic-test.gba")
+	opt := ProjectOptions{
+		Inputs:     []ClipInput{{InputPath: input, Name: "MY_VIDEO.mp4", Title: "MY VIDEO"}},
+		OutputPath: output, FFmpegPath: ff, Start: 0, End: 8, Speed: 1,
+		VBlanks: 8, FitMode: "fit", AudioMode: "none", Volume: 1,
+		RomTitle: "MY VIDEO", SeekSeconds: 5, Compression: "none",
+		PaletteMode: "shared", DitherMode: "off", OutputMode: "rom", KeyInterval: 30,
+	}
+	res, err := convertProjectWithAutoSplitBudget(opt, 260*1024, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AutoSplit || res.OutputKind != "zip" || res.ClipCount < 2 {
+		t.Fatalf("unexpected automatic result: %+v", res)
+	}
+	if filepath.Ext(res.OutputPath) != ".zip" || !strings.Contains(filepath.Base(res.OutputPath), "_PARTS") {
+		t.Fatalf("automatic output path=%q", res.OutputPath)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("oversized temporary ROM was not removed: %v", err)
 	}
 }

@@ -155,7 +155,7 @@ function render() {
     $('progressFill').style.width = state.progress + '%';
   } else if (state.result) {
     $('progressWrap').classList.remove('hidden');
-    $('progressText').textContent = 'Output created successfully';
+    $('progressText').textContent = state.progressMessage || 'Output created successfully';
     $('progressPct').textContent = '100%';
     $('progressFill').style.width = '100%';
     $('done').classList.remove('hidden');
@@ -548,10 +548,18 @@ function estimateModel(model) {
 function estimate() {
   const result = estimateModel(modelSnapshot());
   if (result.error) { $('estimate').textContent = result.error; return result; }
+  const automaticSplit = state.videos.length === 1 && result.bytes > ROM_LIMIT;
+  $('optimize').classList.toggle('hidden', automaticSplit);
   const over = result.bytes > ROM_LIMIT;
-  $('estimate').innerHTML = (over ? '<b class="estimate-over">Estimated data exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (result.cartridge/1048576) + ' MiB</b>') +
+  const headline = automaticSplit
+    ? '<b>Too large for one ROM — the app will split it automatically</b>'
+    : (over ? '<b class="estimate-over">Estimated data exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (result.cartridge/1048576) + ' MiB</b>');
+  const splitNote = automaticSplit
+    ? '<br>Output will be a ZIP containing sequential numbered ROMs and PARTS.txt.'
+    : '';
+  $('estimate').innerHTML = headline +
     '<br>Estimated data: ' + (result.bytes/1048576).toFixed(2) + ' MiB • ' + result.frames + ' frames • ' + result.fps.toFixed(2) + ' fps' +
-    '<br>Video ' + (result.breakdown.video/1048576).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/1048576).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/1048576).toFixed(2) + ' MiB';
+    '<br>Video ' + (result.breakdown.video/1048576).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/1048576).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/1048576).toFixed(2) + ' MiB' + splitNote;
   return result;
 }
 

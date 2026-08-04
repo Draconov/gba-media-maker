@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0 Automatic Long-Video Split] - 2026-08-04
+
+### Added
+- Single-video conversion now automatically falls back to numbered GBA ROMs inside a ZIP when one ROM cannot safely fit; no special output mode must be selected.
+- Each part is encoded and measured before acceptance, kept under a 31 MiB data budget for safety, and followed by the next part at the exact same source timestamp.
+- Added `PARTS.txt` to every split ZIP with part filenames, source-time ranges, encoded data sizes, and cartridge sizes.
+- Added adaptive part sizing: oversized candidates are shortened and underfilled candidates are extended before the part is finalized.
+- Added a disk-backed desktop workflow suitable for long sources without requiring the browser to retain the entire conversion in memory.
+- Added early detection for videos whose selected PCM audio alone would exceed the safe cartridge budget, avoiding a pointless full-ROM attempt.
+- Added automatic `_PARTS.zip` naming and a completion message explaining how many ROM parts were created.
+
 ## [0.9.0 Menu Sprite Fix] - 2026-08-03
 
 ### Fixed

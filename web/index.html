@@ -8,7 +8,7 @@
 <meta name="gbavm-session-token" content="__SESSION_TOKEN__">
 <link rel="icon" type="image/png" href="./icon.png">
 <link rel="stylesheet" href="./style.css">
-<title>GBA Video Maker 0.9.0 — Menu Update</title>
+<title>GBA Video Maker 0.9.0</title>
 </head>
 <body>
 <div class="shell">
@@ -145,11 +145,11 @@
         <h3>ROM and playback</h3>
         <div class="fields">
           <div class="field two"><label>ROM title</label><input id="romTitle" maxlength="12"></div>
-          <div class="field"><label>Output</label><select id="outputMode"><option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option></select></div>
+          <div class="field"><label>Output</label><select id="outputMode"><option value="rom">Single ROM</option><option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option></select></div>
           <label class="check"><input id="loop" type="checkbox"> Loop playback</label>
           <label class="check project-control"><input id="resume" type="checkbox" checked> Save/resume position</label>
         </div>
-        <p class="tiny">Playlist controls: SELECT+Left previous clip, SELECT+Right next clip. Other controls: A pause; B restart or menu; L/R seek; Left/Right seek or paused frame-step; Up/Down volume; SELECT mute; START HUD; START+SELECT help.</p>
+        <p class="tiny">For one long video, use Single ROM normally. If it cannot fit safely, the app automatically exports numbered ROMs plus a timestamp list in one ZIP. Playlist controls: SELECT+Left previous clip, SELECT+Right next clip. Other controls: A pause; B restart or menu; L/R seek; Left/Right seek or paused frame-step; Up/Down volume; SELECT mute; START HUD; START+SELECT help.</p>
       </section>
 
       <div class="bottom">
