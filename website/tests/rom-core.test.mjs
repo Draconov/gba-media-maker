@@ -143,3 +143,25 @@ test("browser core supports uncompressed video and per-scene palette metadata", 
   assert.equal(u32(result.rom, ASSET_OFFSET + 12), 0);
   assert.equal(u32(result.rom, ASSET_OFFSET + 28) !== 0, true);
 });
+
+test("browser core writes split-part title-screen metadata", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const frames = new Uint8Array(RGB_FRAME_BYTES);
+  const clip = convertRawClip({
+    framesRGB: frames,
+    title: "PART TEST",
+    vblanks: 8,
+    ditherMode: "off",
+    compression: "none",
+  });
+  const result = assembleROM(playerStub, [clip], {
+    romTitle: "PART 02",
+    outputMode: "rom",
+    resume: true,
+    titleScreenPart: 2,
+    titleScreenName: "A very long movie filename.mp4",
+  });
+  assert.equal((u16(result.rom, METADATA_OFFSET + 6) & 0x0004) !== 0, true);
+  assert.equal(u32(result.rom, METADATA_OFFSET + 20), 2);
+  assert.equal(new TextDecoder().decode(result.rom.subarray(METADATA_OFFSET + 24, METADATA_OFFSET + 48)).replace(/\0+$/, ""), "A VERY LONG MOVIE FILENA");
+});

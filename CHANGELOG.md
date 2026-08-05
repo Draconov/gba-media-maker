@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0 Web Feature Parity] - 2026-08-05
+
+### Added
+- Brought the public browser converter up to the Windows application's current workflow.
+- Added automatic and manually configured long-video splitting with size targets, `MM:SS` duration caps, chapter-aware cuts, numbered ROMs, `PARTS.txt`, and optional filename / `PART N` title screens.
+- Added estimated output size and ROM-part count, detailed split progress, and automatic 32 MiB overflow fallback.
+- Added interrupted split recovery through IndexedDB and retained completed parts when a later part fails.
+- Added `.gbavideo` project save/open with browser-safe source-file relinking.
+- Added a selected-clip timeline, preview thumbnails, GBA-font title preview, selected-channel audio preview, and a 32 MiB optimizer.
+
+### Changed
+- The web app now dynamically exposes **Single ROM** for one source and playlist, menu, or batch outputs for collections.
+- Browser and Windows ROM assembly now both support split-part title-screen metadata.
+
 ## [0.9.0] - 2026-08-05
 
 ### Added

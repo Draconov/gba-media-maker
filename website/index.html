@@ -27,6 +27,13 @@
         </div>
       </header>
 
+      <section class="project-toolbar" aria-label="Project actions">
+        <button id="saveProjectButton" class="secondary" type="button">Save project</button>
+        <label class="secondary button-link" for="openProjectInput">Open project</label>
+        <input id="openProjectInput" class="visually-hidden" type="file" accept=".gbavideo,application/json" />
+        <span id="projectNotice" class="project-notice">Browser projects keep settings; source videos are relinked by filename.</span>
+      </section>
+
       <section class="card">
         <label id="dropZone" class="drop-zone" for="fileInput">
           <input id="fileInput" type="file" accept="video/*" multiple />
@@ -44,6 +51,41 @@
             <button id="clearButton" class="text-button" type="button">Clear all</button>
           </div>
           <div id="fileList" class="file-list"></div>
+        </div>
+      </section>
+
+      <section id="previewCard" class="card preview-card" hidden>
+        <div class="section-heading">
+          <div>
+            <h2>Selected clip</h2>
+            <p id="selectedClipName"></p>
+          </div>
+          <button id="resetClipTitleButton" class="secondary" type="button">Title from filename</button>
+        </div>
+        <div class="preview-layout">
+          <div class="preview-player-wrap">
+            <video id="previewVideo" controls playsinline muted></video>
+            <canvas id="titlePreview" width="208" height="32" aria-label="GBA clip-title preview"></canvas>
+            <p id="titleWarning" class="validation"></p>
+          </div>
+          <div class="timeline-panel">
+            <div id="timelineThumbs" class="timeline-thumbs" aria-hidden="true"></div>
+            <label>Preview position <span id="timelineCurrentText">0:00.00</span>
+              <input id="timelinePlay" type="range" min="0" max="1" step="0.04" value="0" />
+            </label>
+            <label>Start <span id="timelineStartText">0:00.00</span>
+              <input id="timelineStart" type="range" min="0" max="1" step="0.04" value="0" />
+            </label>
+            <label>End <span id="timelineEndText">0:00.00</span>
+              <input id="timelineEnd" type="range" min="0" max="1" step="0.04" value="1" />
+            </label>
+            <div class="timeline-actions">
+              <button id="jumpBegin" class="secondary" type="button">Start</button>
+              <button id="jumpEnd" class="secondary" type="button">End</button>
+              <button id="audioPreviewButton" class="secondary" type="button">Create audio preview</button>
+            </div>
+            <audio id="audioPreviewPlayer" controls hidden></audio>
+          </div>
         </div>
       </section>
 
@@ -67,8 +109,9 @@
           <label>
             <span>Output</span>
             <select id="outputMode">
+              <option value="rom" selected>Single ROM</option>
               <option value="playlist">One ROM — play clips in order</option>
-              <option value="menu" selected>One ROM — clip menu</option>
+              <option value="menu">One ROM — clip menu</option>
               <option value="batch">Separate ROMs in ZIP</option>
             </select>
           </label>
@@ -181,6 +224,39 @@
             <input id="resume" type="checkbox" checked />
             <span>Save and resume playback position</span>
           </label>
+
+          <label id="splitVideoRow" class="check-field wide-field">
+            <input id="splitVideo" type="checkbox" />
+            <span>Split the video</span>
+          </label>
+
+          <div id="splitOptions" class="split-options wide-field" hidden>
+            <label class="wide-field">
+              <span>ROM size per part: <strong id="splitBudgetValue">31 MiB</strong></span>
+              <input id="splitBudget" type="range" min="1" max="32" step="1" value="31" />
+            </label>
+            <div class="split-shortcuts wide-field">
+              <button type="button" class="secondary split-preset" data-size="20">20 MiB</button>
+              <button type="button" class="secondary split-preset" data-size="30">30 MiB</button>
+              <button type="button" class="secondary split-preset" data-size="32">Maximum</button>
+            </div>
+            <label>
+              <span>Maximum duration per part (MM:SS, 0 = automatic)</span>
+              <input id="maxPartDuration" type="text" inputmode="numeric" value="0" placeholder="0 or 1:05" />
+            </label>
+            <label class="check-field">
+              <input id="chapterAware" type="checkbox" checked />
+              <span>Prefer chapter boundaries</span>
+            </label>
+            <label class="check-field">
+              <input id="partTitleScreens" type="checkbox" checked />
+              <span>Add filename / PART title screens</span>
+            </label>
+            <label class="check-field">
+              <input id="resumeLongSplit" type="checkbox" checked />
+              <span>Resume interrupted splitting</span>
+            </label>
+          </div>
         </div>
       </section>
 
@@ -192,9 +268,12 @@
           </p>
         </div>
         <div class="action-buttons">
+          <button id="optimizerButton" class="secondary" type="button" disabled>Optimize to fit 32 MiB</button>
           <button id="cancelButton" class="secondary" type="button" hidden>Cancel</button>
-          <button id="convertButton" class="primary" type="button" disabled>Convert to .gba</button>
+          <button id="convertButton" class="primary" type="button" disabled>Create output</button>
         </div>
+
+        <div id="estimateArea" class="estimate-area">Add a video to see an output estimate.</div>
 
         <div id="progressArea" class="progress-area" hidden>
           <div class="progress-labels">
@@ -216,7 +295,7 @@
 
       <footer>
         <p>
-          Conversion runs locally with ffmpeg.wasm. Closing or refreshing the tab cancels the job.
+          Conversion runs locally with ffmpeg.wasm. Completed split parts can be resumed after reselecting the same source video.
         </p>
       </footer>
     </main>

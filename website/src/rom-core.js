@@ -108,6 +108,19 @@ export function safeRomTitle(value) {
   return out;
 }
 
+function safeTitleScreenName(value) {
+  const clean = String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 :/+.<>%-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 24);
+  const out = new Uint8Array(24);
+  out.set(asciiBytes(clean).subarray(0, 24));
+  return out;
+}
+
+
 function patchGBAHeader(rom, title) {
   setU32(rom, 0, 0xea00002e);
   rom.set(NINTENDO_LOGO, 4);
@@ -599,7 +612,7 @@ function buildSeekTable(clip) {
   return seek;
 }
 
-export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputMode = "menu", resume = true } = {}) {
+export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputMode = "menu", resume = true, titleScreenPart = 0, titleScreenName = "" } = {}) {
   if (!(playerStub instanceof Uint8Array)) throw new TypeError("playerStub must be a Uint8Array");
   if (playerStub.length !== ASSET_OFFSET) {
     throw new Error(`Player template is ${playerStub.length} bytes; expected ${ASSET_OFFSET}.`);
@@ -643,10 +656,15 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
   setU16(rom, METADATA_OFFSET + 4, 5);
   let flags = resume ? 1 : 0;
   if (outputMode === "playlist") flags |= 2;
+  if (titleScreenPart > 0) flags |= 4;
   setU16(rom, METADATA_OFFSET + 6, flags);
   setU16(rom, METADATA_OFFSET + 8, clips.length);
   setU32(rom, METADATA_OFFSET + 12, clipTableOffset);
   setU32(rom, METADATA_OFFSET + 16, CLIP_DESCRIPTOR_SIZE);
+  if (titleScreenPart > 0) {
+    setU32(rom, METADATA_OFFSET + 20, titleScreenPart);
+    rom.set(safeTitleScreenName(titleScreenName), METADATA_OFFSET + 24);
+  }
   patchGBAHeader(rom, romTitle);
 
   return {

@@ -30,3 +30,30 @@ test("website uses the desktop application icon", async () => {
   assert.ok(parsed.icons.some((icon) => icon.sizes === "192x192"));
   assert.ok(parsed.icons.some((icon) => icon.sizes === "512x512"));
 });
+
+test("web edition exposes desktop parity controls", async () => {
+  const [html, script] = await Promise.all([
+    readFile(resolve(website, "index.html"), "utf8"),
+    readFile(resolve(website, "src/main.js"), "utf8"),
+  ]);
+  for (const id of [
+    "saveProjectButton", "openProjectInput", "previewVideo", "timelineStart", "timelineEnd",
+    "audioPreviewButton", "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
+    "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(script, /performLongSplit/);
+  assert.match(script, /Estimated output:/);
+  assert.match(script, /Part \$\{partNumber\} of approximately/);
+  assert.match(script, /indexedDB\.open\("gba-video-maker"/);
+});
+
+test("every queried website element exists in the HTML", async () => {
+  const [html, script] = await Promise.all([
+    readFile(resolve(website, "index.html"), "utf8"),
+    readFile(resolve(website, "src/main.js"), "utf8"),
+  ]);
+  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]));
+  const queried = [...script.matchAll(/document\.querySelector\("#([^"]+)"\)/g)].map((match) => match[1]);
+  assert.ok(queried.length > 30);
+  for (const id of queried) assert.ok(ids.has(id), `missing #${id} in website/index.html`);
+});

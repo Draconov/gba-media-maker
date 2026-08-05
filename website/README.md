@@ -4,19 +4,20 @@ This folder is the complete GitHub Pages edition of GBA Video Maker. It is delib
 
 ## What the web edition currently supports
 
-- One or more input videos
-- The original fixed 120×80 v0.9 playback format
-- Single-video ROMs, multi-video menus, and playlists
-- Fit, crop, or stretch framing
-- 14.93, 11.95, 9.95, or 7.47 FPS
-- PCM mono audio at 16,384 Hz
-- Shared 250-colour palette per clip
-- Ordered, error-diffusion, or disabled dithering
-- Delta-frame compression and seek tables
-- The same embedded `assets/player_stub.bin`, including the custom menu background
-- Fully local processing: source videos are not uploaded to a server
+The web edition now follows the Windows application's conversion workflow and uses the same embedded GBA player:
 
-The desktop release remains recommended for long videos because native FFmpeg is much faster and browsers have stricter memory limits.
+- One or more input videos with clip ordering and project/per-clip settings
+- Single ROM, menu ROM, playlist ROM, and separate-ROM ZIP output
+- Automatic long-video fallback plus an optional **Split the video** panel
+- 1–32 MiB part targets, `MM:SS` duration caps, chapter-aware cuts, filename / `PART N` title screens, `PARTS.txt`, and numbered ROMs
+- Estimated ROM size and part count before conversion
+- `Part N of approximately M` and source-position progress during splitting
+- Persistent completed-part recovery through IndexedDB; reselect the same source file to resume
+- Save/open `.gbavideo` projects with browser-safe source relinking
+- Selected-clip video timeline, start/end controls, eight preview frames, GBA-font title preview, and selected-channel audio preview
+- Presets, 32 MiB optimizer, framing, four frame rates, palettes, dithering, compression, PCM audio options, normalization, limiter, speed, volume, looping, seeking, and SRAM resume
+- The original fixed 120×80 v0.9 playback format and the same `assets/player_stub.bin` as Windows
+- Fully local processing: source videos are not uploaded to a server
 
 ## Folder layout
 
@@ -79,7 +80,7 @@ The deployable site is generated in `website/dist/`. Do not edit `dist` manually
 7. The deployment job displays the public site URL. For a project repository it normally looks like:
 
    ```text
-   https://YOUR-USERNAME.github.io/YOUR-REPOSITORY/
+   https://draconov.github.io/gba-video-maker/
    ```
 
 Future pushes that change `website/`, `assets/player_stub.bin`, or the Pages workflow automatically rebuild the site.
@@ -88,9 +89,11 @@ Future pushes that change `website/`, `assets/player_stub.bin`, or the Pages wor
 
 Rebuild the desktop/player project normally so `assets/player_stub.bin` is updated. The website's `prebuild` script copies that file into `website/public/player_stub.bin` and verifies that it is exactly 32 KiB.
 
-## Important browser limitation
+## Browser platform limits
 
-ffmpeg.wasm and the raw 120×80 frame stream both live in browser memory during conversion. The worker rejects a clip when its estimated raw frame stream exceeds 384 MiB. This is intentional: huge jobs should use the desktop version instead of crashing the browser tab.
+The controls and output behavior match the Windows app, but the execution environment is different. ffmpeg.wasm and each active 120×80 frame stream use browser memory, so the splitter processes long sources one ROM part at a time. Very large source files can still exceed a browser's WebAssembly or storage quota; the Windows build remains faster and more tolerant of multi-gigabyte jobs.
+
+Saved browser projects cannot silently reopen local files because browsers block that for privacy. After opening a `.gbavideo` project, select the same source files and the app relinks them by name and size. Completed split parts are stored in IndexedDB when recovery is enabled.
 
 ## Current browser controls
 
@@ -103,22 +106,3 @@ Each uploaded clip also has its own:
 - start and end trim times
 - playback-speed multiplier from 0.25x to 4x
 - volume multiplier from 0 to 2
-
-The page follows the operating system light/dark preference and uses the same colour variables as the desktop interface.
-
-## Desktop conversion-setting parity
-
-The web edition now exposes the desktop converter's ROM-impacting options:
-
-- Best quality, Balanced, Long video, Smallest ROM, and Custom presets
-- Menu ROM, playlist ROM, and separate ROMs in a ZIP
-- Four frame-rate choices
-- Fit, crop, and stretch framing
-- Shared and per-scene palettes
-- Off, ordered, and error-diffusion dithering
-- Delta/keyframe and uncompressed video
-- Mixed, left, right, and disabled audio
-- Volume, normalization, limiter, trimming, speed, looping, seek step, and resume
-- Project defaults plus per-clip overrides and clip reordering
-
-Browser security still prevents a project file from silently reopening local video paths. A future browser project format can preserve settings and ask the user to reselect the source files.
