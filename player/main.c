@@ -66,6 +66,11 @@ typedef unsigned int   u32;
 #define CLIP_FLAG_COMPRESSED 0x0004u
 #define CLIP_FLAG_SCENE_PAL  0x0008u
 #define GBV5_MAGIC           0x35564247u
+#define MENU_THEME_MAGIC     0x3148544Du
+#define MENU_THEME_STATIC    0u
+#define MENU_THEME_SHIMMER   1u
+#define MENU_THEME_FRAMES    2u
+#define MENU_THEME_FLAG_OUTLINE 0x0001u
 
 #define FRAME_WIDTH       120u
 #define FRAME_HEIGHT      80u
@@ -134,6 +139,31 @@ struct GlobalMetadata {
     u32 reserved[4];
 };
 
+struct MenuThemeHeader {
+    u32 magic;
+    u16 version;
+    u16 kind;
+    u32 palette_offset;
+    u32 frames_offset;
+    u16 frame_count;
+    u16 frame_vblanks;
+    u16 flags;
+    u16 ui_colour;
+    u16 selected_colour;
+    u16 outline_colour;
+    u16 shimmer_source_start;
+    u16 shimmer_count;
+    u16 shimmer_target1;
+    u16 shimmer_interval1;
+    u16 shimmer_target2;
+    u16 shimmer_interval2;
+    u16 shimmer_phases;
+    u16 reserved0;
+    u32 frame_bytes;
+    u32 data_size;
+    u32 reserved[3];
+};
+
 struct ClipDescriptor {
     u32 frame_count;
     u32 frame_bytes;
@@ -188,6 +218,8 @@ extern const struct GlobalMetadata gba_video_metadata;
 
 static u8 frame_a[FRAME_BYTES];
 static u8 frame_b[FRAME_BYTES];
+static const struct MenuThemeHeader *active_menu_theme;
+static int active_menu_outline;
 static const char sram_type[] __attribute__((used)) = "SRAM_V113";
 
 static void wait_vblank(void)
@@ -302,14 +334,45 @@ static void draw_text_auto(volatile u16 *dst, u32 x, u32 y, const char *text, u1
     draw_text(dst, x, y, text, text_length(text), colour);
 }
 
-static void draw_text_plain(volatile u16 *dst, u32 x, u32 y, const char *text, u32 length, u16 colour)
+static void draw_menu_char(volatile u16 *dst, u32 x, u32 y, char c, u16 colour)
 {
-    draw_text(dst, x, y, text, length, colour);
+    u16 bits = glyph_bits(c);
+    u32 row, col;
+    if (active_menu_outline) {
+        for (row = 0u; row < 5u; ++row) {
+            for (col = 0u; col < 3u; ++col) {
+                u32 bit = 14u - (row * 3u + col);
+                if (bits & (1u << bit)) {
+                    int ox, oy;
+                    for (oy = -1; oy <= 1; ++oy) {
+                        for (ox = -1; ox <= 1; ++ox) {
+                            int px = (int)x + (int)col + ox;
+                            int py = (int)y + (int)row + oy;
+                            if (px >= 0 && py >= 0 && px < (int)FRAME_WIDTH && py < (int)FRAME_HEIGHT)
+                                put_logical_pixel(dst, (u32)px, (u32)py, UI_DARK);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (row = 0u; row < 5u; ++row) {
+        for (col = 0u; col < 3u; ++col) {
+            u32 bit = 14u - (row * 3u + col);
+            if (bits & (1u << bit)) put_logical_pixel(dst, x + col, y + row, colour);
+        }
+    }
 }
 
-static void draw_text_auto_plain(volatile u16 *dst, u32 x, u32 y, const char *text, u16 colour)
+static void draw_menu_text(volatile u16 *dst, u32 x, u32 y, const char *text, u32 length, u16 colour)
 {
-    draw_text(dst, x, y, text, text_length(text), colour);
+    u32 i;
+    for (i = 0u; i < length; ++i) draw_menu_char(dst, x + i * 4u, y, text[i], colour);
+}
+
+static void draw_menu_text_auto(volatile u16 *dst, u32 x, u32 y, const char *text, u16 colour)
+{
+    draw_menu_text(dst, x, y, text, text_length(text), colour);
 }
 
 static u32 divide_u32(u32 numerator, u32 denominator)
@@ -875,9 +938,28 @@ static void set_ui_palette(void)
     PALRAM[UI_BLACK]=0x0000; PALRAM[UI_DARK]=0x18C6; PALRAM[UI_WHITE]=0x7FFF; PALRAM[UI_YELLOW]=0x037F; PALRAM[UI_RED]=0x001F; PALRAM[UI_GREEN]=0x03E0;
 }
 
-static void set_menu_palette(void)
+static const struct MenuThemeHeader *menu_theme_for_metadata(const struct GlobalMetadata *meta)
 {
-    copy_palette(menu_background_palette);
+    const struct MenuThemeHeader *theme;
+    if (meta->reserved[0] == 0u) return 0;
+    theme = (const struct MenuThemeHeader *)rom_ptr(meta->reserved[0]);
+    if (theme->magic != MENU_THEME_MAGIC || theme->version != 1u || theme->frame_bytes != FRAME_BYTES || theme->frame_count == 0u) return 0;
+    return theme;
+}
+
+static void set_menu_palette(const struct GlobalMetadata *meta)
+{
+    active_menu_theme = menu_theme_for_metadata(meta);
+    active_menu_outline = 0;
+    if (active_menu_theme) {
+        copy_palette((const u16 *)rom_ptr(active_menu_theme->palette_offset));
+        PALRAM[UI_WHITE] = active_menu_theme->ui_colour;
+        PALRAM[UI_YELLOW] = active_menu_theme->selected_colour;
+        PALRAM[UI_DARK] = active_menu_theme->outline_colour;
+        active_menu_outline = (active_menu_theme->flags & MENU_THEME_FLAG_OUTLINE) != 0u;
+    } else {
+        copy_palette(menu_background_palette);
+    }
 }
 
 #define MENU_SHIMMER_FIRST_COLOUR      17u
@@ -885,32 +967,39 @@ static void set_menu_palette(void)
 #define MENU_SHIMMER_LOWER_COPY_BASE   46u
 #define MENU_SHIMMER_CREST_COPY_BASE   75u
 #define MENU_SHIMMER_PHASES            4u
-#define MENU_SHIMMER_LOWER_VBLANKS     12u /* about 5 changes per second */
-#define MENU_SHIMMER_CREST_VBLANKS     30u /* about 2 changes per second */
+#define MENU_SHIMMER_LOWER_VBLANKS     12u
+#define MENU_SHIMMER_CREST_VBLANKS     30u
 
-static void step_menu_shimmer_range(u32 copy_base, u32 phase)
+static void step_menu_shimmer_range(const u16 *palette, u32 source_start, u32 count, u32 copy_base, u32 phases, u32 phase)
 {
     u32 i;
-
-    for (i = MENU_SHIMMER_FIRST_COLOUR; i <= MENU_SHIMMER_LAST_COLOUR; ++i) {
-        u16 colour = menu_background_palette[i];
-        if (((i + phase) & (MENU_SHIMMER_PHASES - 1u)) == 0u) {
-            colour = (u16)(colour + 0x0420u);
-        }
-        PALRAM[copy_base + (i - MENU_SHIMMER_FIRST_COLOUR)] = colour;
+    for (i = 0u; i < count; ++i) {
+        u16 colour = palette[source_start + i];
+        if (((source_start + i + phase) & (phases - 1u)) == 0u) colour = (u16)(colour + 0x0420u);
+        PALRAM[copy_base + i] = colour;
     }
 }
 
-static void step_menu_lower_water_shimmer(u32 phase)
+static void step_menu_shimmer(const struct MenuThemeHeader *theme, u32 target, u32 phase)
 {
-    /* Lower water uses private palette copies at entries 46-74. */
-    step_menu_shimmer_range(MENU_SHIMMER_LOWER_COPY_BASE, phase);
+    if (theme) {
+        const u16 *palette = (const u16 *)rom_ptr(theme->palette_offset);
+        step_menu_shimmer_range(palette, theme->shimmer_source_start, theme->shimmer_count, target, theme->shimmer_phases, phase);
+    }
 }
 
-static void step_menu_crest_shimmer(u32 phase)
+static void step_fallback_lower_shimmer(u32 phase)
 {
-    /* Bright curl highlights use their own private copies at 75-103. */
-    step_menu_shimmer_range(MENU_SHIMMER_CREST_COPY_BASE, phase);
+    step_menu_shimmer_range(menu_background_palette, MENU_SHIMMER_FIRST_COLOUR,
+        MENU_SHIMMER_LAST_COLOUR - MENU_SHIMMER_FIRST_COLOUR + 1u,
+        MENU_SHIMMER_LOWER_COPY_BASE, MENU_SHIMMER_PHASES, phase);
+}
+
+static void step_fallback_crest_shimmer(u32 phase)
+{
+    step_menu_shimmer_range(menu_background_palette, MENU_SHIMMER_FIRST_COLOUR,
+        MENU_SHIMMER_LAST_COLOUR - MENU_SHIMMER_FIRST_COLOUR + 1u,
+        MENU_SHIMMER_CREST_COPY_BASE, MENU_SHIMMER_PHASES, phase);
 }
 
 static u32 sram_read_u32(u32 off)
@@ -1090,6 +1179,21 @@ static void menu_arrow_init(void)
         OAM[i * 4u + 3u] = 0u;
     }
     for (i = 0u; i < 64u; ++i) OBJ_TILE_VRAM[i] = 0u;
+    if (active_menu_outline) {
+        for (row = 0u; row < 5u; ++row) {
+            sy = 3u + row * 2u;
+            for (x = 0u; x < row_widths[row] * 2u; ++x) {
+                int ox, oy;
+                for (oy = -1; oy <= 1; ++oy) for (ox = -1; ox <= 1; ++ox) {
+                    int px = (int)x + ox, py = (int)sy + oy;
+                    if (px >= 0 && py >= 0 && px < 16 && py < 16) {
+                        menu_arrow_tile_pixel((u32)px, (u32)py, 2u);
+                        if (py + 1 < 16) menu_arrow_tile_pixel((u32)px, (u32)(py + 1), 2u);
+                    }
+                }
+            }
+        }
+    }
     for (row = 0u; row < 5u; ++row) {
         sy = 3u + row * 2u;
         for (x = 0u; x < row_widths[row] * 2u; ++x) {
@@ -1098,7 +1202,8 @@ static void menu_arrow_init(void)
         }
     }
     OBJ_PALRAM[0] = 0x0000u;
-    OBJ_PALRAM[1] = 0x037Fu;
+    OBJ_PALRAM[1] = active_menu_theme ? active_menu_theme->selected_colour : 0x037Fu;
+    OBJ_PALRAM[2] = active_menu_theme ? active_menu_theme->outline_colour : 0x0000u;
     OAM[MENU_ARROW_OAM_INDEX * 4u + 0u] = OBJ_DISABLE;
     OAM[MENU_ARROW_OAM_INDEX * 4u + 1u] = OBJ_SIZE_16;
     OAM[MENU_ARROW_OAM_INDEX * 4u + 2u] = MENU_ARROW_TILE_INDEX;
@@ -1116,11 +1221,16 @@ static void menu_arrow_hide(void)
     OAM[MENU_ARROW_OAM_INDEX * 4u + 0u] |= OBJ_DISABLE;
 }
 
-static void draw_menu_background(volatile u16 *dst)
+static void draw_menu_background(volatile u16 *dst, u32 frame_index)
 {
     u32 y, x;
+    const u8 *pixels = menu_background_pixels;
+    if (active_menu_theme) {
+        if (frame_index >= active_menu_theme->frame_count) frame_index = 0u;
+        pixels = rom_ptr(active_menu_theme->frames_offset + frame_index * FRAME_BYTES);
+    }
     for (y = 0u; y < FRAME_HEIGHT; ++y) {
-        const u8 *src = &menu_background_pixels[y * FRAME_WIDTH];
+        const u8 *src = &pixels[y * FRAME_WIDTH];
         volatile u16 *row0 = dst + (y * 2u) * 120u;
         volatile u16 *row1 = row0 + 120u;
         for (x = 0u; x < FRAME_WIDTH; ++x) {
@@ -1129,6 +1239,10 @@ static void draw_menu_background(volatile u16 *dst)
             row0[x] = pair;
             row1[x] = pair;
         }
+    }
+    if (active_menu_outline) {
+        fill_rect(dst, 0u, 13u, 120u, 1u, UI_DARK);
+        fill_rect(dst, 0u, 15u, 120u, 1u, UI_DARK);
     }
     fill_rect(dst, 0u, 14u, 120u, 1u, UI_WHITE);
 }
@@ -1202,7 +1316,7 @@ static u32 menu_column_count(u32 clip_count)
 }
 
 static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta, const struct ClipDescriptor *clips,
-                           u32 selected, u32 total_seconds)
+                           u32 selected, u32 total_seconds, u32 background_frame)
 {
     char clip_position[16];
     char total_text[16];
@@ -1213,12 +1327,12 @@ static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta,
     u32 max_chars = columns >= 3u ? 8u : 12u;
     u32 column, row;
 
-    draw_menu_background(dst);
-    draw_text_auto_plain(dst, 36u, 2u, "SELECT VIDEO", UI_WHITE);
+    draw_menu_background(dst, background_frame);
+    draw_menu_text_auto(dst, 36u, 2u, "SELECT VIDEO", UI_WHITE);
     make_clip_position_text(clip_position, meta->clip_count, selected);
     make_total_text(total_text, total_seconds);
-    draw_text_auto_plain(dst, 2u, 8u, clip_position, UI_WHITE);
-    draw_text_auto_plain(dst, 74u, 8u, total_text, UI_WHITE);
+    draw_menu_text_auto(dst, 2u, 8u, clip_position, UI_WHITE);
+    draw_menu_text_auto(dst, 74u, 8u, total_text, UI_WHITE);
 
     for (column = 0u; column < columns; ++column) {
         u32 x = column * column_width;
@@ -1230,7 +1344,7 @@ static void draw_clip_menu(volatile u16 *dst, const struct GlobalMetadata *meta,
             if (index >= meta->clip_count) break;
             clip = &clips[index];
             colour = index == selected ? UI_YELLOW : UI_WHITE;
-            draw_text_plain(dst, x + 8u, y, clip->title, fixed_text_length(clip->title, max_chars), colour);
+            draw_menu_text(dst, x + 8u, y, clip->title, fixed_text_length(clip->title, max_chars), colour);
         }
     }
 
@@ -1285,38 +1399,69 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
     u32 blink_counter = 0u;
     u32 lower_shimmer_counter = 0u, lower_shimmer_phase = 0u;
     u32 crest_shimmer_counter = 0u, crest_shimmer_phase = 0u;
+    u32 animation_counter = 0u, background_frame = 0u;
+    int animation_page_ready = 0;
     u32 arrow_x = 0u, arrow_y = 0u;
+    u16 displayed_page = 1u; /* Treat page 1 as current so the first back page is page 0. */
     int arrow_visible = 1;
     u16 prev = keys_down();
     if (meta->clip_count <= 1u) return 0u;
-    /* Force blank first so CPU writes to OBJ VRAM, OAM, and palettes are
-       unrestricted while the sprite graphics are prepared. */
     REG_DISPCNT = FORCE_BLANK;
-    set_menu_palette();
+    set_menu_palette(meta);
     menu_arrow_init();
     for (;;) {
-        volatile u16 *dst = VRAM_PAGE0;
-        draw_clip_menu(dst, meta, clips, selected, total_seconds);
+        volatile u16 *dst = displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
+        draw_clip_menu(dst, meta, clips, selected, total_seconds, background_frame);
         menu_arrow_position(selected, meta->clip_count, &arrow_x, &arrow_y);
         menu_arrow_set(arrow_x, arrow_y, 1);
         arrow_visible = 1;
         blink_counter = 0u;
-        if (REG_DISPCNT == FORCE_BLANK) {
-            wait_vblank();
-            REG_DISPCNT = MODE4_BG2_OBJ;
-        }
+        /* Build the complete menu on the hidden Mode 4 page, then flip during
+           VBlank. This keeps animated image/GIF themes tear-free. */
+        wait_vblank();
+        displayed_page ^= 1u;
+        REG_DISPCNT = (u16)(MODE4_BG2_OBJ | (displayed_page ? PAGE_SELECT : 0u));
+        animation_page_ready = 0;
         for (;;) {
             u16 now, pressed;
             wait_vblank();
-            if (++lower_shimmer_counter >= MENU_SHIMMER_LOWER_VBLANKS) {
-                lower_shimmer_counter = 0u;
-                lower_shimmer_phase = (lower_shimmer_phase + 1u) & (MENU_SHIMMER_PHASES - 1u);
-                step_menu_lower_water_shimmer(lower_shimmer_phase);
+            if (animation_page_ready) {
+                displayed_page ^= 1u;
+                REG_DISPCNT = (u16)(MODE4_BG2_OBJ | (displayed_page ? PAGE_SELECT : 0u));
+                animation_page_ready = 0;
             }
-            if (++crest_shimmer_counter >= MENU_SHIMMER_CREST_VBLANKS) {
-                crest_shimmer_counter = 0u;
-                crest_shimmer_phase = (crest_shimmer_phase + 1u) & (MENU_SHIMMER_PHASES - 1u);
-                step_menu_crest_shimmer(crest_shimmer_phase);
+            if (active_menu_theme && active_menu_theme->kind == MENU_THEME_SHIMMER) {
+                if (++lower_shimmer_counter >= active_menu_theme->shimmer_interval1) {
+                    lower_shimmer_counter = 0u;
+                    lower_shimmer_phase = (lower_shimmer_phase + 1u) & (active_menu_theme->shimmer_phases - 1u);
+                    step_menu_shimmer(active_menu_theme, active_menu_theme->shimmer_target1, lower_shimmer_phase);
+                }
+                if (++crest_shimmer_counter >= active_menu_theme->shimmer_interval2) {
+                    crest_shimmer_counter = 0u;
+                    crest_shimmer_phase = (crest_shimmer_phase + 1u) & (active_menu_theme->shimmer_phases - 1u);
+                    step_menu_shimmer(active_menu_theme, active_menu_theme->shimmer_target2, crest_shimmer_phase);
+                }
+            } else if (!active_menu_theme) {
+                if (++lower_shimmer_counter >= MENU_SHIMMER_LOWER_VBLANKS) {
+                    lower_shimmer_counter = 0u;
+                    lower_shimmer_phase = (lower_shimmer_phase + 1u) & (MENU_SHIMMER_PHASES - 1u);
+                    step_fallback_lower_shimmer(lower_shimmer_phase);
+                }
+                if (++crest_shimmer_counter >= MENU_SHIMMER_CREST_VBLANKS) {
+                    crest_shimmer_counter = 0u;
+                    crest_shimmer_phase = (crest_shimmer_phase + 1u) & (MENU_SHIMMER_PHASES - 1u);
+                    step_fallback_crest_shimmer(crest_shimmer_phase);
+                }
+            } else if (active_menu_theme->kind == MENU_THEME_FRAMES && active_menu_theme->frame_count > 1u) {
+                if (++animation_counter >= active_menu_theme->frame_vblanks) {
+                    volatile u16 *back;
+                    animation_counter = 0u;
+                    background_frame += 1u;
+                    if (background_frame >= active_menu_theme->frame_count) background_frame = 0u;
+                    back = displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
+                    draw_clip_menu(back, meta, clips, selected, total_seconds, background_frame);
+                    animation_page_ready = 1;
+                }
             }
             now = keys_down(); pressed = (u16)(now & (u16)~prev); prev = now;
             if (++blink_counter >= MENU_ARROW_BLINK_VBLANKS) {

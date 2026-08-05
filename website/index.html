@@ -281,6 +281,21 @@
               <span>Resume interrupted splitting</span>
             </label>
           </div>
+
+        <div id="menuSettingsGroup" class="menu-settings-panel" hidden>
+          <div class="section-heading compact-heading"><div><h3>Menu design</h3><p>The preview uses the same indexed background and UI colours embedded in the ROM.</p></div></div>
+          <div class="menu-design-grid">
+            <div class="menu-preview-wrap"><canvas id="menuPreview" width="480" height="320"></canvas><p id="menuBackgroundStatus" class="muted-note">Choose a built-in background or upload a custom image/GIF.</p></div>
+            <div class="menu-design-controls">
+              <label class="wide-field"><span>Menu background</span><select id="menuBackground"><option value="classic-dark">Classic dark</option><option value="ocean-wave-static">Ocean Wave — static</option><option value="ocean-wave-animated" selected>Ocean Wave — animated</option><option value="blue-wave-animated">Blue Wave — animated</option><option value="custom">Custom image or GIF</option></select></label>
+              <label id="customMenuBackgroundRow" class="wide-field" hidden><span>Custom background</span><input id="customMenuBackground" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"><small>Images are cropped to 120×80. GIFs are sampled to at most 16 looping frames.</small></label>
+              <label><span>UI colour</span><select id="menuUIColor"><option value="white" selected>White + yellow selection</option><option value="cyan">Cyan + white selection</option><option value="blue">Blue + cyan selection</option><option value="yellow">Yellow + white selection</option><option value="green">Green + white selection</option><option value="pink">Pink + white selection</option><option value="orange">Orange + white selection</option></select></label>
+              <label class="check-field"><input id="menuOutline" type="checkbox" checked><span>Draw UI outline</span></label>
+              <label><span>Outline colour</span><select id="menuOutlineColor"><option value="black" selected>Black</option><option value="navy">Dark navy</option><option value="white">White</option><option value="blue">Blue</option><option value="yellow">Yellow</option></select></label>
+              <button id="clearCustomMenuBackground" class="secondary" type="button">Clear custom background</button>
+            </div>
+          </div>
+        </div>
         </div>
       </section>
 

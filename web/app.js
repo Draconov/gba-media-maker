@@ -27,6 +27,10 @@ let pendingProject = null;
 let draggedID = '';
 let optimizerProposal = null;
 let scopeInitialized = false;
+let menuBackgroundID = 'ocean-wave-animated';
+let customMenuTheme = null;
+let activeMenuTheme = null;
+let stopMenuPreview = null;
 
 function headers(extra = {}) { return Object.assign({'X-GBA-Token': TOKEN}, extra); }
 async function api(path, options = {}) {
@@ -178,7 +182,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','useProject','menuTitle'];
+  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuOutline','menuOutlineColor'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -307,6 +311,43 @@ async function relinkVideo(index) {
   } catch (error) { alert(error.message); }
 }
 
+function menuStyleSettings() {
+  return {uiColor:$('menuUIColor')?.value || 'white', outline:!!$('menuOutline')?.checked, outlineColor:$('menuOutlineColor')?.value || 'black'};
+}
+function rebuildMenuTheme() {
+  if (!window.MenuThemeTools || !$('menuBackground')) return;
+  menuBackgroundID = $('menuBackground').value;
+  if (menuBackgroundID === 'custom' && customMenuTheme) activeMenuTheme = MenuThemeTools.applyUI(customMenuTheme, menuStyleSettings());
+  else if (menuBackgroundID === 'custom') activeMenuTheme = MenuThemeTools.createBuiltinTheme('classic-dark', menuStyleSettings());
+  else activeMenuTheme = MenuThemeTools.createBuiltinTheme(menuBackgroundID, menuStyleSettings());
+  $('customMenuBackgroundRow').classList.toggle('hidden', menuBackgroundID !== 'custom');
+  $('menuOutlineColor').disabled = !$('menuOutline').checked || !!state?.converting;
+}
+function serializedMenuTheme() {
+  rebuildMenuTheme();
+  return activeMenuTheme ? MenuThemeTools.serializeTheme(activeMenuTheme) : null;
+}
+function menuThemeBytes() {
+  if (!activeMenuTheme) return 0;
+  return 64 + activeMenuTheme.palette.length + activeMenuTheme.frames.reduce((sum, frame) => sum + frame.length, 0);
+}
+async function loadCustomMenuBackground(file) {
+  if (!file) return;
+  $('menuBackgroundStatus').textContent = 'Optimizing ' + file.name + '…';
+  try {
+    customMenuTheme = await MenuThemeTools.decodeCustomFile(file, menuStyleSettings(), fraction => {
+      $('menuBackgroundStatus').textContent = 'Optimizing ' + file.name + '… ' + Math.round(fraction * 100) + '%';
+    });
+    $('menuBackgroundStatus').textContent = customMenuTheme.frames.length > 1
+      ? file.name + ' — ' + customMenuTheme.frames.length + ' optimized animation frames'
+      : file.name + ' — optimized static background';
+    rebuildMenuTheme(); estimate();
+  } catch (error) {
+    customMenuTheme = null;
+    $('menuBackgroundStatus').textContent = 'Could not read this image or GIF: ' + error.message;
+  }
+}
+
 function updateSplitControls() {
   const single = state.videos.length === 1;
   $('splitVideoRow').classList.toggle('hidden', !single);
@@ -323,6 +364,7 @@ function updateOutputModes() {
     select.innerHTML = '<option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option>';
     select.value = ['playlist','menu','batch'].includes(current) ? current : 'playlist';
   }
+  $('menuSettingsSection')?.classList.toggle('hidden', !(state.videos.length > 1 && select.value === 'menu'));
   updateSplitControls();
 }
 
@@ -518,7 +560,7 @@ $('preset').onchange = () => {
   refreshScope(true); estimate();
 };
 
-function globalValues() {
+function globalValues(includeMenuTheme = true) {
   return {
     fps:$('fps').value, seekSeconds:Number($('seekSeconds').value), compression:$('compression').value,
     normalize:$('normalize').checked, limiter:$('limiter').checked, resume:$('resume').checked,
@@ -526,7 +568,12 @@ function globalValues() {
     splitVideo:$('splitVideo').checked, splitBudgetMiB:Number($('splitBudget').value),
     maxPartDuration:$('maxPartDuration').value.trim() || '0',
     chapterAware:$('chapterAware').checked, partTitleScreens:$('partTitleScreens').checked,
-    resumeLongSplit:$('resumeLongSplit').checked
+    resumeLongSplit:$('resumeLongSplit').checked,
+    menuBackground:$('menuBackground')?.value || 'ocean-wave-animated',
+    menuUIColor:$('menuUIColor')?.value || 'white',
+    menuOutline:!!$('menuOutline')?.checked,
+    menuOutlineColor:$('menuOutlineColor')?.value || 'black',
+    menuTheme:includeMenuTheme && $('outputMode').value === 'menu' ? serializedMenuTheme() : null
   };
 }
 function values() {
@@ -540,7 +587,7 @@ function values() {
   };
 }
 function modelSnapshot() {
-  return {global:globalValues(), defaults:cloneClip(projectDefaults), clips:JSON.parse(JSON.stringify(clipConfigs))};
+  return {global:globalValues(false), defaults:cloneClip(projectDefaults), clips:JSON.parse(JSON.stringify(clipConfigs))};
 }
 function modelEffective(model, id) {
   const config = model.clips[id];
@@ -550,7 +597,7 @@ function estimateModel(model) {
   if (!state?.videos?.length) return {bytes:0,frames:0,breakdown:{}};
   const vblanks = FPS_VBLANKS[model.global.fps] || 5;
   const fps = 59.727500569606 / vblanks;
-  let player = 32768 + state.videos.length * 96, videoBytes = 0, audioBytes = 0, paletteBytes = 0, indexBytes = 0, frames = 0, sourceDuration = 0;
+  let player = 32768 + state.videos.length * 96 + (model.global.outputMode === 'menu' ? menuThemeBytes() : 0), videoBytes = 0, audioBytes = 0, paletteBytes = 0, indexBytes = 0, frames = 0, sourceDuration = 0;
   for (const video of state.videos) {
     if (!video.info) continue;
     const clip = modelEffective(model, video.id);
@@ -705,6 +752,14 @@ function applyPendingProject() {
   $('maxPartDuration').value = settings.maxPartDuration || partDurationValue((Number(settings.maxPartMinutes) || 0) * 60);
   $('chapterAware').checked = settings.chapterAware !== false; $('partTitleScreens').checked = settings.partTitleScreens !== false; $('resumeLongSplit').checked = settings.resumeLongSplit !== false; updateSplitBudgetLabel(); updateSplitControls();
   $('romTitle').value = settings.romTitle || ''; romTitleAuto = false;
+  if ($('menuBackground')) {
+    $('menuBackground').value = settings.menuBackground || settings.menuTheme?.id || 'ocean-wave-animated';
+    $('menuUIColor').value = settings.menuUIColor || 'white';
+    $('menuOutline').checked = settings.menuOutline !== false;
+    $('menuOutlineColor').value = settings.menuOutlineColor || 'black';
+    if (($('menuBackground').value === 'custom') && settings.menuTheme) customMenuTheme = MenuThemeTools.deserializeTheme(settings.menuTheme);
+    rebuildMenuTheme();
+  }
   clipConfigs = {};
   for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered'};
   ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
@@ -728,6 +783,17 @@ async function openProject() {
 $('saveProject').onclick = saveProject;
 $('openProject').onclick = openProject;
 $('openProjectWelcome').onclick = event => { event.stopPropagation(); openProject(); };
+
+if ($('menuBackground')) {
+  rebuildMenuTheme();
+  stopMenuPreview = MenuThemeTools.startPreview($('menuPreview'), () => activeMenuTheme, menuStyleSettings);
+  $('menuBackground').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
+  $('menuUIColor').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
+  $('menuOutline').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
+  $('menuOutlineColor').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
+  $('customMenuBackground').addEventListener('change', event => loadCustomMenuBackground(event.target.files?.[0]));
+  $('clearCustomMenuBackground').onclick = () => { customMenuTheme = null; $('customMenuBackground').value = ''; $('menuBackgroundStatus').textContent = 'Choose a PNG, JPG, WebP or GIF.'; rebuildMenuTheme(); estimate(); };
+}
 
 $('audioPreview').onclick = async () => {
   try {

@@ -114,6 +114,7 @@ type ProjectOptions struct {
 	ResumeLongSplit  bool
 	TitleScreenPart  int
 	TitleScreenName  string
+	MenuTheme        *MenuThemeOptions
 }
 
 // ConvertOptions keeps the single-video command-line/test API convenient.
@@ -1151,6 +1152,11 @@ func validateProject(opt ProjectOptions) error {
 	if opt.OutputMode == "longsplit" && len(opt.Inputs) != 1 {
 		return errors.New("automatic long-video splitting requires exactly one input video")
 	}
+	if opt.OutputMode == "menu" && len(opt.Inputs) > 1 && opt.MenuTheme != nil {
+		if err := opt.MenuTheme.validate(); err != nil {
+			return fmt.Errorf("menu theme: %w", err)
+		}
+	}
 	for _, input := range opt.Inputs {
 		if input.Custom {
 			if err := validateClipSettings(optionsForClip(opt, input), input.Name); err != nil {
@@ -1265,6 +1271,14 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	rom := append([]byte(nil), playerStub...)
 	clipTableOffset := len(rom)
 	rom = append(rom, make([]byte, len(clips)*clipDescriptorSize)...)
+	menuThemeOffset := 0
+	if opt.OutputMode == "menu" && len(clips) > 1 && opt.MenuTheme != nil {
+		var err error
+		rom, menuThemeOffset, err = appendMenuTheme(rom, opt.MenuTheme)
+		if err != nil {
+			return ConvertResult{}, fmt.Errorf("menu theme: %w", err)
+		}
+	}
 	var totalFrames int
 	var rawVideo, storedVideo int64
 	for i, c := range clips {
@@ -1338,6 +1352,9 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	if opt.TitleScreenPart > 0 {
 		binary.LittleEndian.PutUint32(meta[20:24], uint32(opt.TitleScreenPart))
 		copy(meta[24:48], safeTitleScreenName(opt.TitleScreenName))
+	}
+	if menuThemeOffset > 0 {
+		binary.LittleEndian.PutUint32(meta[48:52], uint32(menuThemeOffset))
 	}
 	copy(rom[metadataOffset:metadataOffset+64], meta)
 	patchGBAHeader(rom, opt.RomTitle)

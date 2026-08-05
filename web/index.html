@@ -168,6 +168,24 @@
         <p class="tiny">Playlist controls: SELECT+Left previous clip, SELECT+Right next clip. Other controls: A pause; B restart or menu; L/R seek; Left/Right seek or paused frame-step; Up/Down volume; SELECT mute; START HUD; START+SELECT help.</p>
       </section>
 
+
+      <section id="menuSettingsSection" class="section hidden">
+        <h3>Menu design</h3>
+        <div class="menu-design-grid">
+          <div class="menu-preview-wrap">
+            <canvas id="menuPreview" width="480" height="320" aria-label="Menu preview"></canvas>
+            <p id="menuBackgroundStatus" class="tiny">Preview uses the same 120×80 indexed data that will be embedded in the ROM.</p>
+          </div>
+          <div class="fields menu-design-fields">
+            <div class="field full"><label>Menu background</label><select id="menuBackground"><option value="classic-dark">Classic dark</option><option value="ocean-wave-static">Ocean Wave — static</option><option value="ocean-wave-animated" selected>Ocean Wave — animated</option><option value="blue-wave-animated">Blue Wave — animated</option><option value="custom">Custom image or GIF</option></select></div>
+            <div id="customMenuBackgroundRow" class="field full hidden"><label>Custom background</label><div class="inline-field"><input id="customMenuBackground" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"><button id="clearCustomMenuBackground" type="button" class="btn compact">Clear</button></div><span class="tiny">Images are cropped to 120×80 and optimized to an indexed palette. GIFs are sampled to at most 16 looping frames.</span></div>
+            <div class="field"><label>UI colour</label><select id="menuUIColor"><option value="white" selected>White + yellow selection</option><option value="cyan">Cyan + white selection</option><option value="blue">Blue + cyan selection</option><option value="yellow">Yellow + white selection</option><option value="green">Green + white selection</option><option value="pink">Pink + white selection</option><option value="orange">Orange + white selection</option></select></div>
+            <label class="check"><input id="menuOutline" type="checkbox" checked> Draw UI outline</label>
+            <div class="field"><label>Outline colour</label><select id="menuOutlineColor"><option value="black" selected>Black</option><option value="navy">Dark navy</option><option value="white">White</option><option value="blue">Blue</option><option value="yellow">Yellow</option></select></div>
+          </div>
+        </div>
+      </section>
+
       <div class="bottom">
         <div id="estimate" class="estimate"></div>
         <div class="bottom-buttons"><button id="optimize" class="btn">Optimize to fit 32 MiB</button><button id="convert" class="btn primary">Create output</button></div>
@@ -187,6 +205,7 @@
   </div>
 </div>
 
+<script src="./menu-themes.js" defer></script>
 <script src="./app.js" defer></script>
 </body>
 </html>

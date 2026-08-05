@@ -136,6 +136,11 @@ type convertRequest struct {
 	ChapterAware     bool                  `json:"chapterAware"`
 	PartTitleScreens bool                  `json:"partTitleScreens"`
 	ResumeLongSplit  bool                  `json:"resumeLongSplit"`
+	MenuBackground   string                `json:"menuBackground"`
+	MenuUIColor      string                `json:"menuUIColor"`
+	MenuOutline      bool                  `json:"menuOutline"`
+	MenuOutlineColor string                `json:"menuOutlineColor"`
+	MenuTheme        *MenuThemeOptions     `json:"menuTheme,omitempty"`
 	Clips            []clipSettingsRequest `json:"clips"`
 }
 
@@ -944,6 +949,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		KeyInterval: 30, SplitBudgetMiB: req.SplitBudgetMiB,
 		MaxPartMinutes: maxPartSeconds / 60, ChapterAware: req.ChapterAware,
 		PartTitleScreens: req.PartTitleScreens, ResumeLongSplit: req.ResumeLongSplit,
+		MenuTheme: req.MenuTheme,
 	}
 	return opt, infos, validateProject(opt)
 }
@@ -1104,6 +1110,11 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(appCSS)
+	})
+	mux.HandleFunc(prefix+"/menu-themes.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(menuThemesJS)
 	})
 	mux.HandleFunc(prefix+"/app.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")

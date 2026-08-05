@@ -66,7 +66,7 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte("GBA Video Maker 0.9.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -268,7 +268,7 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || len(icon) < 1000 {
 		t.Fatalf("bad app icon response status=%d bytes=%d", resp.StatusCode, len(icon))
 	}
-	for _, asset := range []string{"style.css", "app.js"} {
+	for _, asset := range []string{"style.css", "menu-themes.js", "app.js"} {
 		resp, err = http.Get(server.URL + "/" + state.token + "/" + asset)
 		if err != nil {
 			t.Fatal(err)
@@ -365,6 +365,12 @@ func TestMultiClipMenuAndBatch(t *testing.T) {
 	base := ProjectOptions{Inputs: []ClipInput{{InputPath: a, Name: "A.mkv", Title: "CAT"}, {InputPath: b, Name: "B.mkv", Title: "INTRO"}}, FFmpegPath: ff, Start: 0, End: .6, Speed: 1, VBlanks: 8, FitMode: "fit", AudioMode: "none", Volume: 1, RomTitle: "COLLECTION", SeekSeconds: 10, Resume: true, Compression: "delta", PaletteMode: "scene", DitherMode: "off", KeyInterval: 15}
 	base.OutputPath = filepath.Join(dir, "menu.gba")
 	base.OutputMode = "menu"
+	base.MenuTheme = &MenuThemeOptions{
+		ID: "test-menu", Kind: "frames", Palette: make([]byte, 512),
+		Frames:       [][]byte{make([]byte, frameBytes), make([]byte, frameBytes)},
+		FrameVBlanks: 12, UIColor: 0x7FFF, SelectedColor: 0x037F,
+		Outline: true, OutlineColor: 0,
+	}
 	res, err := convertProject(base, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -375,6 +381,13 @@ func TestMultiClipMenuAndBatch(t *testing.T) {
 	}
 	if binary.LittleEndian.Uint16(rom[metadataOffset+6:])&0x0004 != 0 {
 		t.Fatal("obsolete menu preview flag present")
+	}
+	themeOffset := int(binary.LittleEndian.Uint32(rom[metadataOffset+48:]))
+	if themeOffset <= assetOffset || binary.LittleEndian.Uint32(rom[themeOffset:]) != menuThemeMagic {
+		t.Fatalf("menu theme was not embedded at %#x", themeOffset)
+	}
+	if binary.LittleEndian.Uint16(rom[themeOffset+18:]) != 12 || binary.LittleEndian.Uint16(rom[themeOffset+20:]) != 1 {
+		t.Fatal("menu animation or outline metadata missing")
 	}
 	base.OutputPath = filepath.Join(dir, "batch.zip")
 	base.OutputMode = "batch"
