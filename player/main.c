@@ -880,6 +880,65 @@ static void set_menu_palette(void)
     copy_palette(menu_background_palette);
 }
 
+#define MENU_SHIMMER_FIRST_COLOUR 19u
+#define MENU_SHIMMER_LAST_COLOUR  39u
+#define MENU_SHIMMER_COPY_BASE    46u
+#define MENU_SHIMMER_PHASES       8u
+
+static int menu_water_shimmer_region(u32 x, u32 y)
+{
+    /* Lower water, beginning below the menu text area. */
+    if (y >= 54u) return 1;
+
+    /* The curled wave crest highlighted by the user. */
+    if (x >= 43u && x <= 76u && y >= 22u && y <= 54u) {
+        int dx = (int)x - 59;
+        int dy = (int)y - 39;
+        if (dx * dx * 81 + dy * dy * 64 <= 20736) return 1;
+    }
+    return 0;
+}
+
+static u8 menu_water_shimmer_index(u8 base)
+{
+    return (u8)(MENU_SHIMMER_COPY_BASE + (u32)(base - MENU_SHIMMER_FIRST_COLOUR));
+}
+
+static void step_menu_water_shimmer(volatile u16 *dst, u32 phase)
+{
+    u32 x, y;
+    u32 previous_phase = (phase + MENU_SHIMMER_PHASES - 1u) & (MENU_SHIMMER_PHASES - 1u);
+
+    /*
+     * Only pixels entering or leaving the sparse shimmer pattern are written.
+     * Text and selection colours are preserved because a pixel is changed only
+     * while it still contains its original or duplicated water palette index.
+     */
+    for (y = 22u; y < FRAME_HEIGHT; ++y) {
+        for (x = 0u; x < FRAME_WIDTH; ++x) {
+            const u8 base = menu_background_pixels[y * FRAME_WIDTH + x];
+            u32 pattern;
+            int was_bright, is_bright;
+            volatile u16 *row;
+            u8 current;
+
+            if (!menu_water_shimmer_region(x, y)) continue;
+            if (base < MENU_SHIMMER_FIRST_COLOUR || base > MENU_SHIMMER_LAST_COLOUR) continue;
+
+            pattern = (x * 3u + y * 5u + (u32)base) & (MENU_SHIMMER_PHASES - 1u);
+            was_bright = pattern == previous_phase;
+            is_bright = pattern == phase;
+            if (was_bright == is_bright) continue;
+
+            row = dst + (y * 2u) * 120u;
+            current = (u8)(row[x] & 0x00FFu);
+            if (current != base && current != menu_water_shimmer_index(base)) continue;
+
+            put_logical_pixel(dst, x, y, is_bright ? menu_water_shimmer_index(base) : base);
+        }
+    }
+}
+
 static u32 sram_read_u32(u32 off)
 {
     return (u32)SRAM_BASE[off] | ((u32)SRAM_BASE[off+1u]<<8) | ((u32)SRAM_BASE[off+2u]<<16) | ((u32)SRAM_BASE[off+3u]<<24);
@@ -1250,6 +1309,7 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
     u32 selected = initial_selection < meta->clip_count ? initial_selection : (meta->default_clip < meta->clip_count ? meta->default_clip : 0u);
     u32 total_seconds = menu_total_seconds(meta, clips);
     u32 blink_counter = 0u;
+    u32 shimmer_counter = 0u, shimmer_phase = 0u;
     u32 arrow_x = 0u, arrow_y = 0u;
     int arrow_visible = 1;
     u16 prev = keys_down();
@@ -1273,6 +1333,11 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
         for (;;) {
             u16 now, pressed;
             wait_vblank();
+            if (++shimmer_counter >= 24u) {
+                shimmer_counter = 0u;
+                shimmer_phase = (shimmer_phase + 1u) & (MENU_SHIMMER_PHASES - 1u);
+                step_menu_water_shimmer(VRAM_PAGE0, shimmer_phase);
+            }
             now = keys_down(); pressed = (u16)(now & (u16)~prev); prev = now;
             if (++blink_counter >= MENU_ARROW_BLINK_VBLANKS) {
                 blink_counter = 0u;
