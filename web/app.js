@@ -182,7 +182,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuOutline','menuOutlineColor'];
+  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -312,7 +312,37 @@ async function relinkVideo(index) {
 }
 
 function menuStyleSettings() {
-  return {uiColor:$('menuUIColor')?.value || 'white', outline:!!$('menuOutline')?.checked, outlineColor:$('menuOutlineColor')?.value || 'black'};
+  return {uiColor:$('menuUIColor')?.value || '#FFFFFF', selectedColor:$('menuSelectionColor')?.value || '#FFDE00', outline:!!$('menuOutline')?.checked, outlineColor:$('menuOutlineColor')?.value || '#000000'};
+}
+function updateMenuColorReadouts() {
+  if (!window.MenuThemeTools) return;
+  for (const [inputID, outputID, fallback] of [
+    ['menuUIColor','menuUIColorValue','#FFFFFF'],
+    ['menuSelectionColor','menuSelectionColorValue','#FFDE00'],
+    ['menuOutlineColor','menuOutlineColorValue','#000000']
+  ]) {
+    const input=$(inputID), output=$(outputID);
+    if (!input || !output) continue;
+    const color=MenuThemeTools.describeColor(input.value,fallback);
+    output.textContent=`${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
+  }
+}
+function snapMenuColor(inputID, fallback) {
+  const input=$(inputID);
+  if (!input || !window.MenuThemeTools) return;
+  input.value=MenuThemeTools.quantizeHexColor(input.value,fallback);
+  updateMenuColorReadouts();
+}
+function restoreMenuColors(settings={}) {
+  const colors=MenuThemeTools.settingsColours({
+    uiColor:settings.menuUIColor ?? settings.menuTheme?.uiColor ?? 'white',
+    selectedColor:settings.menuSelectionColor ?? settings.menuTheme?.selectedColor,
+    outlineColor:settings.menuOutlineColor ?? settings.menuTheme?.outlineColor ?? 'black'
+  });
+  $('menuUIColor').value=MenuThemeTools.rgb555ToHex(colors.ui);
+  $('menuSelectionColor').value=MenuThemeTools.rgb555ToHex(colors.selected);
+  $('menuOutlineColor').value=MenuThemeTools.rgb555ToHex(colors.outline);
+  updateMenuColorReadouts();
 }
 function rebuildMenuTheme() {
   if (!window.MenuThemeTools || !$('menuBackground')) return;
@@ -570,9 +600,10 @@ function globalValues(includeMenuTheme = true) {
     chapterAware:$('chapterAware').checked, partTitleScreens:$('partTitleScreens').checked,
     resumeLongSplit:$('resumeLongSplit').checked,
     menuBackground:$('menuBackground')?.value || 'ocean-wave-animated',
-    menuUIColor:$('menuUIColor')?.value || 'white',
+    menuUIColor:$('menuUIColor')?.value || '#FFFFFF',
+    menuSelectionColor:$('menuSelectionColor')?.value || '#FFDE00',
     menuOutline:!!$('menuOutline')?.checked,
-    menuOutlineColor:$('menuOutlineColor')?.value || 'black',
+    menuOutlineColor:$('menuOutlineColor')?.value || '#000000',
     menuTheme:includeMenuTheme && $('outputMode').value === 'menu' ? serializedMenuTheme() : null
   };
 }
@@ -754,9 +785,8 @@ function applyPendingProject() {
   $('romTitle').value = settings.romTitle || ''; romTitleAuto = false;
   if ($('menuBackground')) {
     $('menuBackground').value = settings.menuBackground || settings.menuTheme?.id || 'ocean-wave-animated';
-    $('menuUIColor').value = settings.menuUIColor || 'white';
+    restoreMenuColors(settings);
     $('menuOutline').checked = settings.menuOutline !== false;
-    $('menuOutlineColor').value = settings.menuOutlineColor || 'black';
     if (($('menuBackground').value === 'custom') && settings.menuTheme) customMenuTheme = MenuThemeTools.deserializeTheme(settings.menuTheme);
     rebuildMenuTheme();
   }
@@ -785,12 +815,15 @@ $('openProject').onclick = openProject;
 $('openProjectWelcome').onclick = event => { event.stopPropagation(); openProject(); };
 
 if ($('menuBackground')) {
+  updateMenuColorReadouts();
   rebuildMenuTheme();
   stopMenuPreview = MenuThemeTools.startPreview($('menuPreview'), () => activeMenuTheme, menuStyleSettings);
   $('menuBackground').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
-  $('menuUIColor').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
+  for (const [inputID, fallback] of [['menuUIColor','#FFFFFF'],['menuSelectionColor','#FFDE00'],['menuOutlineColor','#000000']]) {
+    $(inputID).addEventListener('input', () => { updateMenuColorReadouts(); rebuildMenuTheme(); });
+    $(inputID).addEventListener('change', () => { snapMenuColor(inputID,fallback); rebuildMenuTheme(); estimate(); });
+  }
   $('menuOutline').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
-  $('menuOutlineColor').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
   $('customMenuBackground').addEventListener('change', event => loadCustomMenuBackground(event.target.files?.[0]));
   $('clearCustomMenuBackground').onclick = () => { customMenuTheme = null; $('customMenuBackground').value = ''; $('menuBackgroundStatus').textContent = 'Choose a PNG, JPG, WebP or GIF.'; rebuildMenuTheme(); estimate(); };
 }

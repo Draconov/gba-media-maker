@@ -112,36 +112,37 @@ type clipSettingsRequest struct {
 }
 
 type convertRequest struct {
-	Start            string                `json:"start"`
-	End              string                `json:"end"`
-	Speed            float64               `json:"speed"`
-	FPS              string                `json:"fps"`
-	Fit              string                `json:"fit"`
-	Audio            string                `json:"audio"`
-	Volume           float64               `json:"volume"`
-	Loop             bool                  `json:"loop"`
-	RomTitle         string                `json:"romTitle"`
-	SeekSeconds      int                   `json:"seekSeconds"`
-	Normalize        bool                  `json:"normalize"`
-	Limiter          bool                  `json:"limiter"`
-	Resume           bool                  `json:"resume"`
-	Compression      string                `json:"compression"`
-	PaletteMode      string                `json:"paletteMode"`
-	DitherMode       string                `json:"ditherMode"`
-	OutputMode       string                `json:"outputMode"`
-	SplitVideo       bool                  `json:"splitVideo"`
-	SplitBudgetMiB   int                   `json:"splitBudgetMiB"`
-	MaxPartDuration  string                `json:"maxPartDuration"`
-	MaxPartMinutes   float64               `json:"maxPartMinutes,omitempty"` // legacy project files
-	ChapterAware     bool                  `json:"chapterAware"`
-	PartTitleScreens bool                  `json:"partTitleScreens"`
-	ResumeLongSplit  bool                  `json:"resumeLongSplit"`
-	MenuBackground   string                `json:"menuBackground"`
-	MenuUIColor      string                `json:"menuUIColor"`
-	MenuOutline      bool                  `json:"menuOutline"`
-	MenuOutlineColor string                `json:"menuOutlineColor"`
-	MenuTheme        *MenuThemeOptions     `json:"menuTheme,omitempty"`
-	Clips            []clipSettingsRequest `json:"clips"`
+	Start              string                `json:"start"`
+	End                string                `json:"end"`
+	Speed              float64               `json:"speed"`
+	FPS                string                `json:"fps"`
+	Fit                string                `json:"fit"`
+	Audio              string                `json:"audio"`
+	Volume             float64               `json:"volume"`
+	Loop               bool                  `json:"loop"`
+	RomTitle           string                `json:"romTitle"`
+	SeekSeconds        int                   `json:"seekSeconds"`
+	Normalize          bool                  `json:"normalize"`
+	Limiter            bool                  `json:"limiter"`
+	Resume             bool                  `json:"resume"`
+	Compression        string                `json:"compression"`
+	PaletteMode        string                `json:"paletteMode"`
+	DitherMode         string                `json:"ditherMode"`
+	OutputMode         string                `json:"outputMode"`
+	SplitVideo         bool                  `json:"splitVideo"`
+	SplitBudgetMiB     int                   `json:"splitBudgetMiB"`
+	MaxPartDuration    string                `json:"maxPartDuration"`
+	MaxPartMinutes     float64               `json:"maxPartMinutes,omitempty"` // legacy project files
+	ChapterAware       bool                  `json:"chapterAware"`
+	PartTitleScreens   bool                  `json:"partTitleScreens"`
+	ResumeLongSplit    bool                  `json:"resumeLongSplit"`
+	MenuBackground     string                `json:"menuBackground"`
+	MenuUIColor        string                `json:"menuUIColor"`
+	MenuSelectionColor string                `json:"menuSelectionColor"`
+	MenuOutline        bool                  `json:"menuOutline"`
+	MenuOutlineColor   string                `json:"menuOutlineColor"`
+	MenuTheme          *MenuThemeOptions     `json:"menuTheme,omitempty"`
+	Clips              []clipSettingsRequest `json:"clips"`
 }
 
 type projectClip struct {

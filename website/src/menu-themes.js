@@ -34,9 +34,36 @@ function setColour(palette, index, value) { palette[index*2]=value&255; palette[
 function getColour(palette, index) { return palette[index*2] | (palette[index*2+1]<<8); }
 function rgb555ToRGB(value) { return [Math.round((value&31)*255/31),Math.round(((value>>>5)&31)*255/31),Math.round(((value>>>10)&31)*255/31)]; }
 function rgb555(r,g,b) { return Math.round(r*31/255) | (Math.round(g*31/255)<<5) | (Math.round(b*31/255)<<10); }
+function rgb555ToHex(value) {
+  const [r,g,b]=rgb555ToRGB(value&0x7FFF);
+  return `#${[r,g,b].map(channel=>channel.toString(16).padStart(2,'0')).join('')}`.toUpperCase();
+}
+function hexToRGB555(value,fallback=0) {
+  if(typeof value==='number'&&Number.isFinite(value)) return value&0x7FFF;
+  const match=/^#?([0-9a-f]{6})$/i.exec(String(value||'').trim());
+  if(!match) return fallback&0x7FFF;
+  const number=parseInt(match[1],16);
+  return rgb555((number>>>16)&255,(number>>>8)&255,number&255);
+}
+function colourSetting(value,fallback,presets={}) {
+  if(typeof value==='number'&&Number.isFinite(value)) return value&0x7FFF;
+  if(typeof value==='string'&&Object.prototype.hasOwnProperty.call(presets,value)) return presets[value]&0x7FFF;
+  return hexToRGB555(value,fallback);
+}
+function quantizeHexColor(value,fallback='#000000') { return rgb555ToHex(hexToRGB555(value,hexToRGB555(fallback,0))); }
+function describeColor(value,fallback='#000000') {
+  const rgb15=hexToRGB555(value,hexToRGB555(fallback,0));
+  return {rgb15,hex:rgb555ToHex(rgb15),r:rgb15&31,g:(rgb15>>>5)&31,b:(rgb15>>>10)&31};
+}
 function settingsColours(settings={}) {
   const pair=UI_PRESETS[settings.uiColor] || UI_PRESETS.white;
-  return {ui:pair.ui,selected:pair.selected,outline:OUTLINE_PRESETS[settings.outlineColor] ?? OUTLINE_PRESETS.black};
+  const uiPresets=Object.fromEntries(Object.entries(UI_PRESETS).map(([name,colours])=>[name,colours.ui]));
+  const selectedPresets=Object.fromEntries(Object.entries(UI_PRESETS).map(([name,colours])=>[name,colours.selected]));
+  return {
+    ui:colourSetting(settings.uiColor,pair.ui,uiPresets),
+    selected:colourSetting(settings.selectedColor,pair.selected,selectedPresets),
+    outline:colourSetting(settings.outlineColor,OUTLINE_PRESETS.black,OUTLINE_PRESETS)
+  };
 }
 function applyUI(theme, settings={}) {
   const c=settingsColours(settings); theme.uiColor=c.ui; theme.selectedColor=c.selected; theme.outline=!!settings.outline; theme.outlineColor=c.outline; return theme;
@@ -123,7 +150,7 @@ async function decodeCustomFile(file,settings={},progress=()=>{}) {
 }
 function serializeTheme(theme) {
   if(!theme) return null;
-  return {id:theme.id||'custom',name:theme.name||'',kind:theme.kind,palette:toBase64(theme.palette),frames:theme.frames.map(toBase64),frameVBlanks:theme.frameVBlanks||0,uiColor:theme.uiColor||0x7FFF,selectedColor:theme.selectedColor||0x037F,outline:!!theme.outline,outlineColor:theme.outlineColor||0,shimmer:theme.shimmer||null};
+  return {id:theme.id||'custom',name:theme.name||'',kind:theme.kind,palette:toBase64(theme.palette),frames:theme.frames.map(toBase64),frameVBlanks:theme.frameVBlanks||0,uiColor:Number.isInteger(theme.uiColor)?theme.uiColor:0x7FFF,selectedColor:Number.isInteger(theme.selectedColor)?theme.selectedColor:0x037F,outline:!!theme.outline,outlineColor:Number.isInteger(theme.outlineColor)?theme.outlineColor:0,shimmer:theme.shimmer||null};
 }
 function deserializeTheme(value) {
   if(!value) return null; return {...value,palette:typeof value.palette==='string'?fromBase64(value.palette):value.palette,frames:(value.frames||[]).map(v=>typeof v==='string'?fromBase64(v):v)};
@@ -199,6 +226,6 @@ function renderMenuPreview(canvas,theme,settings={},elapsed=0) {
 }
 function startPreview(canvas,getTheme,getSettings) { let stopped=false,start=performance.now(); const tick=now=>{if(stopped)return;renderMenuPreview(canvas,getTheme(),getSettings(),now-start);requestAnimationFrame(tick);};requestAnimationFrame(tick);return()=>{stopped=true;}; }
 
-const api={FRAME_WIDTH,FRAME_HEIGHT,FRAME_BYTES,UI_PRESETS,OUTLINE_PRESETS,createBuiltinTheme,decodeCustomFile,serializeTheme,deserializeTheme,renderMenuPreview,startPreview,applyUI,settingsColours};
+const api={FRAME_WIDTH,FRAME_HEIGHT,FRAME_BYTES,UI_PRESETS,OUTLINE_PRESETS,createBuiltinTheme,decodeCustomFile,serializeTheme,deserializeTheme,renderMenuPreview,startPreview,applyUI,settingsColours,rgb555ToHex,hexToRGB555,quantizeHexColor,describeColor};
 
-export { FRAME_WIDTH, FRAME_HEIGHT, FRAME_BYTES, UI_PRESETS, OUTLINE_PRESETS, createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, renderMenuPreview, startPreview, applyUI, settingsColours };
+export { FRAME_WIDTH, FRAME_HEIGHT, FRAME_BYTES, UI_PRESETS, OUTLINE_PRESETS, createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, renderMenuPreview, startPreview, applyUI, settingsColours, rgb555ToHex, hexToRGB555, quantizeHexColor, describeColor };

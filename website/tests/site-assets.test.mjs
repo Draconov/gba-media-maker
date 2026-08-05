@@ -44,7 +44,7 @@ test("web edition exposes desktop parity controls", async () => {
     "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
     "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground",
-    "menuUIColor", "menuOutline", "menuOutlineColor",
+    "menuUIColor", "menuSelectionColor", "menuOutline", "menuOutlineColor",
   ]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(script, /performLongSplit/);
   assert.match(script, /Estimated output:/);

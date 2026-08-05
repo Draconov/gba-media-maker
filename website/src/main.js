@@ -3,7 +3,7 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { AUDIO_RATE, GBA_REFRESH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.js";
 import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
-import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI } from "./menu-themes.js";
+import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor } from "./menu-themes.js";
 import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
@@ -25,8 +25,12 @@ const elements = {
   customMenuBackground: document.querySelector("#customMenuBackground"),
   clearCustomMenuBackground: document.querySelector("#clearCustomMenuBackground"),
   menuUIColor: document.querySelector("#menuUIColor"),
+  menuUIColorValue: document.querySelector("#menuUIColorValue"),
+  menuSelectionColor: document.querySelector("#menuSelectionColor"),
+  menuSelectionColorValue: document.querySelector("#menuSelectionColorValue"),
   menuOutline: document.querySelector("#menuOutline"),
   menuOutlineColor: document.querySelector("#menuOutlineColor"),
+  menuOutlineColorValue: document.querySelector("#menuOutlineColorValue"),
   menuBackgroundStatus: document.querySelector("#menuBackgroundStatus"),
   vblanks: document.querySelector("#vblanks"),
   fitMode: document.querySelector("#fitMode"),
@@ -143,7 +147,34 @@ let activeMenuTheme = null;
 let stopMenuPreview = null;
 
 function menuStyleSettings() {
-  return { uiColor: elements.menuUIColor?.value || "white", outline: Boolean(elements.menuOutline?.checked), outlineColor: elements.menuOutlineColor?.value || "black" };
+  return { uiColor: elements.menuUIColor?.value || "#FFFFFF", selectedColor: elements.menuSelectionColor?.value || "#FFDE00", outline: Boolean(elements.menuOutline?.checked), outlineColor: elements.menuOutlineColor?.value || "#000000" };
+}
+function updateMenuColorReadouts() {
+  for (const [input, output, fallback] of [
+    [elements.menuUIColor,elements.menuUIColorValue,"#FFFFFF"],
+    [elements.menuSelectionColor,elements.menuSelectionColorValue,"#FFDE00"],
+    [elements.menuOutlineColor,elements.menuOutlineColorValue,"#000000"],
+  ]) {
+    if (!input || !output) continue;
+    const color=describeColor(input.value,fallback);
+    output.textContent=`${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
+  }
+}
+function snapMenuColor(input,fallback) {
+  if (!input) return;
+  input.value=quantizeHexColor(input.value,fallback);
+  updateMenuColorReadouts();
+}
+function restoreMenuColors(settings={}) {
+  const colors=settingsColours({
+    uiColor:settings.menuUIColor ?? settings.menuTheme?.uiColor ?? "white",
+    selectedColor:settings.menuSelectionColor ?? settings.menuTheme?.selectedColor,
+    outlineColor:settings.menuOutlineColor ?? settings.menuTheme?.outlineColor ?? "black",
+  });
+  elements.menuUIColor.value=rgb555ToHex(colors.ui);
+  elements.menuSelectionColor.value=rgb555ToHex(colors.selected);
+  elements.menuOutlineColor.value=rgb555ToHex(colors.outline);
+  updateMenuColorReadouts();
 }
 function rebuildMenuTheme() {
   if (!elements.menuBackground) return;
@@ -379,9 +410,8 @@ function applySettings(settings = {}) {
   elements.resumeLongSplit.checked = settings.resumeLongSplit !== false;
   if (elements.menuBackground) {
     elements.menuBackground.value = settings.menuBackground || settings.menuTheme?.id || "ocean-wave-animated";
-    elements.menuUIColor.value = settings.menuUIColor || "white";
+    restoreMenuColors(settings);
     elements.menuOutline.checked = settings.menuOutline !== false;
-    elements.menuOutlineColor.value = settings.menuOutlineColor || "black";
     customMenuTheme = elements.menuBackground.value === "custom" && settings.menuTheme ? deserializeTheme(settings.menuTheme) : null;
     rebuildMenuTheme();
   }
@@ -953,9 +983,10 @@ function currentOptions(includeMenuTheme = true) {
     partTitleScreens: elements.partTitleScreens.checked,
     resumeLongSplit: elements.resumeLongSplit.checked,
     menuBackground: elements.menuBackground?.value || "ocean-wave-animated",
-    menuUIColor: elements.menuUIColor?.value || "white",
+    menuUIColor: elements.menuUIColor?.value || "#FFFFFF",
+    menuSelectionColor: elements.menuSelectionColor?.value || "#FFDE00",
     menuOutline: Boolean(elements.menuOutline?.checked),
-    menuOutlineColor: elements.menuOutlineColor?.value || "black",
+    menuOutlineColor: elements.menuOutlineColor?.value || "#000000",
     menuTheme: elements.outputMode.value === "menu" ? serializedMenuTheme() : null,
   };
 }
@@ -1016,7 +1047,7 @@ function setBusy(busy) {
     elements.saveProjectButton, elements.openProjectInput, elements.optimizerButton,
     elements.timelinePlay, elements.timelineStart, elements.timelineEnd, elements.audioPreviewButton,
     elements.titlePreviewInput, elements.menuBackground, elements.customMenuBackground,
-    elements.clearCustomMenuBackground, elements.menuUIColor, elements.menuOutline, elements.menuOutlineColor,
+    elements.clearCustomMenuBackground, elements.menuUIColor, elements.menuSelectionColor, elements.menuOutline, elements.menuOutlineColor,
   ];
   for (const control of settings) control.disabled = busy;
   for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
@@ -1817,11 +1848,15 @@ function configureCompatibilityMessage() {
 }
 
 if (elements.menuBackground) {
+  updateMenuColorReadouts();
   rebuildMenuTheme();
   stopMenuPreview = startPreview(elements.menuPreview, () => activeMenuTheme, menuStyleSettings);
-  for (const control of [elements.menuBackground, elements.menuUIColor, elements.menuOutline, elements.menuOutlineColor]) {
-    control.addEventListener("change", () => { rebuildMenuTheme(); resetResult(); updateEstimate(); });
+  elements.menuBackground.addEventListener("change", () => { rebuildMenuTheme(); resetResult(); updateEstimate(); });
+  for (const [input,fallback] of [[elements.menuUIColor,"#FFFFFF"],[elements.menuSelectionColor,"#FFDE00"],[elements.menuOutlineColor,"#000000"]]) {
+    input.addEventListener("input", () => { updateMenuColorReadouts(); rebuildMenuTheme(); resetResult(); });
+    input.addEventListener("change", () => { snapMenuColor(input,fallback); rebuildMenuTheme(); resetResult(); updateEstimate(); });
   }
+  elements.menuOutline.addEventListener("change", () => { rebuildMenuTheme(); resetResult(); updateEstimate(); });
   elements.customMenuBackground.addEventListener("change", event => loadCustomMenuBackground(event.target.files?.[0]));
   elements.clearCustomMenuBackground.addEventListener("click", () => {
     customMenuTheme = null; elements.customMenuBackground.value = "";
