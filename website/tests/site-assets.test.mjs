@@ -43,11 +43,15 @@ test("web edition exposes desktop parity controls", async () => {
     "titleEditor", "titlePreviewInput", "audioPreviewButton",
     "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
+    "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground",
+    "menuUIColor", "menuOutline", "menuOutlineColor",
   ]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(script, /performLongSplit/);
   assert.match(script, /Estimated output:/);
   assert.match(script, /Part \$\{partNumber\} of approximately/);
   assert.match(script, /indexedDB\.open\("gba-video-maker"/);
+  assert.match(script, /decodeCustomFile/);
+  assert.match(script, /serializeTheme/);
 });
 
 

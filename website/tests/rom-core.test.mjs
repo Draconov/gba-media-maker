@@ -165,3 +165,25 @@ test("browser core writes split-part title-screen metadata", async () => {
   assert.equal(u32(result.rom, METADATA_OFFSET + 20), 2);
   assert.equal(new TextDecoder().decode(result.rom.subarray(METADATA_OFFSET + 24, METADATA_OFFSET + 48)).replace(/\0+$/, ""), "A VERY LONG MOVIE FILENA");
 });
+
+test("browser core embeds a configurable animated menu theme", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const framesRGB = new Uint8Array(RGB_FRAME_BYTES);
+  const clipA = convertRawClip({ framesRGB, title: "ONE", vblanks: 8, ditherMode: "off", compression: "none" });
+  const clipB = convertRawClip({ framesRGB: framesRGB.slice(), title: "TWO", vblanks: 8, ditherMode: "off", compression: "none" });
+  const palette = new Uint8Array(512);
+  const frame = new Uint8Array(FRAME_BYTES);
+  const b64 = (bytes) => Buffer.from(bytes).toString("base64");
+  const theme = {
+    id: "test-wave", kind: "frames", palette: b64(palette), frames: [b64(frame), b64(frame)],
+    frameVBlanks: 12, uiColor: 0x7fff, selectedColor: 0x037f, outline: true, outlineColor: 0,
+  };
+  const result = assembleROM(playerStub, [clipA, clipB], { romTitle: "THEME", outputMode: "menu", menuTheme: theme });
+  const themeOffset = u32(result.rom, METADATA_OFFSET + 48);
+  assert.ok(themeOffset > ASSET_OFFSET);
+  assert.equal(u32(result.rom, themeOffset), 0x3148544d);
+  assert.equal(u16(result.rom, themeOffset + 6), 2);
+  assert.equal(u16(result.rom, themeOffset + 16), 2);
+  assert.equal(u16(result.rom, themeOffset + 18), 12);
+  assert.equal(u16(result.rom, themeOffset + 20), 1);
+});

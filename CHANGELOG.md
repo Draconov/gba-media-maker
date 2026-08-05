@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.10.0] - 2026-08-05
+
+### Added
+
+#### Menu design system
+
+- A dedicated **Menu design** settings section for **One ROM — clip menu** output in both the Windows app and browser edition.
+- A live 120×80 indexed menu preview showing the actual GBA font, divider lines, clip titles, total duration, selected item, and selector.
+- Built-in menu backgrounds:
+  - **Classic dark**;
+  - **Ocean Wave — static**;
+  - **Ocean Wave — animated**;
+  - **Blue Wave — animated**.
+- Seven UI-colour presets controlling normal and selected menu text.
+- An optional one-pixel UI outline with selectable black, dark navy, white, blue, or yellow colour.
+- Custom PNG, JPEG, WebP, and GIF menu backgrounds.
+- Automatic center-crop and resize to 120×80, RGB555 conversion, indexed-palette optimization, and reservation of player UI palette entries.
+- GIF sampling to at most 16 looping optimized frames.
+- `MTH1` menu-theme records embedded directly into generated menu ROMs, including the palette, frame data, animation type, timing, UI colours, outline settings, and palette-shimmer configuration.
+- Menu-theme validation and ROM-assembly tests in both the Go and browser ROM builders.
+- Menu-design settings in `.gbavideo` project save/open data.
+
+#### Animated menu backgrounds
+
+- A dual-rate palette shimmer for **Ocean Wave — animated**: the bright wave curl changes approximately twice per second while the lower water changes approximately five times per second.
+- A generated multi-frame **Blue Wave — animated** design.
+- Mode 4 hidden-page drawing and VBlank page switching for tear-resistant image/GIF animation.
+- ROM-size estimation that includes embedded menu-theme data.
+
+### Changed
+
+- Menu backgrounds are selected during ROM assembly and stored in the exported ROM instead of requiring a separately compiled player for each design.
+- The generic 32 KiB player now reads optional menu-theme metadata and falls back to its built-in menu background when no valid theme is present.
+- Desktop and website menu-theme conversion and preview behavior now share matching logic and built-in assets.
+- The menu preview is rendered only at exact integer multiples of the logical 120×80 resolution.
+- Preview text uses the same 3×5 glyph data and coordinates as the GBA player.
+- The preview selector now uses the same `2, 3, 4, 3, 2` pixel shape and position as the OBJ sprite in the ROM.
+
+### Fixed
+
+- Fixed uneven, distorted preview lettering caused by non-integer browser scaling.
+- Fixed the preview selector pointing in a different shape and position from the real ROM selector.
+- Fixed custom menu-theme bytes being omitted from output-size estimates.
+
+### Compatibility
+
+- Kept the v0.9 video decoder, audio DMA path, playback clock, seeking, compression, clip metadata, and fixed 120×80 video renderer unchanged.
+- Existing non-menu, playlist, batch, and long-video splitting workflows continue to use the same media format and controls.
+
 ## [0.9.0] - 2026-08-05
 
 ### Added

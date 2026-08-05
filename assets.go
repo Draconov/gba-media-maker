@@ -15,3 +15,6 @@ var appCSS []byte
 
 //go:embed web/app.js
 var appJS []byte
+
+//go:embed web/menu-themes.js
+var menuThemesJS []byte

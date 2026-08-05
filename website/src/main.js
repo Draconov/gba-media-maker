@@ -3,6 +3,7 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { AUDIO_RATE, GBA_REFRESH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.js";
 import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
+import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI } from "./menu-themes.js";
 import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
@@ -17,6 +18,16 @@ const elements = {
   clearButton: document.querySelector("#clearButton"),
   preset: document.querySelector("#preset"),
   outputMode: document.querySelector("#outputMode"),
+  menuSettingsGroup: document.querySelector("#menuSettingsGroup"),
+  menuPreview: document.querySelector("#menuPreview"),
+  menuBackground: document.querySelector("#menuBackground"),
+  customMenuBackgroundRow: document.querySelector("#customMenuBackgroundRow"),
+  customMenuBackground: document.querySelector("#customMenuBackground"),
+  clearCustomMenuBackground: document.querySelector("#clearCustomMenuBackground"),
+  menuUIColor: document.querySelector("#menuUIColor"),
+  menuOutline: document.querySelector("#menuOutline"),
+  menuOutlineColor: document.querySelector("#menuOutlineColor"),
+  menuBackgroundStatus: document.querySelector("#menuBackgroundStatus"),
   vblanks: document.querySelector("#vblanks"),
   fitMode: document.querySelector("#fitMode"),
   paletteMode: document.querySelector("#paletteMode"),
@@ -127,6 +138,36 @@ let lastEstimate = null;
 let thumbRenderToken = 0;
 let lastPartialSplit = null;
 let preferredOutputMode = "rom";
+let customMenuTheme = null;
+let activeMenuTheme = null;
+let stopMenuPreview = null;
+
+function menuStyleSettings() {
+  return { uiColor: elements.menuUIColor?.value || "white", outline: Boolean(elements.menuOutline?.checked), outlineColor: elements.menuOutlineColor?.value || "black" };
+}
+function rebuildMenuTheme() {
+  if (!elements.menuBackground) return;
+  const id = elements.menuBackground.value;
+  if (id === "custom" && customMenuTheme) activeMenuTheme = applyUI(customMenuTheme, menuStyleSettings());
+  else if (id === "custom") activeMenuTheme = createBuiltinTheme("classic-dark", menuStyleSettings());
+  else activeMenuTheme = createBuiltinTheme(id, menuStyleSettings());
+  elements.customMenuBackgroundRow.hidden = id !== "custom";
+  elements.menuOutlineColor.disabled = !elements.menuOutline.checked || conversionRunning;
+}
+function serializedMenuTheme() { rebuildMenuTheme(); return activeMenuTheme ? serializeTheme(activeMenuTheme) : null; }
+function menuThemeBytes() { return activeMenuTheme ? 64 + activeMenuTheme.palette.length + activeMenuTheme.frames.reduce((sum, frame) => sum + frame.length, 0) : 0; }
+async function loadCustomMenuBackground(file) {
+  if (!file) return;
+  elements.menuBackgroundStatus.textContent = `Optimizing ${file.name}…`;
+  try {
+    customMenuTheme = await decodeCustomFile(file, menuStyleSettings(), fraction => { elements.menuBackgroundStatus.textContent = `Optimizing ${file.name}… ${Math.round(fraction * 100)}%`; });
+    elements.menuBackgroundStatus.textContent = customMenuTheme.frames.length > 1 ? `${file.name} — ${customMenuTheme.frames.length} optimized animation frames` : `${file.name} — optimized static background`;
+    rebuildMenuTheme(); resetResult(); updateEstimate();
+  } catch (error) {
+    customMenuTheme = null;
+    elements.menuBackgroundStatus.textContent = `Could not read this image or GIF: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes < 1) return "0 B";
@@ -214,7 +255,7 @@ function selectedEntry() {
   return entries.find((entry) => entry.id === selectedEntryId) || entries[0] || null;
 }
 
-function durationForEntry(entry, project = currentOptions()) {
+function durationForEntry(entry, project = currentOptions(false)) {
   const clip = effectiveClipOptions(entry, project);
   const full = Math.max(0, entry.duration || 0);
   const start = clampNumber(clip.start, 0, full || 86400);
@@ -240,6 +281,7 @@ function updateOutputModes() {
   const single = entries.length === 1 && elements.outputMode.value === "rom";
   elements.splitVideoRow.hidden = !single;
   if (!single) elements.splitVideo.checked = false;
+  if (elements.menuSettingsGroup) elements.menuSettingsGroup.hidden = !(entries.length > 1 && elements.outputMode.value === "menu");
   updateSplitVisibility();
 }
 
@@ -260,6 +302,7 @@ function projectSettingsSnapshot() {
     chapterAware: elements.chapterAware.checked,
     partTitleScreens: elements.partTitleScreens.checked,
     resumeLongSplit: elements.resumeLongSplit.checked,
+    menuTheme: includeMenuTheme && elements.outputMode.value === "menu" ? serializedMenuTheme() : null,
   };
 }
 
@@ -334,6 +377,14 @@ function applySettings(settings = {}) {
   elements.chapterAware.checked = settings.chapterAware !== false;
   elements.partTitleScreens.checked = settings.partTitleScreens !== false;
   elements.resumeLongSplit.checked = settings.resumeLongSplit !== false;
+  if (elements.menuBackground) {
+    elements.menuBackground.value = settings.menuBackground || settings.menuTheme?.id || "ocean-wave-animated";
+    elements.menuUIColor.value = settings.menuUIColor || "white";
+    elements.menuOutline.checked = settings.menuOutline !== false;
+    elements.menuOutlineColor.value = settings.menuOutlineColor || "black";
+    customMenuTheme = elements.menuBackground.value === "custom" && settings.menuTheme ? deserializeTheme(settings.menuTheme) : null;
+    rebuildMenuTheme();
+  }
   if (settings.preset) elements.preset.value = settings.preset;
 }
 
@@ -381,7 +432,7 @@ async function openProjectFile(file) {
   if (pendingProject) elements.projectNotice.textContent = `Project loaded. Select ${pendingProject.clips.length} source video${pendingProject.clips.length === 1 ? "" : "s"} to relink.`;
 }
 
-function estimateProject(project = currentOptions()) {
+function estimateProject(project = currentOptions(false)) {
   const fps = GBA_REFRESH / project.vblanks;
   let frames = 0;
   let videoBytes = 0;
@@ -400,7 +451,7 @@ function estimateProject(project = currentOptions()) {
     paletteBytes += (clip.paletteMode === "scene" ? Math.max(1, Math.ceil(duration / 30)) : 1) * 512 + clipFrames * (clip.paletteMode === "scene" ? 2 : 0);
     totalDuration += duration;
   }
-  const metadataBytes = 0x8000 + entries.length * 96 + frames * 8;
+  const metadataBytes = 0x8000 + entries.length * 96 + frames * 8 + (project.outputMode === "menu" ? menuThemeBytes() : 0);
   const totalBytes = metadataBytes + videoBytes + audioBytes + paletteBytes;
   const budgetMiB = elements.splitVideo.checked ? Number(elements.splitBudget.value) : 32;
   const budget = Math.max(1, Math.min(32, budgetMiB)) * 1048576;
@@ -532,7 +583,7 @@ function syncSelectedPreview(force = false) {
     elements.previewVideo.muted = true;
   }
   const duration = Math.max(0.01, entry.duration || elements.previewVideo.duration || 1);
-  const project = currentOptions();
+  const project = currentOptions(false);
   const clip = effectiveClipOptions(entry, project);
   const start = clampNumber(clip.start, 0, duration);
   const end = clip.end > start ? Math.min(clip.end, duration) : duration;
@@ -876,7 +927,7 @@ function appendLog(message) {
   elements.logOutput.scrollTop = elements.logOutput.scrollHeight;
 }
 
-function currentOptions() {
+function currentOptions(includeMenuTheme = true) {
   return {
     outputMode: elements.outputMode.value,
     vblanks: Number(elements.vblanks.value),
@@ -901,6 +952,11 @@ function currentOptions() {
     chapterAware: elements.chapterAware.checked,
     partTitleScreens: elements.partTitleScreens.checked,
     resumeLongSplit: elements.resumeLongSplit.checked,
+    menuBackground: elements.menuBackground?.value || "ocean-wave-animated",
+    menuUIColor: elements.menuUIColor?.value || "white",
+    menuOutline: Boolean(elements.menuOutline?.checked),
+    menuOutlineColor: elements.menuOutlineColor?.value || "black",
+    menuTheme: elements.outputMode.value === "menu" ? serializedMenuTheme() : null,
   };
 }
 
@@ -959,7 +1015,8 @@ function setBusy(busy) {
     elements.maxPartDuration, elements.chapterAware, elements.partTitleScreens, elements.resumeLongSplit,
     elements.saveProjectButton, elements.openProjectInput, elements.optimizerButton,
     elements.timelinePlay, elements.timelineStart, elements.timelineEnd, elements.audioPreviewButton,
-    elements.titlePreviewInput,
+    elements.titlePreviewInput, elements.menuBackground, elements.customMenuBackground,
+    elements.clearCustomMenuBackground, elements.menuUIColor, elements.menuOutline, elements.menuOutlineColor,
   ];
   for (const control of settings) control.disabled = busy;
   for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
@@ -1564,7 +1621,7 @@ async function performConversion() {
     const assembled = await runRomTask("assembleROM", {
       playerStub: stub,
       clips,
-      options: { romTitle: project.romTitle, outputMode: project.outputMode, resume: project.resume },
+      options: { romTitle: project.romTitle, outputMode: project.outputMode, resume: project.resume, menuTheme: project.menuTheme },
     }, transfers);
     updateProgress(100, "ROM ready.");
     return {
@@ -1707,7 +1764,7 @@ function togglePreviewPlayback() {
 async function createAudioPreview() {
   const entry = selectedEntry();
   if (!entry || conversionRunning) return;
-  const project = currentOptions();
+  const project = currentOptions(false);
   const clip = effectiveClipOptions(entry, project);
   if (clip.audioMode === "none") { alert("Audio is disabled for this clip."); return; }
   elements.audioPreviewButton.disabled = true;
@@ -1757,6 +1814,20 @@ function configureDesktopLink() {
 function configureCompatibilityMessage() {
   const mobile = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
   if (mobile) elements.compatibilityText.textContent = "Mobile browsers can run out of memory quickly. Short clips only; use the desktop app for longer videos.";
+}
+
+if (elements.menuBackground) {
+  rebuildMenuTheme();
+  stopMenuPreview = startPreview(elements.menuPreview, () => activeMenuTheme, menuStyleSettings);
+  for (const control of [elements.menuBackground, elements.menuUIColor, elements.menuOutline, elements.menuOutlineColor]) {
+    control.addEventListener("change", () => { rebuildMenuTheme(); resetResult(); updateEstimate(); });
+  }
+  elements.customMenuBackground.addEventListener("change", event => loadCustomMenuBackground(event.target.files?.[0]));
+  elements.clearCustomMenuBackground.addEventListener("click", () => {
+    customMenuTheme = null; elements.customMenuBackground.value = "";
+    elements.menuBackgroundStatus.textContent = "Choose a built-in background or upload a custom image/GIF.";
+    rebuildMenuTheme(); resetResult(); updateEstimate();
+  });
 }
 
 const presetFields = [elements.vblanks, elements.fitMode, elements.paletteMode, elements.ditherMode, elements.compression, elements.audioMode, elements.normalize, elements.limiter];

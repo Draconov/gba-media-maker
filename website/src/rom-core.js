@@ -10,6 +10,8 @@ export const RGB_FRAME_BYTES = FRAME_BYTES * 3;
 export const AUDIO_RATE = 16384;
 export const VIDEO_PALETTE_COLORS = 250;
 export const GBA_REFRESH = 59.727500569606;
+const MENU_THEME_HEADER_SIZE = 64;
+const MENU_THEME_MAGIC = 0x3148544d;
 
 const NINTENDO_LOGO = new Uint8Array([
   0x24, 0xff, 0xae, 0x51, 0x69, 0x9a, 0xa2, 0x21, 0x3d, 0x84, 0x82, 0x0a, 0x84, 0xe4, 0x09, 0xad,
@@ -602,6 +604,66 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   setU32(rom, descriptorOffset + 76, clip.storedVideoSize);
 }
 
+function decodeMenuBytes(value) {
+  if (value instanceof Uint8Array) return value;
+  if (typeof value !== "string") throw new Error("Menu theme data is missing.");
+  if (typeof atob === "function") {
+    const raw = atob(value); const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  return Uint8Array.from(Buffer.from(value, "base64"));
+}
+
+function appendMenuTheme(writer, theme) {
+  if (!theme) return 0;
+  const palette = decodeMenuBytes(theme.palette);
+  const frames = (theme.frames || []).map(decodeMenuBytes);
+  if (palette.length !== 512) throw new Error(`Menu palette is ${palette.length} bytes; expected 512.`);
+  if (frames.length < 1 || frames.length > 16) throw new Error("Menu background must contain 1 to 16 optimized frames.");
+  for (const [index, frame] of frames.entries()) {
+    if (frame.length !== FRAME_BYTES) throw new Error(`Menu frame ${index + 1} is ${frame.length} bytes; expected ${FRAME_BYTES}.`);
+    for (const colour of frame) if (colour >= 250) throw new Error(`Menu frame ${index + 1} uses reserved palette index ${colour}.`);
+  }
+  let kind = 0;
+  if (theme.kind === "palette-shimmer") kind = 1;
+  else if (theme.kind === "frames") kind = 2;
+  else if (theme.kind !== "static") throw new Error("Unknown menu background type.");
+  const frameVBlanks = Number(theme.frameVBlanks || 0);
+  if (kind === 2 && (frameVBlanks < 6 || frameVBlanks > 120)) throw new Error("Animated menu frame interval must be between 6 and 120 VBlanks.");
+  const shimmer = theme.shimmer || null;
+  if (kind === 1 && !shimmer) throw new Error("Palette shimmer theme is missing its animation settings.");
+
+  const headerOffset = writer.reserve(MENU_THEME_HEADER_SIZE);
+  const paletteOffset = writer.writeAligned(palette);
+  const framesOffset = writer.length;
+  for (const frame of frames) writer.writeAligned(frame);
+  const header = writer.buffer;
+  setU32(header, headerOffset, MENU_THEME_MAGIC);
+  setU16(header, headerOffset + 4, 1);
+  setU16(header, headerOffset + 6, kind);
+  setU32(header, headerOffset + 8, paletteOffset);
+  setU32(header, headerOffset + 12, framesOffset);
+  setU16(header, headerOffset + 16, frames.length);
+  setU16(header, headerOffset + 18, frameVBlanks);
+  setU16(header, headerOffset + 20, theme.outline ? 1 : 0);
+  setU16(header, headerOffset + 22, Number(theme.uiColor || 0x7fff));
+  setU16(header, headerOffset + 24, Number(theme.selectedColor || 0x037f));
+  setU16(header, headerOffset + 26, Number(theme.outlineColor || 0));
+  if (shimmer) {
+    setU16(header, headerOffset + 28, Number(shimmer.sourceStart || 0));
+    setU16(header, headerOffset + 30, Number(shimmer.count || 0));
+    setU16(header, headerOffset + 32, Number(shimmer.target1 || 0));
+    setU16(header, headerOffset + 34, Number(shimmer.interval1 || 0));
+    setU16(header, headerOffset + 36, Number(shimmer.target2 || 0));
+    setU16(header, headerOffset + 38, Number(shimmer.interval2 || 0));
+    setU16(header, headerOffset + 40, Number(shimmer.phases || 0));
+  }
+  setU32(header, headerOffset + 44, FRAME_BYTES);
+  setU32(header, headerOffset + 48, writer.length - headerOffset);
+  return headerOffset;
+}
+
 function buildSeekTable(clip) {
   const seek = new Uint8Array(clip.frameCount * 4);
   for (let frame = 0; frame < clip.frameCount; frame += 1) {
@@ -612,7 +674,7 @@ function buildSeekTable(clip) {
   return seek;
 }
 
-export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputMode = "menu", resume = true, titleScreenPart = 0, titleScreenName = "" } = {}) {
+export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputMode = "menu", resume = true, titleScreenPart = 0, titleScreenName = "", menuTheme = null } = {}) {
   if (!(playerStub instanceof Uint8Array)) throw new TypeError("playerStub must be a Uint8Array");
   if (playerStub.length !== ASSET_OFFSET) {
     throw new Error(`Player template is ${playerStub.length} bytes; expected ${ASSET_OFFSET}.`);
@@ -622,6 +684,7 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
   const writer = new ByteWriter(Math.max(ROM_MIN_SIZE, playerStub.length + 1024 * 1024));
   writer.write(playerStub);
   const clipTableOffset = writer.reserve(clips.length * CLIP_DESCRIPTOR_SIZE);
+  const menuThemeOffset = outputMode === "menu" && clips.length > 1 && menuTheme ? appendMenuTheme(writer, menuTheme) : 0;
 
   const clipOffsets = [];
   for (const clip of clips) {
@@ -665,6 +728,7 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
     setU32(rom, METADATA_OFFSET + 20, titleScreenPart);
     rom.set(safeTitleScreenName(titleScreenName), METADATA_OFFSET + 24);
   }
+  if (menuThemeOffset > 0) setU32(rom, METADATA_OFFSET + 48, menuThemeOffset);
   patchGBAHeader(rom, romTitle);
 
   return {

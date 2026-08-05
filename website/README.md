@@ -20,7 +20,7 @@
 
 ## Overview
 
-The web edition follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
+Version 0.10 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
 
 ### Highlights
 
@@ -30,6 +30,7 @@ The web edition follows the Windows application's conversion workflow and uses t
 - Supports `.gbavideo` project save/open with browser-safe source relinking
 - Estimates ROM size and long-video part count before conversion
 - Recovers completed split parts through IndexedDB
+- Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF support as the Windows app
 
 ## Output modes
 
@@ -66,6 +67,24 @@ The web edition follows the Windows application's conversion workflow and uses t
 - Loudness normalization and limiter
 - Per-clip speed, volume, looping, palette, dithering, trim, and title settings
 - Reviewable 32 MiB optimization proposal
+
+### Menu design
+
+The **Menu design** section appears when multiple clips are loaded and **Menu ROM** is selected. Its preview is generated from the same 120×80 indexed background and UI settings that are embedded in the finished ROM.
+
+- **Classic dark**, **Ocean Wave — static**, **Ocean Wave — animated**, and **Blue Wave — animated** presets
+- Ocean Wave dual-rate palette shimmer: approximately 2 changes per second on the bright curl and 5 changes per second on the lower water
+- Seven UI-colour presets
+- Optional one-pixel outline with five outline colours
+- Custom PNG, JPEG, WebP, or GIF upload
+- Center-crop and resize to 120×80
+- RGB555 indexed conversion with reserved menu UI colours
+- Up to 16 sampled looping GIF frames at approximately 5 changes per second
+- Integer-scaled preview using the player's exact 3×5 font, coordinates, divider lines, and selector shape
+- Theme data embedded in the ROM as an `MTH1` record, so each exported menu ROM is self-contained
+- Theme palette, frames, animation timing, colours, and outline settings included in size estimates and project files
+
+Animated frame themes are prepared on the hidden Mode 4 page and displayed on VBlank to reduce tearing. Browser GIF animation requires support for the browser `ImageDecoder` API; browsers without it import the file as a static image when possible.
 
 ### Long-video splitting
 
@@ -126,9 +145,10 @@ website/
 │   └── sync-player.mjs
 ├── src/
 │   ├── main.js               interface, conversion workflow, and downloads
+│   ├── menu-themes.js        built-in themes, custom image/GIF conversion, and preview
 │   ├── style.css             responsive light/dark interface
 │   ├── rom.worker.js         palette and compression worker
-│   └── rom-core.js           palette, compression, and ROM assembly
+│   └── rom-core.js           palette, compression, theme embedding, and ROM assembly
 └── tests/
     └── rom-core.test.mjs
 ```
