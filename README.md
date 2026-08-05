@@ -47,7 +47,8 @@ The generated player keeps the proven v0.9 playback path:
 - **Automatic long-video split (desktop):** no special mode is required. Create a normal **Single ROM**; when it cannot safely fit, the app selects the largest safe source-time segment for each part, verifies the encoded size, continues from the exact ending timestamp, and exports `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` in one ZIP
 - **Before starting:** the estimator shows `Estimated output: N ROM parts` using the selected ROM-size target and optional duration cap
 - **During conversion:** progress shows `Part N of approximately M` and the current source position, for example `18:42 / 50:00`
-- **Split controls:** choose a 1–32 MiB target with quick 20 MiB, 30 MiB, and Maximum buttons; optionally cap the source duration of each part
+- **Optional split panel:** check **Split the video** to reveal the 1–32 MiB target, 20 MiB / 30 MiB / Maximum shortcuts, chapter rules, title screens, and recovery settings; oversized Single ROM jobs still split automatically when the checkbox is off
+- **Duration-based parts:** enter a maximum duration as `MM:SS` (for example `1:05`); `0` leaves the duration automatic
 - **Chapter-aware splitting:** when chapter metadata is present, the splitter prefers a nearby earlier chapter boundary instead of cutting in the middle of a chapter
 - **Long-job recovery:** accepted parts are kept in a persistent recovery folder and reused when the same conversion is started again after an interruption
 - **Part title cards:** split ROMs can show the sanitized source filename followed by `PART N` before playback

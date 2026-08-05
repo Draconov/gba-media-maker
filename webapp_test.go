@@ -578,8 +578,8 @@ func TestLongVideoControlsAndProgressUIAreEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`id="splitBudget"`, `id="maxPartMinutes"`, `id="chapterAware"`,
-		`id="partTitleScreens"`, `id="resumeLongSplit"`, "Estimated output:",
+		`id="splitVideo"`, `id="longSplitControls"`, `id="splitBudget"`, `id="maxPartDuration"`,
+		`id="chapterAware"`, `id="partTitleScreens"`, `id="resumeLongSplit"`, "Estimated output:",
 	} {
 		if !bytes.Contains(page, []byte(want)) && !bytes.Contains(appJS, []byte(want)) {
 			t.Fatalf("long-video UI is missing %q", want)
@@ -603,7 +603,7 @@ func TestBuildOptionsUsesCleanExportNameAndSplitSettings(t *testing.T) {
 	req := convertRequest{
 		Start: "0", Speed: 1, FPS: "compact", Fit: "fit", Audio: "mix", Volume: 100,
 		RomTitle: "MOVIE", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered",
-		OutputMode: "rom", SplitBudgetMiB: 20, MaxPartMinutes: 6, ChapterAware: true,
+		OutputMode: "rom", SplitVideo: true, SplitBudgetMiB: 20, MaxPartDuration: "1:05", ChapterAware: true,
 		PartTitleScreens: true, ResumeLongSplit: true,
 	}
 	opt, _, err := state.buildOptions(req)
@@ -613,8 +613,48 @@ func TestBuildOptionsUsesCleanExportNameAndSplitSettings(t *testing.T) {
 	if got := filepath.Base(opt.OutputPath); got != "movie.gba" {
 		t.Fatalf("export name=%q, want movie.gba", got)
 	}
-	if opt.SplitBudgetMiB != 20 || opt.MaxPartMinutes != 6 || !opt.ChapterAware || !opt.PartTitleScreens || !opt.ResumeLongSplit {
+	if opt.SplitBudgetMiB != 20 || opt.MaxPartMinutes < 1.0832 || opt.MaxPartMinutes > 1.0834 || !opt.ChapterAware || !opt.PartTitleScreens || !opt.ResumeLongSplit {
 		t.Fatalf("split settings were not preserved: %+v", opt)
+	}
+}
+
+func TestBuildOptionsIgnoresHiddenManualSplitRules(t *testing.T) {
+	dir := t.TempDir()
+	state := &appState{
+		sessionDir: dir,
+		ffmpegPath: "ffmpeg",
+		videos: []uploadedVideo{{
+			ID: "one", Path: filepath.Join(dir, "movie.mp4"), Name: "movie.mp4",
+			Info: &MediaInfo{Duration: 3000, Width: 1920, Height: 1080, FPS: 30, AudioStreams: 1}, Status: "ready",
+		}},
+	}
+	req := convertRequest{
+		Start: "0", Speed: 1, FPS: "compact", Fit: "fit", Audio: "mix", Volume: 100,
+		RomTitle: "MOVIE", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered",
+		OutputMode: "rom", SplitVideo: false, SplitBudgetMiB: 20, MaxPartDuration: "not-used",
+		ChapterAware: false, PartTitleScreens: false, ResumeLongSplit: false,
+	}
+	opt, _, err := state.buildOptions(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.SplitBudgetMiB != 32 || opt.MaxPartMinutes != 0 {
+		t.Fatalf("hidden manual rules leaked into normal Single ROM mode: %+v", opt)
+	}
+	if !opt.ChapterAware || !opt.PartTitleScreens || !opt.ResumeLongSplit {
+		t.Fatalf("automatic overflow split defaults were not restored: %+v", opt)
+	}
+}
+
+func TestParseMaximumPartDuration(t *testing.T) {
+	seconds, err := parseMaximumPartDuration("1:05", 0)
+	if err != nil || seconds != 65 {
+		t.Fatalf("1:05 parsed as %v, %v", seconds, err)
+	}
+	for _, value := range []string{"1:5", "1:60", "1", "-1:05"} {
+		if _, err := parseMaximumPartDuration(value, 0); err == nil {
+			t.Fatalf("invalid duration %q was accepted", value)
+		}
 	}
 }
 

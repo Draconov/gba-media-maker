@@ -148,18 +148,23 @@
           <div class="field"><label>Output</label><select id="outputMode"><option value="rom">Single ROM</option><option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option></select></div>
           <label class="check"><input id="loop" type="checkbox"> Loop playback</label>
           <label class="check project-control"><input id="resume" type="checkbox" checked> Save/resume position</label>
-          <div id="longSplitSettings" class="field full split-settings">
-            <label>Automatic split ROM size: <b id="splitBudgetValue">31 MiB</b></label>
-            <input id="splitBudget" type="range" min="1" max="32" step="1" value="31">
-            <div class="range-presets"><button type="button" class="mini-btn split-preset" data-size="20">20 MiB</button><button type="button" class="mini-btn split-preset" data-size="30">30 MiB</button><button type="button" class="mini-btn split-preset" data-size="32">Maximum</button></div>
-            <span class="tiny">The splitter targets this amount of encoded ROM data. Lower values make smaller, more numerous cartridges.</span>
+          <label id="splitVideoRow" class="check"><input id="splitVideo" type="checkbox"> Split the video</label>
+          <div id="longSplitControls" class="field full split-options hidden">
+            <div class="split-options-grid">
+              <div class="field full split-settings">
+                <label>ROM size per part: <b id="splitBudgetValue">31 MiB</b></label>
+                <input id="splitBudget" type="range" min="1" max="32" step="1" value="31">
+                <div class="range-presets"><button type="button" class="mini-btn split-preset" data-size="20">20 MiB</button><button type="button" class="mini-btn split-preset" data-size="30">30 MiB</button><button type="button" class="mini-btn split-preset" data-size="32">Maximum</button></div>
+                <span class="tiny">Lower values create smaller, more numerous ROMs.</span>
+              </div>
+              <div class="field"><label>Maximum duration per part (MM:SS, 0 = automatic)</label><input id="maxPartDuration" type="text" inputmode="numeric" value="0" placeholder="0 or 1:05"></div>
+              <label class="check"><input id="chapterAware" type="checkbox" checked> Prefer chapter boundaries</label>
+              <label class="check"><input id="partTitleScreens" type="checkbox" checked> Add filename / PART title screens</label>
+              <label class="check"><input id="resumeLongSplit" type="checkbox" checked> Resume interrupted splitting</label>
+            </div>
           </div>
-          <div class="field long-split-control"><label>Maximum duration per part (minutes, 0 = automatic)</label><input id="maxPartMinutes" type="number" min="0" max="240" step="1" value="0"></div>
-          <label class="check long-split-control"><input id="chapterAware" type="checkbox" checked> Prefer chapter boundaries</label>
-          <label class="check long-split-control"><input id="partTitleScreens" type="checkbox" checked> Add filename / PART title screens</label>
-          <label class="check long-split-control"><input id="resumeLongSplit" type="checkbox" checked> Resume interrupted splitting</label>
         </div>
-        <p class="tiny">For one long video, use Single ROM normally. If it cannot fit the selected size or duration limit, the app automatically exports numbered ROMs plus PARTS.txt in one ZIP. Completed parts are kept after an interruption and reused when the same conversion is started again. Menu ROMs remember the selected item and save resume positions separately for each clip.</p>
+        <p class="tiny">Enable Split the video to choose a ROM-size target, an optional MM:SS duration limit, chapter-aware boundaries, title screens, and interrupted-job recovery. Videos that cannot fit one 32 MiB cartridge are still split automatically even when this option is off. Menu ROMs remember the selected item and save resume positions separately for each clip.</p>
         <p class="tiny">Playlist controls: SELECT+Left previous clip, SELECT+Right next clip. Other controls: A pause; B restart or menu; L/R seek; Left/Right seek or paused frame-step; Up/Down volume; SELECT mute; START HUD; START+SELECT help.</p>
       </section>
 

@@ -129,8 +129,10 @@ type convertRequest struct {
 	PaletteMode      string                `json:"paletteMode"`
 	DitherMode       string                `json:"ditherMode"`
 	OutputMode       string                `json:"outputMode"`
+	SplitVideo       bool                  `json:"splitVideo"`
 	SplitBudgetMiB   int                   `json:"splitBudgetMiB"`
-	MaxPartMinutes   float64               `json:"maxPartMinutes"`
+	MaxPartDuration  string                `json:"maxPartDuration"`
+	MaxPartMinutes   float64               `json:"maxPartMinutes,omitempty"` // legacy project files
 	ChapterAware     bool                  `json:"chapterAware"`
 	PartTitleScreens bool                  `json:"partTitleScreens"`
 	ResumeLongSplit  bool                  `json:"resumeLongSplit"`
@@ -756,6 +758,39 @@ func validateWebClipSettings(label string, start, end, speed, volume float64, fi
 	return nil
 }
 
+func parseMaximumPartDuration(value string, legacyMinutes float64) (float64, error) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		if legacyMinutes > 0 {
+			if legacyMinutes > 240 {
+				return 0, errors.New("maximum part duration must not exceed 240:00")
+			}
+			return legacyMinutes * 60, nil
+		}
+		return 0, nil
+	}
+	if text == "0" {
+		return 0, nil
+	}
+	parts := strings.Split(text, ":")
+	if len(parts) != 2 {
+		return 0, errors.New("maximum part duration must be 0 or MM:SS, for example 1:05")
+	}
+	minutes, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || minutes < 0 {
+		return 0, errors.New("maximum part duration must be 0 or MM:SS, for example 1:05")
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil || seconds < 0 || seconds > 59 || len(strings.TrimSpace(parts[1])) != 2 {
+		return 0, errors.New("maximum part duration must be 0 or MM:SS, for example 1:05")
+	}
+	total := float64(minutes*60 + seconds)
+	if total <= 0 || total > 240*60 {
+		return 0, errors.New("maximum part duration must be between 0:01 and 240:00")
+	}
+	return total, nil
+}
+
 func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo, error) {
 	s.mu.Lock()
 	ff := s.ffmpegPath
@@ -862,10 +897,21 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		req.SplitBudgetMiB = 31
 	}
 	if req.SplitBudgetMiB < 1 || req.SplitBudgetMiB > 32 {
-		return ProjectOptions{}, nil, errors.New("automatic split ROM size must be between 1 and 32 MiB")
+		return ProjectOptions{}, nil, errors.New("split ROM size must be between 1 and 32 MiB")
 	}
-	if req.MaxPartMinutes < 0 || req.MaxPartMinutes > 240 {
-		return ProjectOptions{}, nil, errors.New("maximum part duration must be between 0 and 240 minutes")
+	maxPartSeconds := 0.0
+	if req.SplitVideo {
+		maxPartSeconds, err = parseMaximumPartDuration(req.MaxPartDuration, req.MaxPartMinutes)
+		if err != nil {
+			return ProjectOptions{}, nil, err
+		}
+	} else {
+		// Normal Single ROM mode still falls back to automatic splitting at the
+		// physical 32 MiB cartridge limit, but hidden manual rules do not apply.
+		req.SplitBudgetMiB = 32
+		req.ChapterAware = true
+		req.PartTitleScreens = true
+		req.ResumeLongSplit = true
 	}
 	mode := req.OutputMode
 	if len(inputs) == 1 {
@@ -896,7 +942,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		Compression: req.Compression, PaletteMode: req.PaletteMode,
 		DitherMode: req.DitherMode, OutputMode: mode,
 		KeyInterval: 30, SplitBudgetMiB: req.SplitBudgetMiB,
-		MaxPartMinutes: req.MaxPartMinutes, ChapterAware: req.ChapterAware,
+		MaxPartMinutes: maxPartSeconds / 60, ChapterAware: req.ChapterAware,
 		PartTitleScreens: req.PartTitleScreens, ResumeLongSplit: req.ResumeLongSplit,
 	}
 	return opt, infos, validateProject(opt)
