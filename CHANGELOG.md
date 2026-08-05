@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.0 Long-Video Estimation and Menu Resume] - 2026-08-05
+
+### Added
+- Added an estimated automatic-split result before conversion, displayed as `Estimated output: N ROM parts`.
+- Added multiline long-conversion progress with `Part N of approximately M` and the current source position.
+- Added a 1–32 MiB target-size slider with 20 MiB, 30 MiB, and Maximum shortcuts.
+- Added an optional maximum source duration per ROM part.
+- Added chapter-aware splitting that prefers a nearby earlier chapter boundary when chapter metadata is available.
+- Added optional split-ROM title screens showing the sanitized source filename and `PART N`.
+- Added persistent interrupted-conversion recovery; completed parts are retained and reused when the same job is started again.
+- Added `PAGE X/Y` to multi-page GBA clip menus.
+- Added persistent selected-menu-item storage and a separate SRAM resume frame for every clip.
+
+### Changed
+- Exported ROM and ZIP filenames no longer receive an application-version suffix.
+- Long-video part-count estimates are refined from actual encoded part sizes while conversion continues.
+- The visible application version remains `0.9.0`; no playback-format version was changed.
+
 ## [0.9.0 Automatic Long-Video Split] - 2026-08-04
 
 ### Added

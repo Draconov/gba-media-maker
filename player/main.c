@@ -60,6 +60,7 @@ typedef unsigned int   u32;
 
 #define GLOBAL_FLAG_RESUME   0x0001u
 #define GLOBAL_FLAG_PLAYLIST 0x0002u
+#define GLOBAL_FLAG_TITLE_SCREEN 0x0004u
 #define CLIP_FLAG_AUDIO      0x0001u
 #define CLIP_FLAG_LOOP       0x0002u
 #define CLIP_FLAG_COMPRESSED 0x0004u
@@ -93,6 +94,11 @@ typedef unsigned int   u32;
 #define MENU_ROWS 10u
 #define MENU_ARROW_OAM_INDEX 0u
 #define MENU_ARROW_TILE_INDEX 512u
+#define SRAM_MAGIC 0x39564247u
+#define SRAM_HEADER_BYTES 16u
+#define SRAM_FRAME_BASE 16u
+#define SRAM_MAX_CLIPS ((32768u - SRAM_FRAME_BASE) / 4u)
+#define SRAM_FRAME_XOR 0xA5A50000u
 #define OBJ_DISABLE 0x0200u
 #define OBJ_SIZE_16 0x4000u
 
@@ -123,7 +129,9 @@ struct GlobalMetadata {
     u16 default_clip;
     u32 clip_table_offset;
     u32 clip_descriptor_size;
-    u32 reserved[11];
+    u32 title_screen_part;
+    char title_screen_name[24];
+    u32 reserved[4];
 };
 
 struct ClipDescriptor {
@@ -882,23 +890,77 @@ static void sram_write_u32(u32 off, u32 v)
     SRAM_BASE[off]=(u8)v; SRAM_BASE[off+1u]=(u8)(v>>8); SRAM_BASE[off+2u]=(u8)(v>>16); SRAM_BASE[off+3u]=(u8)(v>>24);
 }
 
-static void save_position(u32 clip, u32 frame)
+static u32 sram_header_check(u32 clip_count, u32 selected)
 {
-    u32 check = 0x47564238u ^ clip ^ frame;
-    sram_write_u32(0u,0x47564238u); sram_write_u32(4u,clip); sram_write_u32(8u,frame); sram_write_u32(12u,check);
+    return SRAM_MAGIC ^ clip_count ^ selected ^ 0x5A17C3E9u;
 }
 
-static void clear_position(void) { sram_write_u32(0u,0u); }
-
-static int load_position(const struct GlobalMetadata *meta, u32 *clip, u32 *frame)
+static void sram_write_header(u32 clip_count, u32 selected)
 {
-    u32 c, f, check;
-    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S') return 0;
-    if (sram_read_u32(0u) != 0x47564238u) return 0;
-    c=sram_read_u32(4u); f=sram_read_u32(8u); check=sram_read_u32(12u);
-    if (check != (0x47564238u ^ c ^ f) || c >= meta->clip_count) return 0;
-    *clip=c; *frame=f; return 1;
+    sram_write_u32(0u, SRAM_MAGIC);
+    sram_write_u32(4u, clip_count);
+    sram_write_u32(8u, selected);
+    sram_write_u32(12u, sram_header_check(clip_count, selected));
 }
+
+static void sram_prepare(const struct GlobalMetadata *meta)
+{
+    u32 selected, count, check, i, limit;
+    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S') return;
+    count = sram_read_u32(4u);
+    selected = sram_read_u32(8u);
+    check = sram_read_u32(12u);
+    if (sram_read_u32(0u) == SRAM_MAGIC && count == meta->clip_count &&
+        check == sram_header_check(count, selected) && selected < meta->clip_count) return;
+    selected = meta->default_clip < meta->clip_count ? meta->default_clip : 0u;
+    sram_write_header(meta->clip_count, selected);
+    limit = meta->clip_count < SRAM_MAX_CLIPS ? meta->clip_count : SRAM_MAX_CLIPS;
+    for (i = 0u; i < limit; ++i) sram_write_u32(SRAM_FRAME_BASE + i * 4u, 0u);
+}
+
+static u32 load_menu_selection(const struct GlobalMetadata *meta)
+{
+    u32 selected;
+    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S') return meta->default_clip < meta->clip_count ? meta->default_clip : 0u;
+    selected = sram_read_u32(8u);
+    return selected < meta->clip_count ? selected : 0u;
+}
+
+static void save_menu_selection(const struct GlobalMetadata *meta, u32 selected)
+{
+    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S' || selected >= meta->clip_count) return;
+    sram_write_header(meta->clip_count, selected);
+}
+
+static void save_position(const struct GlobalMetadata *meta, u32 clip, u32 frame)
+{
+    u32 encoded;
+    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S' || clip >= meta->clip_count || clip >= SRAM_MAX_CLIPS) return;
+    encoded = (frame + 1u) ^ SRAM_FRAME_XOR ^ clip;
+    sram_write_u32(SRAM_FRAME_BASE + clip * 4u, encoded);
+}
+
+static void clear_position(const struct GlobalMetadata *meta, u32 clip)
+{
+    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S' || clip >= meta->clip_count || clip >= SRAM_MAX_CLIPS) return;
+    sram_write_u32(SRAM_FRAME_BASE + clip * 4u, 0u);
+}
+
+static int load_position(const struct GlobalMetadata *meta, u32 clip, u32 *frame)
+{
+    u32 encoded, decoded;
+    if (!(meta->flags & GLOBAL_FLAG_RESUME) || sram_type[0] != 'S' || clip >= meta->clip_count || clip >= SRAM_MAX_CLIPS) return 0;
+    encoded = sram_read_u32(SRAM_FRAME_BASE + clip * 4u);
+    if (encoded == 0u) return 0;
+    decoded = encoded ^ SRAM_FRAME_XOR ^ clip;
+    if (decoded == 0u) return 0;
+    *frame = decoded - 1u;
+    return 1;
+}
+
+static u32 fixed_text_length(const char *text, u32 maximum);
+static u32 append_decimal(char *out, u32 pos, u32 value);
+static void menu_arrow_hide(void);
 
 static int resume_prompt(u32 seconds)
 {
@@ -917,6 +979,49 @@ static int resume_prompt(u32 seconds)
         if (p & KEY_A) { while(keys_down()!=0u) wait_vblank(); return 1; }
         if (p & KEY_B) { while(keys_down()!=0u) wait_vblank(); return 0; }
     }
+}
+
+static u32 centered_text_x(const char *text, u32 maximum)
+{
+    u32 length = fixed_text_length(text, maximum);
+    u32 width = length == 0u ? 0u : length * 4u - 1u;
+    return width < 120u ? (120u - width) / 2u : 0u;
+}
+
+static void make_part_label(char out[12], u32 part)
+{
+    const char prefix[] = "PART ";
+    u32 pos = 0u, i;
+    for (i = 0u; i < 5u; ++i) out[pos++] = prefix[i];
+    pos = append_decimal(out, pos, part);
+    out[pos] = 0;
+}
+
+static void show_part_title_screen(const struct GlobalMetadata *meta, const struct ClipDescriptor *clip)
+{
+    volatile u16 *dst = VRAM_PAGE0;
+    const char *title;
+    u32 title_length;
+    char part_text[12];
+    u32 wait_count;
+    if (!(meta->flags & GLOBAL_FLAG_TITLE_SCREEN) || meta->title_screen_part == 0u) return;
+    title = meta->title_screen_name[0] != 0 ? meta->title_screen_name : clip->title;
+    title_length = fixed_text_length(title, meta->title_screen_name[0] != 0 ? 24u : 12u);
+    REG_DISPCNT = FORCE_BLANK;
+    menu_arrow_hide();
+    clear_screen(dst);
+    set_ui_palette();
+    draw_text(dst, centered_text_x(title, title_length), 31u, title, title_length, UI_WHITE);
+    make_part_label(part_text, meta->title_screen_part);
+    draw_text_auto(dst, centered_text_x(part_text, 11u), 42u, part_text, UI_YELLOW);
+    wait_vblank();
+    REG_DISPCNT = MODE4_BG2;
+    while (keys_down() != 0u) wait_vblank();
+    for (wait_count = 0u; wait_count < 90u; ++wait_count) {
+        wait_vblank();
+        if (keys_down() != 0u) break;
+    }
+    while (keys_down() != 0u) wait_vblank();
 }
 
 static void menu_arrow_tile_pixel(u32 x, u32 y, u8 colour)
@@ -1174,12 +1279,13 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
                 arrow_visible = !arrow_visible;
                 menu_arrow_set(arrow_x, arrow_y, arrow_visible);
             }
-            if (pressed & KEY_UP) { menu_arrow_hide(); selected = menu_move_up(selected, meta->clip_count); break; }
-            if (pressed & KEY_DOWN) { menu_arrow_hide(); selected = menu_move_down(selected, meta->clip_count); break; }
-            if (pressed & KEY_LEFT) { menu_arrow_hide(); selected = selected >= MENU_ROWS ? selected - MENU_ROWS : meta->clip_count - 1u; break; }
-            if (pressed & KEY_RIGHT) { menu_arrow_hide(); selected = selected + MENU_ROWS < meta->clip_count ? selected + MENU_ROWS : 0u; break; }
+            if (pressed & KEY_UP) { menu_arrow_hide(); selected = menu_move_up(selected, meta->clip_count); save_menu_selection(meta, selected); break; }
+            if (pressed & KEY_DOWN) { menu_arrow_hide(); selected = menu_move_down(selected, meta->clip_count); save_menu_selection(meta, selected); break; }
+            if (pressed & KEY_LEFT) { menu_arrow_hide(); selected = selected >= MENU_ROWS ? selected - MENU_ROWS : meta->clip_count - 1u; save_menu_selection(meta, selected); break; }
+            if (pressed & KEY_RIGHT) { menu_arrow_hide(); selected = selected + MENU_ROWS < meta->clip_count ? selected + MENU_ROWS : 0u; save_menu_selection(meta, selected); break; }
             if (pressed & KEY_A) {
                 menu_arrow_hide();
+                save_menu_selection(meta, selected);
                 while (keys_down() != 0u) wait_vblank();
                 return selected;
             }
@@ -1209,16 +1315,16 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     playback_timer_reset();
     playback_clock_advance(&clock);
     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
-    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
+    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
 
     for (;;) {
         if (at_end) {
             int redraw=0, action;
             wait_vblank(); if (tick_ui_timers(ui)) redraw=1;
             action=poll_action(&previous_keys,0,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,ui);
-            if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
-            if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_PREV_CLIP; }
-            if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_NEXT_CLIP; }
+            if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); if (is_menu_mode(meta)) { save_position(meta,clip_index,frame); return PLAY_RESULT_RETURN_MENU; } clear_position(meta,clip_index); return PLAY_RESULT_RESTART_CURRENT; }
+            if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_PREV_CLIP; }
+            if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_NEXT_CLIP; }
             if (action==ACTION_HELP) {
                 playback_timer_stop(); audio_stop();
                 show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
@@ -1233,7 +1339,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
                     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
-                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
+                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;
             }
@@ -1246,9 +1352,9 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             int action;
             if (has_next) { load_next_pixels(clip,frame+1u,current,next); render_frame_with_ui(next,frame+1u,back,clip,ui); }
             action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,&paused,ui);
-            if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); clear_position(); return is_menu_mode(meta) ? PLAY_RESULT_RETURN_MENU : PLAY_RESULT_RESTART_CURRENT; }
-            if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_PREV_CLIP; }
-            if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); clear_position(); return PLAY_RESULT_NEXT_CLIP; }
+            if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); if (is_menu_mode(meta)) { save_position(meta,clip_index,frame); return PLAY_RESULT_RETURN_MENU; } clear_position(meta,clip_index); return PLAY_RESULT_RESTART_CURRENT; }
+            if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_PREV_CLIP; }
+            if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_NEXT_CLIP; }
             if (action==ACTION_HELP) {
                 playback_timer_pause(); if (has_audio) audio_pause();
                 show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
@@ -1267,7 +1373,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); playback_timer_pause();
                     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),1,ui);
-                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
+                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;
             }
@@ -1279,7 +1385,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); if (paused) playback_timer_pause();
                     if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
-                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
+                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;
             }
@@ -1287,19 +1393,19 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                 show_rendered_page(&displayed_page,palette_for_frame(clip,frame+1u));
                 { u8 *tmp=current; current=next; next=tmp; }
                 ++frame; playback_clock_advance(&clock);
-                if ((meta->flags & GLOBAL_FLAG_RESUME) && (frame % 10u == 0u)) save_position(clip_index,frame);
+                if ((meta->flags & GLOBAL_FLAG_RESUME) && (frame % 10u == 0u)) save_position(meta,clip_index,frame);
             } else {
                 playback_timer_stop(); audio_stop();
-                if (clip->flags & CLIP_FLAG_LOOP) { clear_position(); return PLAY_RESULT_RESTART_CURRENT; }
+                if (clip->flags & CLIP_FLAG_LOOP) { clear_position(meta,clip_index); return PLAY_RESULT_RESTART_CURRENT; }
                 if (is_menu_mode(meta)) {
-                    clear_position();
+                    clear_position(meta,clip_index);
                     return PLAY_RESULT_RETURN_MENU;
                 }
                 if ((meta->flags & GLOBAL_FLAG_PLAYLIST) && clip_index + 1u < meta->clip_count) {
-                    if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index + 1u, 0u); else clear_position();
+                    clear_position(meta,clip_index);
                     return PLAY_RESULT_NEXT_CLIP;
                 }
-                at_end=1; if (meta->flags & GLOBAL_FLAG_RESUME) save_position(clip_index,frame);
+                at_end=1; if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
             }
         }
     }
@@ -1310,8 +1416,7 @@ void main(void)
     const struct GlobalMetadata *meta=&gba_video_metadata;
     const struct ClipDescriptor *clips;
     struct PlayerUI ui;
-    u32 selected=0u, saved_clip=0u, saved_frame=0u;
-    int have_resume=0;
+    u32 selected=0u;
 
     REG_IME=0; REG_WAITCNT=0x4317; REG_DISPCNT=FORCE_BLANK; playback_timer_stop();
     if (meta->magic!=GBV5_MAGIC || meta->version!=5u || meta->clip_count==0u || meta->clip_descriptor_size!=96u) for(;;){}
@@ -1319,29 +1424,36 @@ void main(void)
     REG_BG2PA=0x0100; REG_BG2PB=0; REG_BG2PC=0; REG_BG2PD=0x0100; REG_BG2X=0; REG_BG2Y=0;
     ui.muted=0; ui.volume_level=2; ui.hud_mode=0; ui.hud_last_visible=2; ui.hud_timer=0; ui.mute_timer=0; ui.volume_timer=0; ui.seek_timer=0; ui.seek_direction=0; ui.seek_hold_direction=0; ui.seek_hold_counter=0; ui.help_combo_latched=0; ui.hud_combo_latched=0; ui.clip_combo_latched=0;
 
-    have_resume=load_position(meta,&saved_clip,&saved_frame);
-    if (have_resume && saved_clip<meta->clip_count && saved_frame>0u && saved_frame+1u<clips[saved_clip].frame_count) {
-        selected=saved_clip;
-        if (!resume_prompt(seconds_for_frame(saved_frame,clips[saved_clip].vblanks_per_frame))) {
-            clear_position(); have_resume=0;
-        }
+    sram_prepare(meta);
+    selected=load_menu_selection(meta);
+    if (meta->flags & GLOBAL_FLAG_PLAYLIST) {
+        if (selected>=meta->clip_count) selected=0u;
     } else {
-        have_resume=0;
-        if (meta->flags & GLOBAL_FLAG_PLAYLIST) selected=0u;
-        else selected=select_clip_menu(meta,clips,selected);
+        selected=select_clip_menu(meta,clips,selected);
     }
+    save_menu_selection(meta,selected);
+    show_part_title_screen(meta,&clips[selected]);
 
     for (;;) {
         int result;
-        u32 start=(have_resume && selected==saved_clip)?saved_frame:0u;
-        have_resume=0;
-        result=play_clip(meta,&clips[selected],selected,start,&ui);
+        u32 start_frame=0u, saved_frame=0u;
+        if (load_position(meta,selected,&saved_frame) && saved_frame>0u && saved_frame+1u<clips[selected].frame_count) {
+            if (resume_prompt(seconds_for_frame(saved_frame,clips[selected].vblanks_per_frame))) start_frame=saved_frame;
+            else clear_position(meta,selected);
+        } else if (saved_frame+1u>=clips[selected].frame_count) {
+            clear_position(meta,selected);
+        }
+        result=play_clip(meta,&clips[selected],selected,start_frame,&ui);
         if (result == PLAY_RESULT_NEXT_CLIP && (meta->flags & GLOBAL_FLAG_PLAYLIST)) {
             selected = selected + 1u < meta->clip_count ? selected + 1u : 0u;
+            save_menu_selection(meta,selected);
         } else if (result == PLAY_RESULT_PREV_CLIP && (meta->flags & GLOBAL_FLAG_PLAYLIST)) {
             selected = selected > 0u ? selected - 1u : meta->clip_count - 1u;
+            save_menu_selection(meta,selected);
         } else if (result == PLAY_RESULT_RETURN_MENU && is_menu_mode(meta)) {
             selected=select_clip_menu(meta,clips,selected);
+            save_menu_selection(meta,selected);
         }
     }
 }
+

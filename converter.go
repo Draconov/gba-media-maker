@@ -5,8 +5,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,18 +26,18 @@ import (
 )
 
 const (
-	romLimit           = 32 * 1024 * 1024
-	romMinSize         = 1 * 1024 * 1024
-	metadataOffset     = 0x7F00
-	assetOffset        = 0x8000
-	clipDescriptorSize = 96
-	frameWidth         = 120
-	frameHeight        = 80
-	frameBytes         = frameWidth * frameHeight
-	audioRate          = 16384
-	videoPaletteColors = 250
-	gbaRefresh         = 59.727500569606
-	longSplitBudget    = 31 * 1024 * 1024
+	romLimit               = 32 * 1024 * 1024
+	romMinSize             = 1 * 1024 * 1024
+	metadataOffset         = 0x7F00
+	assetOffset            = 0x8000
+	clipDescriptorSize     = 96
+	frameWidth             = 120
+	frameHeight            = 80
+	frameBytes             = frameWidth * frameHeight
+	audioRate              = 16384
+	videoPaletteColors     = 250
+	gbaRefresh             = 59.727500569606
+	defaultLongSplitBudget = 31 * 1024 * 1024
 )
 
 //go:embed assets/player_stub.bin
@@ -55,12 +57,13 @@ var nintendoLogo = []byte{
 }
 
 type MediaInfo struct {
-	Duration      float64 `json:"duration"`
-	Width         int     `json:"width"`
-	Height        int     `json:"height"`
-	FPS           float64 `json:"fps"`
-	AudioStreams  int     `json:"audioStreams"`
-	AudioChannels int     `json:"audioChannels"`
+	Duration      float64   `json:"duration"`
+	Width         int       `json:"width"`
+	Height        int       `json:"height"`
+	FPS           float64   `json:"fps"`
+	AudioStreams  int       `json:"audioStreams"`
+	AudioChannels int       `json:"audioChannels"`
+	Chapters      []float64 `json:"chapters,omitempty"`
 }
 
 type ClipInput struct {
@@ -83,51 +86,65 @@ type ClipInput struct {
 }
 
 type ProjectOptions struct {
-	Inputs      []ClipInput
-	OutputPath  string
-	FFmpegPath  string
-	Start       float64
-	End         float64
-	Speed       float64
-	VBlanks     int
-	FitMode     string
-	AudioMode   string
-	Volume      float64
-	Loop        bool
-	RomTitle    string
-	SeekSeconds int
-	Normalize   bool
-	Limiter     bool
-	Resume      bool
-	Compression string // none, delta
-	PaletteMode string // shared, scene
-	DitherMode  string // off, ordered, error
-	OutputMode  string // rom, playlist, menu, batch; longsplit is internal
-	KeyInterval int
+	Inputs           []ClipInput
+	OutputPath       string
+	FFmpegPath       string
+	Start            float64
+	End              float64
+	Speed            float64
+	VBlanks          int
+	FitMode          string
+	AudioMode        string
+	Volume           float64
+	Loop             bool
+	RomTitle         string
+	SeekSeconds      int
+	Normalize        bool
+	Limiter          bool
+	Resume           bool
+	Compression      string // none, delta
+	PaletteMode      string // shared, scene
+	DitherMode       string // off, ordered, error
+	OutputMode       string // rom, playlist, menu, batch; longsplit is internal
+	KeyInterval      int
+	SplitBudgetMiB   int
+	MaxPartMinutes   float64
+	ChapterAware     bool
+	PartTitleScreens bool
+	ResumeLongSplit  bool
+	TitleScreenPart  int
+	TitleScreenName  string
 }
 
 // ConvertOptions keeps the single-video command-line/test API convenient.
 type ConvertOptions struct {
-	InputPath   string
-	OutputPath  string
-	FFmpegPath  string
-	Start       float64
-	End         float64
-	Speed       float64
-	VBlanks     int
-	FitMode     string
-	AudioMode   string
-	Volume      float64
-	Loop        bool
-	RomTitle    string
-	SeekSeconds int
-	Normalize   bool
-	Limiter     bool
-	Resume      bool
-	Compression string
-	PaletteMode string
-	DitherMode  string
-	KeyInterval int
+	InputPath        string
+	OutputPath       string
+	FFmpegPath       string
+	Start            float64
+	End              float64
+	Speed            float64
+	VBlanks          int
+	FitMode          string
+	AudioMode        string
+	Volume           float64
+	Loop             bool
+	RomTitle         string
+	SeekSeconds      int
+	Normalize        bool
+	Limiter          bool
+	Resume           bool
+	Compression      string
+	PaletteMode      string
+	DitherMode       string
+	KeyInterval      int
+	SplitBudgetMiB   int
+	MaxPartMinutes   float64
+	ChapterAware     bool
+	PartTitleScreens bool
+	ResumeLongSplit  bool
+	TitleScreenPart  int
+	TitleScreenName  string
 }
 
 type ConvertResult struct {
@@ -141,6 +158,7 @@ type ConvertResult struct {
 	UncompressedBytes int64   `json:"uncompressedBytes"`
 	OutputKind        string  `json:"outputKind"`
 	AutoSplit         bool    `json:"autoSplit,omitempty"`
+	EstimatedParts    int     `json:"estimatedParts,omitempty"`
 }
 
 type ProgressFunc func(percent int, status string)
@@ -150,6 +168,7 @@ var (
 	dimensionsPattern = regexp.MustCompile(`(?:^|[^0-9])(\d{2,5})x(\d{2,5})(?:[^0-9]|$)`)
 	fpsPattern        = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s+fps`)
 	channelsPattern   = regexp.MustCompile(`\b(\d+)\.(\d+)\b`)
+	chapterPattern    = regexp.MustCompile(`Chapter #[^:]+:[^:]+: start ([0-9]+(?:\.[0-9]+)?), end ([0-9]+(?:\.[0-9]+)?)`)
 )
 
 func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
@@ -199,7 +218,15 @@ func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 	if fm := fpsPattern.FindStringSubmatch(videoLine); fm != nil {
 		fps, _ = strconv.ParseFloat(fm[1], 64)
 	}
-	return MediaInfo{Duration: float64(h*3600+m*60) + s, Width: w, Height: hg, FPS: fps, AudioStreams: audioStreams, AudioChannels: audioChannels}, nil
+	var chapters []float64
+	for _, match := range chapterPattern.FindAllStringSubmatch(text, -1) {
+		chapterStart, parseErr := strconv.ParseFloat(match[1], 64)
+		if parseErr == nil && chapterStart > 0 {
+			chapters = append(chapters, chapterStart)
+		}
+	}
+	sort.Float64s(chapters)
+	return MediaInfo{Duration: float64(h*3600+m*60) + s, Width: w, Height: hg, FPS: fps, AudioStreams: audioStreams, AudioChannels: audioChannels, Chapters: chapters}, nil
 }
 
 func parseTime(value string) (float64, error) {
@@ -999,6 +1026,30 @@ func safeRomTitle(value string) []byte {
 	copy(out, raw)
 	return out
 }
+
+func safeTitleScreenName(value string) []byte {
+	value = strings.ToUpper(value)
+	var clean strings.Builder
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' || r == '_' || r == '-' {
+			clean.WriteRune(r)
+		} else {
+			clean.WriteByte(' ')
+		}
+	}
+	text := strings.Join(strings.Fields(clean.String()), " ")
+	if text == "" {
+		text = "GBA VIDEO"
+	}
+	raw := []byte(text)
+	if len(raw) > 24 {
+		raw = raw[:24]
+	}
+	out := make([]byte, 24)
+	copy(out, raw)
+	return out
+}
+
 func patchGBAHeader(rom []byte, title string) {
 	binary.LittleEndian.PutUint32(rom[0:4], 0xEA00002E)
 	copy(rom[4:0xA0], nintendoLogo)
@@ -1277,10 +1328,17 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	if opt.OutputMode == "playlist" {
 		flags |= 0x0002
 	}
+	if opt.TitleScreenPart > 0 {
+		flags |= 0x0004
+	}
 	binary.LittleEndian.PutUint16(meta[6:8], flags)
 	binary.LittleEndian.PutUint16(meta[8:10], uint16(len(clips)))
 	binary.LittleEndian.PutUint32(meta[12:16], uint32(clipTableOffset))
 	binary.LittleEndian.PutUint32(meta[16:20], clipDescriptorSize)
+	if opt.TitleScreenPart > 0 {
+		binary.LittleEndian.PutUint32(meta[20:24], uint32(opt.TitleScreenPart))
+		copy(meta[24:48], safeTitleScreenName(opt.TitleScreenName))
+	}
 	copy(rom[metadataOffset:metadataOffset+64], meta)
 	patchGBAHeader(rom, opt.RomTitle)
 	padded := nextPowerOfTwo(unpadded)
@@ -1360,7 +1418,225 @@ func romSizeFromError(err error) (int64, bool) {
 	return int64(value * 1048576), true
 }
 
-func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress ProgressFunc) (result ConvertResult, resultErr error) {
+func splitBudgetBytes(opt ProjectOptions) int64 {
+	mib := opt.SplitBudgetMiB
+	if mib == 0 {
+		return defaultLongSplitBudget
+	}
+	if mib < 1 {
+		mib = 1
+	}
+	if mib > 32 {
+		mib = 32
+	}
+	return int64(mib) * 1024 * 1024
+}
+
+func splitSourceRange(opt ProjectOptions, info MediaInfo) (float64, float64, error) {
+	start := opt.Start
+	end := opt.End
+	if end <= 0 || end > info.Duration {
+		end = info.Duration
+	}
+	if start < 0 || start >= end {
+		return 0, 0, errors.New("start time must be before end time")
+	}
+	return start, end, nil
+}
+
+func estimateLongSplitParts(opt ProjectOptions, info MediaInfo, budget int64) int {
+	start, end, err := splitSourceRange(opt, info)
+	if err != nil || budget <= int64(assetOffset+clipDescriptorSize+4096) {
+		return 1
+	}
+	displayDuration := (end - start) / math.Max(opt.Speed, 0.01)
+	fps := gbaRefresh / float64(opt.VBlanks)
+	frames := math.Max(1, math.Ceil(displayDuration*fps))
+	compressionFactor := 1.0
+	if opt.Compression == "delta" {
+		compressionFactor = 0.68
+	}
+	videoBytes := frames * frameBytes * compressionFactor
+	paletteCount := 1.0
+	if opt.PaletteMode == "scene" {
+		paletteCount = math.Max(1, math.Ceil(frames/60))
+	}
+	paletteBytes := paletteCount * 512
+	if paletteCount > 1 {
+		paletteBytes += frames * 2
+	}
+	indexBytes := 0.0
+	if opt.Compression == "delta" {
+		indexBytes = frames * 8
+	}
+	audioBytes := 0.0
+	if opt.AudioMode != "none" && info.AudioStreams > 0 {
+		audioBytes = displayDuration*audioRate + frames*4
+	}
+	estimatedBytes := float64(assetOffset+clipDescriptorSize+512) + videoBytes + paletteBytes + indexBytes + audioBytes
+	usable := float64(budget - int64(assetOffset+clipDescriptorSize+512))
+	if usable < 1 {
+		usable = 1
+	}
+	parts := int(math.Ceil(math.Max(1, estimatedBytes-float64(assetOffset+clipDescriptorSize+512)) / usable))
+	if opt.MaxPartMinutes > 0 {
+		byDuration := int(math.Ceil((end - start) / (opt.MaxPartMinutes * 60)))
+		if byDuration > parts {
+			parts = byDuration
+		}
+	}
+	if parts < 1 {
+		parts = 1
+	}
+	return parts
+}
+
+func formatProgressTimestamp(seconds float64) string {
+	if seconds < 0 {
+		seconds = 0
+	}
+	total := int64(math.Round(seconds))
+	if total >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", total/3600, (total/60)%60, total%60)
+	}
+	return fmt.Sprintf("%02d:%02d", total/60, total%60)
+}
+
+func chapterSplitEnd(chapters []float64, cursor, candidateEnd, finalEnd float64) float64 {
+	if candidateEnd >= finalEnd-0.0005 || len(chapters) == 0 {
+		return candidateEnd
+	}
+	best := 0.0
+	for _, chapter := range chapters {
+		if chapter <= cursor+2 {
+			continue
+		}
+		if chapter > candidateEnd+0.0005 {
+			break
+		}
+		best = chapter
+	}
+	if best == 0 {
+		return candidateEnd
+	}
+	threshold := math.Max(30, (candidateEnd-cursor)*0.25)
+	if candidateEnd-best <= threshold {
+		return best
+	}
+	return candidateEnd
+}
+
+type splitPartRecord struct {
+	FileName          string  `json:"fileName"`
+	Start             float64 `json:"start"`
+	End               float64 `json:"end"`
+	FrameCount        int     `json:"frameCount"`
+	UnpaddedSize      int64   `json:"unpaddedSize"`
+	PaddedSize        int64   `json:"paddedSize"`
+	CompressedBytes   int64   `json:"compressedBytes"`
+	UncompressedBytes int64   `json:"uncompressedBytes"`
+}
+
+type splitRecoveryState struct {
+	Version        int               `json:"version"`
+	Fingerprint    string            `json:"fingerprint"`
+	SourceName     string            `json:"sourceName"`
+	Start          float64           `json:"start"`
+	End            float64           `json:"end"`
+	Cursor         float64           `json:"cursor"`
+	NextPart       int               `json:"nextPart"`
+	EstimatedParts int               `json:"estimatedParts"`
+	Parts          []splitPartRecord `json:"parts"`
+}
+
+func splitRecoveryRoot() string {
+	if override := strings.TrimSpace(os.Getenv("GBA_VIDEO_MAKER_RECOVERY_DIR")); override != "" {
+		return override
+	}
+	if cache, err := os.UserCacheDir(); err == nil && cache != "" {
+		return filepath.Join(cache, "GBA Video Maker", "long-video-recovery")
+	}
+	return filepath.Join(os.TempDir(), "GBA Video Maker", "long-video-recovery")
+}
+
+func splitRecoveryIdentity(opt ProjectOptions, input ClipInput, info MediaInfo, start, end float64, budget int64) (string, error) {
+	st, err := os.Stat(input.InputPath)
+	if err != nil {
+		return "", err
+	}
+	identity := struct {
+		Path             string
+		Name             string
+		Size             int64
+		Modified         int64
+		Duration         float64
+		Start            float64
+		End              float64
+		Speed            float64
+		VBlanks          int
+		FitMode          string
+		AudioMode        string
+		Volume           float64
+		Normalize        bool
+		Limiter          bool
+		Compression      string
+		PaletteMode      string
+		DitherMode       string
+		Budget           int64
+		MaxPartMinutes   float64
+		ChapterAware     bool
+		PartTitleScreens bool
+		PlayerTemplate   string
+	}{
+		Path: input.InputPath, Name: input.Name, Size: st.Size(), Modified: st.ModTime().UnixNano(), Duration: info.Duration,
+		Start: start, End: end, Speed: opt.Speed, VBlanks: opt.VBlanks, FitMode: opt.FitMode,
+		AudioMode: opt.AudioMode, Volume: opt.Volume, Normalize: opt.Normalize, Limiter: opt.Limiter,
+		Compression: opt.Compression, PaletteMode: opt.PaletteMode, DitherMode: opt.DitherMode,
+		Budget: budget, MaxPartMinutes: opt.MaxPartMinutes, ChapterAware: opt.ChapterAware, PartTitleScreens: opt.PartTitleScreens,
+		PlayerTemplate: fmt.Sprintf("%x", sha256.Sum256(playerStub)),
+	}
+	data, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:16]), nil
+}
+
+func saveSplitRecovery(path string, state splitRecoveryState) error {
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	_ = os.Remove(path)
+	return os.Rename(tmp, path)
+}
+
+func loadSplitRecovery(path, fingerprint string) (splitRecoveryState, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return splitRecoveryState{}, false
+	}
+	var state splitRecoveryState
+	if json.Unmarshal(data, &state) != nil || state.Version != 1 || state.Fingerprint != fingerprint || state.NextPart < 1 {
+		return splitRecoveryState{}, false
+	}
+	return state, true
+}
+
+func splitFailure(err error, recoveryDir string, completed int) error {
+	if completed > 0 {
+		return fmt.Errorf("%w\n\n%d completed ROM part(s) were kept. Start the same conversion again to resume.\nRecovery folder: %s", err, completed, recoveryDir)
+	}
+	return err
+}
+
+func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress ProgressFunc) (ConvertResult, error) {
 	if progress == nil {
 		progress = func(int, string) {}
 	}
@@ -1377,61 +1653,85 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("%s: %w", input.Name, err)
 	}
-	start := effective.Start
-	end := effective.End
-	if end <= 0 || end > info.Duration {
-		end = info.Duration
-	}
-	if start < 0 || start >= end {
-		return ConvertResult{}, fmt.Errorf("%s: start time must be before end time", input.Name)
-	}
-
-	tempDir, err := os.MkdirTemp("", "gba-video-maker-longsplit-")
+	start, end, err := splitSourceRange(effective, info)
 	if err != nil {
-		return ConvertResult{}, err
+		return ConvertResult{}, fmt.Errorf("%s: %w", input.Name, err)
 	}
-	defer os.RemoveAll(tempDir)
 	if err := os.MkdirAll(filepath.Dir(opt.OutputPath), 0755); err != nil {
 		return ConvertResult{}, err
 	}
-	zipTemp := opt.OutputPath + ".part"
-	_ = os.Remove(zipTemp)
-	zipFile, err := os.Create(zipTemp)
+
+	estimatedParts := estimateLongSplitParts(effective, info, budget)
+	persistentRecovery := opt.ResumeLongSplit
+	fingerprint, err := splitRecoveryIdentity(effective, input, info, start, end, budget)
 	if err != nil {
 		return ConvertResult{}, err
 	}
-	zipClosed := false
-	defer func() {
-		if !zipClosed {
-			_ = zipFile.Close()
+	recoveryDir := filepath.Join(splitRecoveryRoot(), fingerprint)
+	if !persistentRecovery {
+		recoveryDir, err = os.MkdirTemp("", "gba-video-maker-longsplit-")
+		if err != nil {
+			return ConvertResult{}, err
 		}
-		if resultErr != nil {
-			_ = os.Remove(zipTemp)
+		defer os.RemoveAll(recoveryDir)
+	}
+	statePath := filepath.Join(recoveryDir, "state.json")
+	state, resumed := splitRecoveryState{}, false
+	if persistentRecovery {
+		state, resumed = loadSplitRecovery(statePath, fingerprint)
+	}
+	if resumed {
+		for _, record := range state.Parts {
+			if st, statErr := os.Stat(filepath.Join(recoveryDir, record.FileName)); statErr != nil || st.IsDir() {
+				resumed = false
+				break
+			}
 		}
-	}()
-	zw := zip.NewWriter(zipFile)
-	zipWriterClosed := false
-	defer func() {
-		if !zipWriterClosed {
-			_ = zw.Close()
+	}
+	if !resumed {
+		_ = os.RemoveAll(recoveryDir)
+		if err := os.MkdirAll(recoveryDir, 0755); err != nil {
+			return ConvertResult{}, err
 		}
-	}()
+		state = splitRecoveryState{Version: 1, Fingerprint: fingerprint, SourceName: input.Name, Start: start, End: end, Cursor: start, NextPart: 1, EstimatedParts: estimatedParts}
+		if err := saveSplitRecovery(statePath, state); err != nil {
+			return ConvertResult{}, err
+		}
+	} else {
+		if state.EstimatedParts > estimatedParts {
+			estimatedParts = state.EstimatedParts
+		}
+		progress(1, fmt.Sprintf("Resuming after %d completed part(s)…", len(state.Parts)))
+	}
+	preserveFailure := func(failure error) error {
+		if persistentRecovery {
+			return splitFailure(failure, recoveryDir, len(state.Parts))
+		}
+		return failure
+	}
 
 	baseName := strings.TrimSuffix(sanitizeFilename(input.Name), filepath.Ext(input.Name))
 	if strings.TrimSpace(baseName) == "" {
 		baseName = "MY_VIDEO"
 	}
-	var manifest strings.Builder
-	manifest.WriteString("GBA Video Maker automatic long-video split\n")
-	manifest.WriteString("Source: " + input.Name + "\n")
-	manifest.WriteString("Each part continues at the exact source timestamp where the previous part ended.\n\n")
-
 	totalDuration := end - start
-	cursor := start
-	guessSeconds := math.Min(8*60, totalDuration)
-	part := 1
-	var totalFrames int
-	var totalPadded, totalUnpadded, totalCompressed, totalRaw int64
+	cursor := state.Cursor
+	part := state.NextPart
+	guessSeconds := math.Min(8*60, end-cursor)
+	if len(state.Parts) > 0 {
+		last := state.Parts[len(state.Parts)-1]
+		guessSeconds = last.End - last.Start
+		if last.UnpaddedSize > 0 {
+			guessSeconds *= float64(budget) / float64(last.UnpaddedSize) * 0.94
+		}
+	}
+	maxPartSeconds := 0.0
+	if opt.MaxPartMinutes > 0 {
+		maxPartSeconds = opt.MaxPartMinutes * 60
+	}
+	if maxPartSeconds > 0 && guessSeconds > maxPartSeconds {
+		guessSeconds = maxPartSeconds
+	}
 	reportedProgress := 0
 	report := func(value int, message string) {
 		if value < reportedProgress {
@@ -1443,10 +1743,16 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 		reportedProgress = value
 		progress(value, message)
 	}
+	progressMessage := func(partNumber int, sourcePosition float64, detail string) string {
+		return fmt.Sprintf("Part %d of approximately %d\nSource position: %s / %s\n%s", partNumber, estimatedParts, formatProgressTimestamp(sourcePosition-start), formatProgressTimestamp(totalDuration), detail)
+	}
 
 	for cursor < end-0.0005 {
 		remaining := end - cursor
 		candidateSeconds := math.Min(guessSeconds, remaining)
+		if maxPartSeconds > 0 && candidateSeconds > maxPartSeconds {
+			candidateSeconds = maxPartSeconds
+		}
 		if candidateSeconds < 0.1 {
 			candidateSeconds = remaining
 		}
@@ -1458,6 +1764,9 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 			if candidateSeconds > remaining {
 				candidateSeconds = remaining
 			}
+			if maxPartSeconds > 0 && candidateSeconds > maxPartSeconds {
+				candidateSeconds = maxPartSeconds
+			}
 			if candidateSeconds < 2 && remaining > 2 {
 				candidateSeconds = 2
 			}
@@ -1465,28 +1774,41 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 			if candidateEnd > end {
 				candidateEnd = end
 			}
+			if opt.ChapterAware {
+				candidateEnd = chapterSplitEnd(info.Chapters, cursor, candidateEnd, end)
+			}
+			actualSeconds := candidateEnd - cursor
+			if actualSeconds <= 0 {
+				candidateEnd = math.Min(end, cursor+candidateSeconds)
+				actualSeconds = candidateEnd - cursor
+			}
 			partName := fmt.Sprintf("%s_PART_%02d.gba", baseName, part)
-			partPath := filepath.Join(tempDir, partName)
+			partPath := filepath.Join(recoveryDir, partName)
 			_ = os.Remove(partPath)
 
 			partOpt := effective
-			partOpt.Inputs = []ClipInput{{InputPath: input.InputPath, Name: input.Name, Title: splitROMTitle(input.Title, part)}}
+			partOpt.Inputs = []ClipInput{{InputPath: input.InputPath, Name: input.Name, Title: input.Title}}
 			partOpt.OutputPath = partPath
 			partOpt.Start = cursor
 			partOpt.End = candidateEnd
 			partOpt.OutputMode = "rom"
 			partOpt.RomTitle = splitROMTitle(opt.RomTitle, part)
 			partOpt.Loop = false
+			if opt.PartTitleScreens {
+				partOpt.TitleScreenPart = part
+				partOpt.TitleScreenName = strings.TrimSuffix(input.Name, filepath.Ext(input.Name))
+			}
 
 			partResult, convertErr := convertProjectExact(partOpt, func(p int, msg string) {
-				fraction := (cursor - start + candidateSeconds*float64(p)/100) / totalDuration
+				sourcePosition := cursor + actualSeconds*float64(p)/100
+				fraction := (sourcePosition - start) / totalDuration
 				mapped := 2 + int(fraction*90)
-				report(mapped, fmt.Sprintf("Part %02d — %s", part, msg))
+				report(mapped, progressMessage(part, sourcePosition, msg))
 			})
 			if convertErr != nil {
 				needed, sizeErr := romSizeFromError(convertErr)
 				if !sizeErr {
-					return ConvertResult{}, fmt.Errorf("part %02d: %w", part, convertErr)
+					return ConvertResult{}, preserveFailure(fmt.Errorf("part %02d: %w", part, convertErr))
 				}
 				ratio := 0.72
 				if needed > 0 {
@@ -1498,11 +1820,11 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 				if ratio < 0.25 {
 					ratio = 0.25
 				}
-				candidateSeconds *= ratio
+				candidateSeconds = actualSeconds * ratio
 				if candidateSeconds < 0.5 {
-					return ConvertResult{}, fmt.Errorf("part %02d cannot fit within the ROM limit even at the minimum duration", part)
+					return ConvertResult{}, preserveFailure(fmt.Errorf("part %02d cannot fit within the selected ROM size even at the minimum duration", part))
 				}
-				report(reportedProgress, fmt.Sprintf("Part %02d was too large; retrying a shorter segment…", part))
+				report(reportedProgress, progressMessage(part, cursor, "Part was too large; retrying a shorter segment…"))
 				continue
 			}
 
@@ -1511,25 +1833,29 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 				if ratio > 0.92 {
 					ratio = 0.92
 				}
-				candidateSeconds *= ratio
+				candidateSeconds = actualSeconds * ratio
 				_ = os.Remove(partPath)
-				report(reportedProgress, fmt.Sprintf("Part %02d is close to 32 MiB; adding safety margin…", part))
+				report(reportedProgress, progressMessage(part, cursor, "Part is above the selected safety size; retrying…"))
 				continue
 			}
 
 			atFinalEnd := candidateEnd >= end-0.0005
-			if !atFinalEnd && partResult.UnpaddedSize < budget*88/100 && attempt < 8 {
-				proposed := candidateSeconds * float64(budget) / float64(partResult.UnpaddedSize) * 0.96
-				if proposed > candidateSeconds*2 {
-					proposed = candidateSeconds * 2
+			atDurationLimit := maxPartSeconds > 0 && actualSeconds >= maxPartSeconds-0.0005
+			if !atFinalEnd && !atDurationLimit && partResult.UnpaddedSize < budget*88/100 && attempt < 8 {
+				proposed := actualSeconds * float64(budget) / float64(partResult.UnpaddedSize) * 0.96
+				if proposed > actualSeconds*2 {
+					proposed = actualSeconds * 2
 				}
 				if proposed > remaining {
 					proposed = remaining
 				}
-				if proposed > candidateSeconds+math.Max(1, candidateSeconds*0.03) {
+				if maxPartSeconds > 0 && proposed > maxPartSeconds {
+					proposed = maxPartSeconds
+				}
+				if proposed > actualSeconds+math.Max(1, actualSeconds*0.03) {
 					candidateSeconds = proposed
 					_ = os.Remove(partPath)
-					report(reportedProgress, fmt.Sprintf("Part %02d has room; extending it before finalizing…", part))
+					report(reportedProgress, progressMessage(part, cursor, "Part has room; extending it before finalizing…"))
 					continue
 				}
 			}
@@ -1541,31 +1867,38 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 		}
 
 		if acceptedPath == "" {
-			return ConvertResult{}, fmt.Errorf("could not find a safe size for part %02d", part)
+			return ConvertResult{}, preserveFailure(fmt.Errorf("could not find a safe size for part %02d", part))
 		}
-		data, err := os.ReadFile(acceptedPath)
-		if err != nil {
-			return ConvertResult{}, err
+		record := splitPartRecord{
+			FileName: filepath.Base(acceptedPath), Start: cursor, End: acceptedEnd, FrameCount: accepted.FrameCount,
+			UnpaddedSize: accepted.UnpaddedSize, PaddedSize: accepted.PaddedSize,
+			CompressedBytes: accepted.CompressedBytes, UncompressedBytes: accepted.UncompressedBytes,
 		}
-		partFileName := filepath.Base(acceptedPath)
-		w, err := zw.Create(partFileName)
-		if err != nil {
-			return ConvertResult{}, err
-		}
-		if _, err := w.Write(data); err != nil {
-			return ConvertResult{}, err
-		}
-		fmt.Fprintf(&manifest, "%s  %s - %s  data %.2f MiB  cartridge %.0f MiB\n",
-			partFileName, formatSplitTimestamp(cursor), formatSplitTimestamp(acceptedEnd),
-			float64(accepted.UnpaddedSize)/1048576, float64(accepted.PaddedSize)/1048576)
-
-		totalFrames += accepted.FrameCount
-		totalPadded += accepted.PaddedSize
-		totalUnpadded += accepted.UnpaddedSize
-		totalCompressed += accepted.CompressedBytes
-		totalRaw += accepted.UncompressedBytes
+		state.Parts = append(state.Parts, record)
 		acceptedDuration := acceptedEnd - cursor
 		cursor = acceptedEnd
+		state.Cursor = cursor
+		state.NextPart = part + 1
+		if len(state.Parts) > 0 && cursor < end {
+			averageDuration := (cursor - start) / float64(len(state.Parts))
+			if averageDuration > 0 {
+				dynamicEstimate := len(state.Parts) + int(math.Ceil((end-cursor)/averageDuration))
+				if maxPartSeconds > 0 {
+					minimumByDuration := len(state.Parts) + int(math.Ceil((end-cursor)/maxPartSeconds))
+					if minimumByDuration > dynamicEstimate {
+						dynamicEstimate = minimumByDuration
+					}
+				}
+				if dynamicEstimate < len(state.Parts) {
+					dynamicEstimate = len(state.Parts)
+				}
+				estimatedParts = dynamicEstimate
+			}
+		}
+		state.EstimatedParts = estimatedParts
+		if err := saveSplitRecovery(statePath, state); err != nil {
+			return ConvertResult{}, preserveFailure(err)
+		}
 		remaining = end - cursor
 		if remaining > 0 {
 			guessSeconds = acceptedDuration
@@ -1578,43 +1911,95 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 			if guessSeconds > remaining {
 				guessSeconds = remaining
 			}
+			if maxPartSeconds > 0 && guessSeconds > maxPartSeconds {
+				guessSeconds = maxPartSeconds
+			}
 		}
 		part++
-		report(2+int((cursor-start)/totalDuration*90), fmt.Sprintf("Added part %02d to the ZIP", part-1))
+		report(2+int((cursor-start)/totalDuration*90), progressMessage(part, cursor, fmt.Sprintf("Completed part %02d", part-1)))
 	}
 
-	fmt.Fprintf(&manifest, "\nParts: %d\nTotal unpadded ROM data: %.2f MiB\nTotal padded cartridge data: %.2f MiB\n", part-1, float64(totalUnpadded)/1048576, float64(totalPadded)/1048576)
+	var manifest strings.Builder
+	manifest.WriteString("GBA Video Maker automatic long-video split\n")
+	manifest.WriteString("Source: " + input.Name + "\n")
+	fmt.Fprintf(&manifest, "Target data size per ROM: %.0f MiB\n", float64(budget)/1048576)
+	if maxPartSeconds > 0 {
+		fmt.Fprintf(&manifest, "Maximum source duration per ROM: %s\n", formatProgressTimestamp(maxPartSeconds))
+	}
+	manifest.WriteString("Each part continues at the exact source timestamp where the previous part ended.\n\n")
+	var totalFrames int
+	var totalPadded, totalUnpadded, totalCompressed, totalRaw int64
+	for _, record := range state.Parts {
+		fmt.Fprintf(&manifest, "%s  %s - %s  data %.2f MiB  cartridge %.0f MiB\n",
+			record.FileName, formatSplitTimestamp(record.Start), formatSplitTimestamp(record.End),
+			float64(record.UnpaddedSize)/1048576, float64(record.PaddedSize)/1048576)
+		totalFrames += record.FrameCount
+		totalPadded += record.PaddedSize
+		totalUnpadded += record.UnpaddedSize
+		totalCompressed += record.CompressedBytes
+		totalRaw += record.UncompressedBytes
+	}
+	fmt.Fprintf(&manifest, "\nParts: %d\nTotal unpadded ROM data: %.2f MiB\nTotal padded cartridge data: %.2f MiB\n", len(state.Parts), float64(totalUnpadded)/1048576, float64(totalPadded)/1048576)
+
+	zipTemp := opt.OutputPath + ".part"
+	_ = os.Remove(zipTemp)
+	zipFile, err := os.Create(zipTemp)
+	if err != nil {
+		return ConvertResult{}, preserveFailure(err)
+	}
+	zw := zip.NewWriter(zipFile)
+	zipOK := false
+	defer func() {
+		if !zipOK {
+			_ = zw.Close()
+			_ = zipFile.Close()
+			_ = os.Remove(zipTemp)
+		}
+	}()
+	for _, record := range state.Parts {
+		data, readErr := os.ReadFile(filepath.Join(recoveryDir, record.FileName))
+		if readErr != nil {
+			return ConvertResult{}, preserveFailure(readErr)
+		}
+		w, createErr := zw.Create(record.FileName)
+		if createErr != nil {
+			return ConvertResult{}, preserveFailure(createErr)
+		}
+		if _, writeErr := w.Write(data); writeErr != nil {
+			return ConvertResult{}, preserveFailure(writeErr)
+		}
+	}
 	manifestWriter, err := zw.Create("PARTS.txt")
 	if err != nil {
-		return ConvertResult{}, err
+		return ConvertResult{}, preserveFailure(err)
 	}
 	if _, err := io.WriteString(manifestWriter, manifest.String()); err != nil {
-		return ConvertResult{}, err
+		return ConvertResult{}, preserveFailure(err)
 	}
 	progress(95, "Finishing the numbered ZIP…")
 	if err := zw.Close(); err != nil {
-		return ConvertResult{}, err
+		return ConvertResult{}, preserveFailure(err)
 	}
-	zipWriterClosed = true
 	if err := zipFile.Close(); err != nil {
-		return ConvertResult{}, err
+		return ConvertResult{}, preserveFailure(err)
 	}
-	zipClosed = true
+	zipOK = true
 	_ = os.Remove(opt.OutputPath)
 	if err := os.Rename(zipTemp, opt.OutputPath); err != nil {
-		return ConvertResult{}, err
+		return ConvertResult{}, preserveFailure(err)
 	}
 	st, err := os.Stat(opt.OutputPath)
 	if err != nil {
 		return ConvertResult{}, err
 	}
-	partCount := part - 1
+	partCount := len(state.Parts)
+	_ = os.RemoveAll(recoveryDir)
 	progress(100, fmt.Sprintf("Done — %d numbered ROM parts are ready.", partCount))
 	return ConvertResult{
 		OutputPath: opt.OutputPath, FrameCount: totalFrames,
 		UnpaddedSize: st.Size(), PaddedSize: st.Size(), ClipCount: partCount,
 		CompressedBytes: totalCompressed, UncompressedBytes: totalRaw,
-		OutputKind: "zip",
+		OutputKind: "zip", EstimatedParts: estimatedParts,
 	}, nil
 }
 
@@ -1647,7 +2032,7 @@ func convertProjectExact(opt ProjectOptions, progress ProgressFunc) (ConvertResu
 		return ConvertResult{}, err
 	}
 	if opt.OutputMode == "longsplit" {
-		return convertLongVideoSplitWithBudget(opt, longSplitBudget, progress)
+		return convertLongVideoSplitWithBudget(opt, splitBudgetBytes(opt), progress)
 	}
 	tempDir, err := os.MkdirTemp("", "gba-video-maker-v090-")
 	if err != nil {
@@ -1740,6 +2125,9 @@ func projectNeedsAutomaticSplit(opt ProjectOptions, budget int64) (bool, error) 
 	if effective.Start < 0 || effective.Start >= end || effective.Speed <= 0 || effective.VBlanks <= 0 {
 		return false, nil // normal validation will return the detailed error
 	}
+	if effective.MaxPartMinutes > 0 && end-effective.Start > effective.MaxPartMinutes*60+0.0005 {
+		return true, nil
+	}
 	displaySeconds := (end - effective.Start) / effective.Speed
 	fps := gbaRefresh / float64(effective.VBlanks)
 	frameCount := int64(math.Ceil(displaySeconds * fps))
@@ -1793,7 +2181,7 @@ func convertProjectWithAutoSplitBudget(opt ProjectOptions, budget int64, progres
 }
 
 func convertProject(opt ProjectOptions, progress ProgressFunc) (ConvertResult, error) {
-	return convertProjectWithAutoSplitBudget(opt, longSplitBudget, progress)
+	return convertProjectWithAutoSplitBudget(opt, splitBudgetBytes(opt), progress)
 }
 
 func convertVideo(opt ConvertOptions, progress ProgressFunc) (ConvertResult, error) {

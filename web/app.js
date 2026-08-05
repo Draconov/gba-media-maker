@@ -9,6 +9,7 @@ const DEFAULT_CLIP = Object.freeze({
 const FPS_VBLANKS = {smooth: 4, balanced: 5, classic: 6, compact: 8};
 const FPS_ORDER = ['smooth', 'balanced', 'classic', 'compact'];
 const ROM_LIMIT = 32 * 1024 * 1024;
+const MIB = 1024 * 1024;
 
 let state = null;
 let pollTimer = null;
@@ -165,7 +166,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','useProject','menuTitle'];
+  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitBudget','maxPartMinutes','chapterAware','partTitleScreens','resumeLongSplit','useProject','menuTitle'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -297,13 +298,16 @@ async function relinkVideo(index) {
 function updateOutputModes() {
   const select = $('outputMode');
   const current = select.value;
-  if (state.videos.length === 1) {
+  const single = state.videos.length === 1;
+  if (single) {
     select.innerHTML = '<option value="rom">Single ROM</option>';
     select.value = 'rom';
   } else {
     select.innerHTML = '<option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option>';
     select.value = ['playlist','menu','batch'].includes(current) ? current : 'playlist';
   }
+  $('longSplitSettings').classList.toggle('hidden', !single);
+  for (const element of document.querySelectorAll('.long-split-control')) element.classList.toggle('hidden', !single);
 }
 
 function refreshScope(force) {
@@ -356,8 +360,12 @@ function savePerClipField(id) {
   if (['start','end','fit','speed'].includes(id)) { syncTimeline(false); updatePreview(); }
 }
 for (const id of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode']) $(id).addEventListener('input', () => savePerClipField(id));
-for (const id of ['fps','seekSeconds','compression','normalize','limiter']) $(id).addEventListener('input', () => { $('preset').value = 'custom'; estimate(); });
+for (const id of ['fps','seekSeconds','compression','normalize','limiter','maxPartMinutes','chapterAware','partTitleScreens','resumeLongSplit']) $(id).addEventListener('input', () => { $('preset').value = 'custom'; estimate(); });
 $('outputMode').onchange = () => { updateOutputModes(); estimate(); };
+function updateSplitBudgetLabel() { $('splitBudgetValue').textContent = $('splitBudget').value + ' MiB'; }
+$('splitBudget').addEventListener('input', () => { updateSplitBudgetLabel(); $('preset').value = 'custom'; estimate(); });
+for (const button of document.querySelectorAll('.split-preset')) button.onclick = () => { $('splitBudget').value = button.dataset.size; updateSplitBudgetLabel(); estimate(); };
+updateSplitBudgetLabel();
 $('romTitle').addEventListener('input', () => { romTitleAuto = false; });
 
 const GLYPHS = {
@@ -497,7 +505,10 @@ function globalValues() {
   return {
     fps:$('fps').value, seekSeconds:Number($('seekSeconds').value), compression:$('compression').value,
     normalize:$('normalize').checked, limiter:$('limiter').checked, resume:$('resume').checked,
-    romTitle:$('romTitle').value, outputMode:$('outputMode').value
+    romTitle:$('romTitle').value, outputMode:$('outputMode').value,
+    splitBudgetMiB:Number($('splitBudget').value), maxPartMinutes:Number($('maxPartMinutes').value) || 0,
+    chapterAware:$('chapterAware').checked, partTitleScreens:$('partTitleScreens').checked,
+    resumeLongSplit:$('resumeLongSplit').checked
   };
 }
 function values() {
@@ -521,7 +532,7 @@ function estimateModel(model) {
   if (!state?.videos?.length) return {bytes:0,frames:0,breakdown:{}};
   const vblanks = FPS_VBLANKS[model.global.fps] || 5;
   const fps = 59.727500569606 / vblanks;
-  let player = 32768 + state.videos.length * 96, videoBytes = 0, audioBytes = 0, paletteBytes = 0, indexBytes = 0, frames = 0;
+  let player = 32768 + state.videos.length * 96, videoBytes = 0, audioBytes = 0, paletteBytes = 0, indexBytes = 0, frames = 0, sourceDuration = 0;
   for (const video of state.videos) {
     if (!video.info) continue;
     const clip = modelEffective(model, video.id);
@@ -530,7 +541,9 @@ function estimateModel(model) {
     if (!Number.isFinite(end)) end = video.info.duration;
     end = Math.min(video.info.duration, end);
     if (end <= start || !Number.isFinite(Number(clip.speed)) || clip.speed <= 0) return {error:'Check trim settings.'};
-    const displayDuration = (end - start) / Number(clip.speed);
+    const sourceClipDuration = end - start;
+    sourceDuration += sourceClipDuration;
+    const displayDuration = sourceClipDuration / Number(clip.speed);
     const frameCount = Math.max(1, Math.ceil(displayDuration * fps));
     frames += frameCount;
     const compressionFactor = model.global.compression === 'delta' ? 0.68 : 1;
@@ -543,23 +556,36 @@ function estimateModel(model) {
   const bytes = Math.ceil(player + videoBytes + audioBytes + paletteBytes + indexBytes);
   let cartridge = 1 << 20;
   while (cartridge < bytes && cartridge < ROM_LIMIT) cartridge *= 2;
-  return {bytes, cartridge, frames, fps, breakdown:{player,video:videoBytes,audio:audioBytes,palettes:paletteBytes,indexes:indexBytes}};
+  return {bytes, cartridge, frames, fps, sourceDuration, breakdown:{player,video:videoBytes,audio:audioBytes,palettes:paletteBytes,indexes:indexBytes}};
 }
 function estimate() {
-  const result = estimateModel(modelSnapshot());
+  const model = modelSnapshot();
+  const result = estimateModel(model);
   if (result.error) { $('estimate').textContent = result.error; return result; }
-  const automaticSplit = state.videos.length === 1 && result.bytes > ROM_LIMIT;
+  const single = state.videos.length === 1;
+  const budgetMiB = Math.max(1, Math.min(32, Number(model.global.splitBudgetMiB) || 31));
+  const budgetBytes = budgetMiB * MIB;
+  const overhead = 32768 + 96 + 512;
+  const usable = Math.max(1, budgetBytes - overhead);
+  const payload = Math.max(1, result.bytes - overhead);
+  let estimatedParts = Math.max(1, Math.ceil(payload / usable));
+  const maxPartMinutes = Math.max(0, Number(model.global.maxPartMinutes) || 0);
+  if (single && maxPartMinutes > 0) estimatedParts = Math.max(estimatedParts, Math.ceil(result.sourceDuration / (maxPartMinutes * 60)));
+  const automaticSplit = single && estimatedParts > 1;
   $('optimize').classList.toggle('hidden', automaticSplit);
   const over = result.bytes > ROM_LIMIT;
   const headline = automaticSplit
-    ? '<b>Too large for one ROM — the app will split it automatically</b>'
-    : (over ? '<b class="estimate-over">Estimated data exceeds 32 MiB</b>' : 'Estimated cartridge: <b>' + (result.cartridge/1048576) + ' MiB</b>');
+    ? '<b>Estimated output: ' + estimatedParts + ' ROM parts</b>'
+    : (over ? '<b class="estimate-over">Estimated data exceeds 32 MiB</b>' : 'Estimated output: <b>1 ROM</b> • Cartridge: <b>' + (result.cartridge/MIB) + ' MiB</b>');
   const splitNote = automaticSplit
-    ? '<br>Output will be a ZIP containing sequential numbered ROMs and PARTS.txt.'
+    ? '<br>Automatic target: ' + budgetMiB + ' MiB per ROM' + (maxPartMinutes > 0 ? ' • maximum ' + maxPartMinutes + ' minutes per part' : '') +
+      (model.global.chapterAware && state.videos[0]?.info?.chapters?.length ? ' • ' + state.videos[0].info.chapters.length + ' chapter boundaries found' : '')
     : '';
   $('estimate').innerHTML = headline +
-    '<br>Estimated data: ' + (result.bytes/1048576).toFixed(2) + ' MiB • ' + result.frames + ' frames • ' + result.fps.toFixed(2) + ' fps' +
-    '<br>Video ' + (result.breakdown.video/1048576).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/1048576).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/1048576).toFixed(2) + ' MiB' + splitNote;
+    '<br>Estimated data: ' + (result.bytes/MIB).toFixed(2) + ' MiB • ' + result.frames + ' frames • ' + result.fps.toFixed(2) + ' fps' +
+    '<br>Video ' + (result.breakdown.video/MIB).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/MIB).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/MIB).toFixed(2) + ' MiB' + splitNote;
+  result.estimatedParts = estimatedParts;
+  result.splitBudgetMiB = budgetMiB;
   return result;
 }
 
@@ -654,6 +680,8 @@ function applyPendingProject() {
   for (const key of ['fps','compression','outputMode']) if (settings[key]) $(key).value = settings[key];
   $('seekSeconds').value = settings.seekSeconds || 5;
   $('normalize').checked = !!settings.normalize; $('limiter').checked = !!settings.limiter; $('resume').checked = !!settings.resume;
+  $('splitBudget').value = settings.splitBudgetMiB || 31; $('maxPartMinutes').value = settings.maxPartMinutes || 0;
+  $('chapterAware').checked = settings.chapterAware !== false; $('partTitleScreens').checked = settings.partTitleScreens !== false; $('resumeLongSplit').checked = settings.resumeLongSplit !== false; updateSplitBudgetLabel();
   $('romTitle').value = settings.romTitle || ''; romTitleAuto = false;
   clipConfigs = {};
   for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered'};

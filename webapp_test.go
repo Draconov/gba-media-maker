@@ -571,3 +571,119 @@ func TestSingleROMAutomaticallySplitsWhenBudgetIsExceeded(t *testing.T) {
 		t.Fatalf("oversized temporary ROM was not removed: %v", err)
 	}
 }
+
+func TestLongVideoControlsAndProgressUIAreEmbedded(t *testing.T) {
+	page, err := renderPage("controls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`id="splitBudget"`, `id="maxPartMinutes"`, `id="chapterAware"`,
+		`id="partTitleScreens"`, `id="resumeLongSplit"`, "Estimated output:",
+	} {
+		if !bytes.Contains(page, []byte(want)) && !bytes.Contains(appJS, []byte(want)) {
+			t.Fatalf("long-video UI is missing %q", want)
+		}
+	}
+	if !bytes.Contains(appCSS, []byte("white-space:pre-line")) {
+		t.Fatal("multi-line progress styling is missing")
+	}
+}
+
+func TestBuildOptionsUsesCleanExportNameAndSplitSettings(t *testing.T) {
+	dir := t.TempDir()
+	state := &appState{
+		sessionDir: dir,
+		ffmpegPath: "ffmpeg",
+		videos: []uploadedVideo{{
+			ID: "one", Path: filepath.Join(dir, "movie.mp4"), Name: "movie.mp4",
+			Info: &MediaInfo{Duration: 3000, Width: 1920, Height: 1080, FPS: 30, AudioStreams: 1}, Status: "ready",
+		}},
+	}
+	req := convertRequest{
+		Start: "0", Speed: 1, FPS: "compact", Fit: "fit", Audio: "mix", Volume: 100,
+		RomTitle: "MOVIE", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered",
+		OutputMode: "rom", SplitBudgetMiB: 20, MaxPartMinutes: 6, ChapterAware: true,
+		PartTitleScreens: true, ResumeLongSplit: true,
+	}
+	opt, _, err := state.buildOptions(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Base(opt.OutputPath); got != "movie.gba" {
+		t.Fatalf("export name=%q, want movie.gba", got)
+	}
+	if opt.SplitBudgetMiB != 20 || opt.MaxPartMinutes != 6 || !opt.ChapterAware || !opt.PartTitleScreens || !opt.ResumeLongSplit {
+		t.Fatalf("split settings were not preserved: %+v", opt)
+	}
+}
+
+func TestLongSplitEstimateUsesSizeAndDurationLimits(t *testing.T) {
+	opt := ProjectOptions{
+		Start: 0, End: 50 * 60, Speed: 1, VBlanks: 8, AudioMode: "mix",
+		Compression: "delta", PaletteMode: "shared", MaxPartMinutes: 8,
+	}
+	info := MediaInfo{Duration: 50 * 60, AudioStreams: 1}
+	parts := estimateLongSplitParts(opt, info, 20*1024*1024)
+	if parts < 7 {
+		t.Fatalf("estimated parts=%d, want at least 7 for a 50-minute source capped at 8 minutes", parts)
+	}
+}
+
+func TestChapterAwareSplitPrefersNearbyBoundary(t *testing.T) {
+	chapters := []float64{120, 300, 470, 720}
+	if got := chapterSplitEnd(chapters, 300, 500, 900); got != 470 {
+		t.Fatalf("chapter split=%v, want 470", got)
+	}
+	if got := chapterSplitEnd(chapters, 300, 700, 900); got != 700 {
+		t.Fatalf("distant chapter should not be forced, got %v", got)
+	}
+}
+
+func TestPartTitleScreenMetadata(t *testing.T) {
+	ff := commandExists("ffmpeg")
+	if ff == "" {
+		t.Skip("ffmpeg missing")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "title-screen.mkv")
+	makeFixture(t, ff, input, .6, "35")
+	output := filepath.Join(dir, "title-screen.gba")
+	opt := ProjectOptions{
+		Inputs:     []ClipInput{{InputPath: input, Name: "MOVIE.mp4", Title: "MOVIE"}},
+		OutputPath: output, FFmpegPath: ff, Start: 0, End: .5, Speed: 1, VBlanks: 8,
+		FitMode: "fit", AudioMode: "none", Volume: 1, RomTitle: "MOVIE P02", SeekSeconds: 5,
+		Compression: "delta", PaletteMode: "shared", DitherMode: "off", OutputMode: "rom",
+		KeyInterval: 30, TitleScreenPart: 2, TitleScreenName: "My Long Movie File",
+	}
+	if _, err := convertProjectExact(opt, nil); err != nil {
+		t.Fatal(err)
+	}
+	rom, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := binary.LittleEndian.Uint16(rom[metadataOffset+6:])
+	part := binary.LittleEndian.Uint32(rom[metadataOffset+20:])
+	name := strings.TrimRight(string(rom[metadataOffset+24:metadataOffset+48]), "\x00")
+	if flags&0x0004 == 0 || part != 2 || name != "MY LONG MOVIE FILE" {
+		t.Fatalf("title-screen metadata flags=%04x part=%d name=%q", flags, part, name)
+	}
+}
+
+func TestSplitRecoveryStateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	want := splitRecoveryState{
+		Version: 1, Fingerprint: "abc", SourceName: "movie.mp4", Start: 0, End: 100,
+		Cursor: 25, NextPart: 2, EstimatedParts: 4,
+		Parts: []splitPartRecord{{FileName: "movie_PART_01.gba", Start: 0, End: 25, FrameCount: 100}},
+	}
+	if err := saveSplitRecovery(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := loadSplitRecovery(path, "abc")
+	if !ok || got.NextPart != 2 || len(got.Parts) != 1 || got.Parts[0].End != 25 {
+		t.Fatalf("recovery state did not round-trip: ok=%v state=%+v", ok, got)
+	}
+}

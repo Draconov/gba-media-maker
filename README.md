@@ -9,9 +9,6 @@
 [![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
 [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
-
-Fixed **120×80 v0.9 playback**, PCM audio, seeking, playlists, multi-clip menus, custom palettes, dithering, compression, and a custom GBA menu background.
-
 </div>
 
 ## Choose your version
@@ -47,7 +44,13 @@ The generated player keeps the proven v0.9 playback path:
 
 ### Video and ROM controls
 
-- **Automatic long-video split (desktop):** no special mode is required. Create a normal single-video ROM; when it cannot safely fit, the app selects the largest safe source-time segment for each part, verifies the encoded size, continues from the exact ending timestamp, and exports `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` in one ZIP
+- **Automatic long-video split (desktop):** no special mode is required. Create a normal **Single ROM**; when it cannot safely fit, the app selects the largest safe source-time segment for each part, verifies the encoded size, continues from the exact ending timestamp, and exports `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` in one ZIP
+- **Before starting:** the estimator shows `Estimated output: N ROM parts` using the selected ROM-size target and optional duration cap
+- **During conversion:** progress shows `Part N of approximately M` and the current source position, for example `18:42 / 50:00`
+- **Split controls:** choose a 1–32 MiB target with quick 20 MiB, 30 MiB, and Maximum buttons; optionally cap the source duration of each part
+- **Chapter-aware splitting:** when chapter metadata is present, the splitter prefers a nearby earlier chapter boundary instead of cutting in the middle of a chapter
+- **Long-job recovery:** accepted parts are kept in a persistent recovery folder and reused when the same conversion is started again after an interruption
+- **Part title cards:** split ROMs can show the sanitized source filename followed by `PART N` before playback
 
 - Drag in one or more videos
 - Trim start and end times
@@ -78,17 +81,30 @@ The generated player keeps the proven v0.9 playback path:
 
 ### Multi-clip menu
 
-- Custom blue-wave background
+- Custom darker blue-wave background
 - One, two, or three title columns
 - Total clip duration and current selection status
+- `PAGE X/Y` indicator for collections that span multiple menu pages
 - Four-direction D-pad navigation
 - Independent blinking OBJ-sprite arrow
+- The selected menu item is remembered when returning from playback and across restarts when SRAM resume is enabled
+- Each clip stores its own resume frame instead of sharing one global position
 - No unstable video thumbnails in the GBA menu
 
 
 ### Automatic long-video handling
 
-For one source video, choose the normal **Single ROM** output and convert as usual. The desktop app checks the minimum required data before encoding and also verifies the real encoded size afterward. When one cartridge would exceed the safe limit, the result automatically changes from a `.gba` file to a `_PARTS.zip` package containing sequential ROMs plus `PARTS.txt`. No manual split mode is exposed.
+For one source video, choose the normal **Single ROM** output and convert as usual. The desktop app checks the minimum required data before encoding and also verifies the real encoded size afterward. When one cartridge would exceed the selected target, the result automatically changes from a `.gba` file to a `_PARTS.zip` package containing sequential ROMs plus `PARTS.txt`. No manual split mode is exposed.
+
+The automatic split panel provides:
+
+- A 1–32 MiB ROM-data target slider, plus 20 MiB, 30 MiB, and Maximum presets
+- An optional fixed maximum source duration per part
+- Chapter-aware split points when the source contains chapters
+- Optional filename / `PART N` title screens
+- Persistent recovery of completed parts after cancellation, application failure, or power loss
+
+The pre-conversion estimate reports the approximate part count. While encoding, the status area shows both the current part and source timestamp. The estimate can change as real compressed sizes become available.
 
 ## Generated ROM controls
 
@@ -167,14 +183,19 @@ GitHub Pages deployment is configured in [`.github/workflows/pages.yml`](.github
 
 ## Resume support
 
-When **Save/resume position** is enabled, the ROM declares `SRAM_V113` save memory and stores the current clip and frame.
+When **Save/resume position** is enabled, the ROM declares `SRAM_V113` save memory.
 
-On the next launch:
+For a single-video ROM it stores the playback frame. For menu and playlist ROMs it stores:
+
+- The most recently selected clip
+- A separate playback frame for every clip
+
+Returning from a menu clip preserves that clip's position. Selecting it again presents the normal resume prompt:
 
 - `A` continues from the saved time
-- `B` restarts from the beginning
+- `B` restarts only that clip from the beginning
 
-SRAM behavior should be tested on the intended flash cartridge because save handling differs among cartridges and emulator configurations.
+Finishing a clip normally clears only that clip's saved frame. SRAM behavior should be tested on the intended flash cartridge because save handling differs among cartridges and emulator configurations.
 
 ## ROM format
 

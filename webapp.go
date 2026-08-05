@@ -112,24 +112,29 @@ type clipSettingsRequest struct {
 }
 
 type convertRequest struct {
-	Start       string                `json:"start"`
-	End         string                `json:"end"`
-	Speed       float64               `json:"speed"`
-	FPS         string                `json:"fps"`
-	Fit         string                `json:"fit"`
-	Audio       string                `json:"audio"`
-	Volume      float64               `json:"volume"`
-	Loop        bool                  `json:"loop"`
-	RomTitle    string                `json:"romTitle"`
-	SeekSeconds int                   `json:"seekSeconds"`
-	Normalize   bool                  `json:"normalize"`
-	Limiter     bool                  `json:"limiter"`
-	Resume      bool                  `json:"resume"`
-	Compression string                `json:"compression"`
-	PaletteMode string                `json:"paletteMode"`
-	DitherMode  string                `json:"ditherMode"`
-	OutputMode  string                `json:"outputMode"`
-	Clips       []clipSettingsRequest `json:"clips"`
+	Start            string                `json:"start"`
+	End              string                `json:"end"`
+	Speed            float64               `json:"speed"`
+	FPS              string                `json:"fps"`
+	Fit              string                `json:"fit"`
+	Audio            string                `json:"audio"`
+	Volume           float64               `json:"volume"`
+	Loop             bool                  `json:"loop"`
+	RomTitle         string                `json:"romTitle"`
+	SeekSeconds      int                   `json:"seekSeconds"`
+	Normalize        bool                  `json:"normalize"`
+	Limiter          bool                  `json:"limiter"`
+	Resume           bool                  `json:"resume"`
+	Compression      string                `json:"compression"`
+	PaletteMode      string                `json:"paletteMode"`
+	DitherMode       string                `json:"ditherMode"`
+	OutputMode       string                `json:"outputMode"`
+	SplitBudgetMiB   int                   `json:"splitBudgetMiB"`
+	MaxPartMinutes   float64               `json:"maxPartMinutes"`
+	ChapterAware     bool                  `json:"chapterAware"`
+	PartTitleScreens bool                  `json:"partTitleScreens"`
+	ResumeLongSplit  bool                  `json:"resumeLongSplit"`
+	Clips            []clipSettingsRequest `json:"clips"`
 }
 
 type projectClip struct {
@@ -853,6 +858,15 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	if req.Compression == "" {
 		req.Compression = "delta"
 	}
+	if req.SplitBudgetMiB == 0 {
+		req.SplitBudgetMiB = 31
+	}
+	if req.SplitBudgetMiB < 1 || req.SplitBudgetMiB > 32 {
+		return ProjectOptions{}, nil, errors.New("automatic split ROM size must be between 1 and 32 MiB")
+	}
+	if req.MaxPartMinutes < 0 || req.MaxPartMinutes > 240 {
+		return ProjectOptions{}, nil, errors.New("maximum part duration must be between 0 and 240 minutes")
+	}
 	mode := req.OutputMode
 	if len(inputs) == 1 {
 		mode = "rom"
@@ -868,7 +882,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	if mode == "batch" {
 		ext = ".zip"
 	}
-	output := filepath.Join(s.sessionDir, base+"_v0.9.0"+ext)
+	output := filepath.Join(s.sessionDir, base+ext)
 	romTitle := normalizeTitle(req.RomTitle)
 	if strings.TrimSpace(req.RomTitle) == "" {
 		romTitle = normalizeTitle(base)
@@ -881,7 +895,9 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		Normalize: req.Normalize, Limiter: req.Limiter, Resume: req.Resume,
 		Compression: req.Compression, PaletteMode: req.PaletteMode,
 		DitherMode: req.DitherMode, OutputMode: mode,
-		KeyInterval: 30,
+		KeyInterval: 30, SplitBudgetMiB: req.SplitBudgetMiB,
+		MaxPartMinutes: req.MaxPartMinutes, ChapterAware: req.ChapterAware,
+		PartTitleScreens: req.PartTitleScreens, ResumeLongSplit: req.ResumeLongSplit,
 	}
 	return opt, infos, validateProject(opt)
 }
