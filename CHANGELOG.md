@@ -1,189 +1,178 @@
 # Changelog
 
-## [0.9.0 Web Feature Parity] - 2026-08-05
-
-### Added
-- Brought the public browser converter up to the Windows application's current workflow.
-- Added automatic and manually configured long-video splitting with size targets, `MM:SS` duration caps, chapter-aware cuts, numbered ROMs, `PARTS.txt`, and optional filename / `PART N` title screens.
-- Added estimated output size and ROM-part count, detailed split progress, and automatic 32 MiB overflow fallback.
-- Added interrupted split recovery through IndexedDB and retained completed parts when a later part fails.
-- Added `.gbavideo` project save/open with browser-safe source-file relinking.
-- Added a selected-clip timeline, preview thumbnails, GBA-font title preview, selected-channel audio preview, and a 32 MiB optimizer.
-
-### Changed
-- The web app now dynamically exposes **Single ROM** for one source and playlist, menu, or batch outputs for collections.
-- Browser and Windows ROM assembly now both support split-part title-screen metadata.
-
 ## [0.9.0] - 2026-08-05
 
 ### Added
 
 #### Long-video conversion
 
-- Added automatic fallback from a single ROM to sequential numbered ROMs in a ZIP when the video cannot safely fit on one cartridge.
-- Added pre-conversion split estimates such as `Estimated output: N ROM parts`.
-- Added long-conversion progress showing `Part N of approximately M` and the current source position.
-- Added a 1–32 MiB target-size slider with 20 MiB, 30 MiB, and Maximum shortcuts.
-- Added an optional maximum source duration per ROM part. The field accepts `MM:SS`, such as `1:05`; `0` keeps the duration automatic.
-- Added chapter-aware splitting that prefers a nearby earlier chapter boundary when chapter metadata is available.
-- Added optional split-ROM title screens showing the sanitized source filename and `PART N`.
-- Added adaptive part sizing: oversized candidates are shortened and underfilled candidates are extended before being finalized.
-- Added `PARTS.txt` to split ZIPs with part filenames, source-time ranges, encoded-data sizes, and cartridge sizes.
-- Added persistent interrupted-conversion recovery. Completed parts are retained and reused when the same job is started again.
-- Added early detection when the selected PCM audio alone would exceed the safe cartridge budget.
-- Added a disk-backed desktop workflow suitable for long sources without retaining the entire conversion in browser memory.
+- Automatic fallback from a single ROM to sequential numbered ROMs in a ZIP when the source cannot safely fit on one cartridge.
+- Pre-conversion estimates such as `Estimated output: N ROM parts`.
+- Split progress showing `Part N of approximately M` and the current source position.
+- Optional manual splitting with:
+  - a 1–32 MiB target-size slider;
+  - 20 MiB, 30 MiB, and Maximum shortcuts;
+  - maximum duration per part using seconds, `MM:SS`, or `H:MM:SS`;
+  - chapter-aware cut points;
+  - optional filename and `PART N` title screens.
+- Adaptive part sizing that shortens oversized candidates and extends underfilled candidates.
+- `PARTS.txt` manifests containing filenames, source ranges, encoded-data sizes, and cartridge sizes.
+- Interrupted-conversion recovery that keeps and reuses completed parts.
+- Early detection when PCM audio alone would exceed the selected cartridge budget.
+- Disk-backed desktop splitting for long sources.
 
 #### Project workflow
 
-- Added per-video settings with project-default inheritance for title, trim, speed, framing, audio, volume, looping, palette, and dithering.
-- Added drag-and-drop clip ordering and accessible Move up and Move down controls.
-- Added `.gbavideo` project save/open support using source paths, with relinking for moved files.
-- Added timeline scrubbing with a playhead, start/end handles, thumbnails, fine adjustment, and quick jumps.
-- Added a smart 32 MiB optimizer with a reviewable proposal before changes are applied.
-- Added live GBA-font clip-title previews, character validation, duplicate-title warnings, and filename reset.
+- Per-video settings with project-default inheritance for title, trim, speed, framing, audio, volume, looping, palette, and dithering.
+- Drag-and-drop clip ordering plus accessible Move up and Move down controls.
+- `.gbavideo` project save/open support with source-file relinking.
+- Timeline scrubbing with thumbnails, start/end handles, a current-position handle, fine adjustment, and quick jumps.
+- A reviewable 32 MiB optimization proposal.
+- Live GBA-font title editing with character validation, duplicate-title warnings, filename reset, and automatic 12-character truncation.
 
 #### Collection ROMs and playback
 
-- Added playlist previous/next controls using `SELECT + Left/Right`.
-- Added a collection menu supporting up to three columns, total clip duration, current-selection status, D-pad column navigation, and a blinking selection arrow.
-- Added persistent selected-menu-item storage.
-- Added a separate SRAM resume frame for every clip.
+- Playlist previous/next controls using `SELECT + Left/Right`.
+- A multi-column collection menu with total duration, current-selection status, D-pad navigation, and an OBJ-based selection arrow.
+- Persistent selected-menu-item storage.
+- Separate SRAM resume positions for every clip.
 
-#### Web interface
+#### Web application
 
-- Added browser presets, per-scene palettes, uncompressed video, left/right audio selection, normalization, limiter, project defaults, per-clip overrides, clip reordering, and per-clip looping.
-- Added desktop-equivalent output choices for playlist ROMs, menu ROMs, and separate ROMs in a ZIP.
-- Added a browser ROM-core test that verifies the loop flag in clip metadata.
+- Feature parity with the Windows conversion workflow, including Single ROM, playlist ROM, menu ROM, and separate-ROM ZIP outputs.
+- Automatic and manually configured long-video splitting in the browser.
+- IndexedDB recovery for completed split parts.
+- Browser-safe `.gbavideo` project reopening and source relinking.
+- Presets, per-scene palettes, uncompressed video, channel selection, normalization, limiter, per-clip overrides, and per-clip looping.
+- Browser ROM-core tests for metadata, splitting, and collection behavior.
 
 ### Changed
 
-- Advanced long-video controls are hidden until **Split the video** is checked.
-- Normal **Single ROM** conversion remains compact and still falls back to automatic splitting when required.
-- Manual size and duration rules do not affect conversion while **Split the video** is unchecked.
-- Exported ROM and ZIP filenames no longer receive an application-version suffix.
-- Long-video part-count estimates are refined from actual encoded part sizes during conversion.
-- Each accepted automatic-split part stays below a conservative encoded-data budget and the next part begins at the same source timestamp.
+- Advanced split controls are hidden until **Split the video** is enabled.
+- **Single ROM** remains the compact default and still falls back to automatic splitting when required.
+- Manual split limits are ignored while **Split the video** is disabled.
+- Exported ROM and ZIP filenames no longer include an application-version suffix.
+- Part-count estimates are refined from actual encoded sizes during conversion.
+- Every accepted split part remains below the selected data budget, and the next part begins at the previous part's exact end timestamp.
 - Fit with bars is now the default framing mode.
 - Multi-clip conversion resolves trim, framing, audio, palette, dithering, and looping independently for each clip.
-- Selected-video thumbnails were removed from the GBA menu, along with the obsolete desktop checkbox.
-- The embedded player area was expanded from 20 KiB to 32 KiB for the menu background; media begins at `0x8000`.
-- The browser interface now follows the desktop app's light and dark colour palettes and system theme.
+- Selected-video thumbnails were removed from the GBA menu.
+- The embedded player area was expanded to 32 KiB; media begins at `0x8000`.
+- The browser interface now follows the desktop light/dark palette and system theme.
 - The desktop-download button now shares the website-title row.
-- Browser media inspection now falls back to browser metadata when `ffprobe` fails and reports clearer FFmpeg diagnostics.
+- Browser media inspection falls back to browser metadata when `ffprobe` fails and reports clearer FFmpeg diagnostics.
 - The ambiguous web-only Automatic output mode was removed.
+- The web clip editor now uses a full-width video preview with a separate Windows-style timeline below it.
+- Browser-native video controls are hidden; clicking the video or pressing Space/Enter toggles playback.
+- Start and End timestamps are directly editable using seconds, `MM:SS`, or `H:MM:SS`.
+- Start, Current, and End use matching rectangular handles that no longer shift or resize on hover.
 
 ### Fixed
 
-- Converted the blinking menu arrow from framebuffer drawing into a real 16×16 OBJ sprite.
-- Arrow blinking now changes only OAM visibility instead of redrawing the background, titles, status text, and selected-title highlight.
-- Full menu-framebuffer redraws now occur only when the selected clip changes.
-- Aligned the independent OBJ menu arrow with the selected title instead of the gap between rows.
-- Fixed hidden result and progress elements appearing before browser conversion by enforcing the HTML `hidden` attribute.
+- Converted the blinking menu arrow from framebuffer drawing to a 16×16 OBJ sprite.
+- Arrow blinking now changes only OAM visibility instead of redrawing the full menu.
+- Full menu redraws now occur only when the selected clip changes.
+- Aligned the menu arrow with the selected title.
+- Fixed hidden result and progress elements appearing before browser conversion.
 
 ### Compatibility
 
-- Kept the existing video decoder, audio DMA playback, timing, seeking, fixed 120×80 renderer, compression, and palette capacity unchanged.
+- Kept the existing video decoder, audio DMA playback, timing, seeking, fixed 120×80 renderer, compression format, and palette capacity unchanged.
 
 ## [0.8.0] - 2026-07-31
 
 ### Added
 
-#### Converter application
+#### Converter
 
-- Added Best quality, Balanced, Long video, Smallest ROM, and Custom output presets.
-- Added cartridge-size, frame-count, and approximate duration-limit estimates.
-- Added start/end picture previews using crop, fit-with-bars, or stretch processing.
-- Added audio-channel previews.
-- Added optional loudness normalization and a limiter.
-- Added multi-file drag and drop.
-- Added batch output as separate ROMs in a ZIP.
-- Added multiple clips in one ROM with a startup selection menu.
+- Best quality, Balanced, Long video, Smallest ROM, and Custom presets.
+- Cartridge-size, frame-count, and approximate duration-limit estimates.
+- Start/end picture previews using crop, fit-with-bars, or stretch processing.
+- Audio-channel previews, optional loudness normalization, and a limiter.
+- Multi-file drag and drop.
+- Batch output as separate ROMs in a ZIP.
+- Multiple clips in one ROM with a startup selection menu.
 
 #### Player controls
 
-- Added hold-to-seek with an immediate first jump and repeated jumps approximately every 0.4 seconds.
-- Added configurable 3, 5, 10, and 15-second seek steps; the selected value appears in the seek popup.
-- Added D-pad Up/Down volume control with 0%, 50%, and 100% Direct Sound levels.
-- Added frame-by-frame D-pad Left/Right movement while paused.
-- Added the current frame number to the full HUD.
-- Added a `START + SELECT` controls-help screen.
+- Hold-to-seek with an immediate jump and repeated jumps approximately every 0.4 seconds.
+- Configurable 3, 5, 10, and 15-second seek steps with on-screen feedback.
+- D-pad Up/Down volume control with 0%, 50%, and 100% Direct Sound levels.
+- Frame-by-frame D-pad Left/Right movement while paused.
+- Current frame number in the full HUD.
+- A `START + SELECT` controls-help screen.
 
 #### Encoding
 
-- Upgraded generated ROM metadata from GBV4 to GBV5.
-- Expanded the embedded player template from 8 KiB to 16 KiB.
-- Added keyframe/delta compression with automatic raw-frame fallback.
-- Added frame indexes for compressed seeking and reconstruction.
-- Added shared and scene-change palette modes.
-- Added off, ordered, and error-diffusion dithering modes.
-- Added per-frame palette-index synchronization.
-- Added optional SRAM playback-position saving and resume prompts.
-- Added per-clip assets, settings, titles, audio, palettes, and seek tables for collection ROMs.
+- GBV5 ROM metadata.
+- A 16 KiB embedded player template.
+- Keyframe/delta compression with automatic raw-frame fallback.
+- Frame indexes for compressed seeking and reconstruction.
+- Shared and scene-change palette modes.
+- Off, ordered, and error-diffusion dithering modes.
+- Per-frame palette-index synchronization.
+- Optional SRAM playback-position saving and resume prompts.
+- Per-clip assets, settings, titles, audio, palettes, and seek tables for collection ROMs.
 
 ### Changed
 
-- Added the user-provided app icon as the browser app-window icon and repository ICO asset.
-- Added automatic system light/dark mode palettes.
-- Centered the drag-and-drop screen at every window size and removed its redundant header and film emoji.
+- Added the custom app icon to the browser window and repository ICO asset.
+- Added automatic system light/dark palettes.
+- Centered the drag-and-drop screen and removed its redundant header and emoji.
 - Restored named frame-rate choices: Smooth, Balanced, Classic, and Compact.
-- ROM titles now start from the source filename and are cropped to the 12-character GBA limit.
-- Simplified the trim label to “End (blank = full video)”.
-- Kept `SELECT` for mute/unmute.
-- Moved quick HUD show/hide to `L + R`.
-- Changed `START` to cycle hidden, time-only, and full HUD modes.
-- Kept `B` as restart.
+- ROM titles now begin with the source filename and are truncated to the 12-character GBA limit.
+- Simplified the trim label to **End (blank = full video)**.
+- Kept `SELECT` for mute/unmute, moved quick HUD visibility to `L + R`, and changed `START` to cycle HUD modes.
 
 ### Fixed
 
-- Tightened the volume popup so only one black pixel remains after the final digit.
-- Fixed End-frame previews by seeking to the final decodable frame rather than exact EOF.
+- Tightened volume-popup spacing.
+- Fixed end-frame previews by seeking to the final decodable frame instead of exact EOF.
 
 ## [0.7.0] - 2026-07-31
 
 ### Added
 
-- Added D-pad Left/Right seeking alongside L/R.
-- Added mute feedback, playback HUD, progress line, seek feedback, and a loop indicator.
-- Added per-frame audio seek offsets.
-- Added strict loopback host checks, anti-CSRF token checks for local POST requests, and browser security headers.
-- Added a red remove button for each loaded video.
-- Added multi-video output choices for sequential playback, a clip menu, or separate ROMs in a ZIP.
+- D-pad Left/Right seeking alongside L/R.
+- Mute feedback, playback HUD, progress line, seek feedback, and a loop indicator.
+- Per-frame audio seek offsets.
+- Strict loopback host checks, anti-CSRF checks, and browser security headers.
+- A remove button for each loaded video.
+- Multi-video output choices for sequential playback, a clip menu, or separate ROMs in a ZIP.
 
 ### Changed
 
-- Audited the repository and removed unused converter helpers and constants.
-- Moved the session token from inline JavaScript into an escaped HTML meta element, allowing a strict script policy.
-- Parallelized RGB555 palette lookup generation and reduced allocations in scene detection and error-diffusion dithering.
-- Quantized independent video frames in parallel while preserving byte-for-byte ROM output.
-- Optimized delta-frame encoding and binary index/palette writing without changing ROM output.
-- Reduced the embedded browser icon from 69 KiB to 26 KiB without changing the Windows executable icon.
-- Avoided duplicate GitHub Actions work by letting the Release workflow validate pushes to `main`, while CI handles pull requests and other branches.
-- Removed the runtime FFmpeg downloader; portable releases now bundle a pinned, verified FFmpeg binary.
-- Moved the browser UI from a large inline Go string into readable embedded files under `web/`.
-- Stable GitHub Actions releases now use the exact `VERSION` tag without build-number suffixes or a prerelease badge.
-- Replaced the clip-menu font chevron with a clear pixel-art right arrow.
-- Menu-ROM clips now return to the clip menu automatically when playback finishes.
-- In menu ROMs, pressing `B` during playback now returns to the clip menu instead of restarting the current clip.
-- Embedded the custom icon directly into the Windows executable.
-- Replaced the app icon with the latest transparent-background artwork.
+- Removed unused converter helpers and constants.
+- Moved the session token from inline JavaScript to an escaped HTML meta element, enabling a strict script policy.
+- Parallelized palette lookup generation and independent-frame quantization while preserving byte-for-byte ROM output.
+- Reduced allocations in scene detection and error-diffusion dithering.
+- Optimized delta-frame encoding and binary metadata writing.
+- Reduced the embedded browser icon size without changing the Windows executable icon.
+- Split GitHub Actions responsibilities between stable releases and pull-request CI.
+- Removed the runtime FFmpeg downloader; portable releases now bundle a pinned, verified FFmpeg build.
+- Moved the browser UI from an inline Go string into readable files under `web/`.
+- Stable releases now use the exact `VERSION` tag without build-number suffixes or a prerelease badge.
+- Replaced the menu chevron with a pixel-art arrow.
+- Menu-ROM clips now return to the menu when playback finishes or when `B` is pressed.
+- Embedded the latest transparent app icon directly into the Windows executable.
 - Refined seek-popup spacing and loop-icon placement.
 - Upgraded generated ROM metadata to GBV4.
 
 ### Fixed
 
-- Fixed audio/video drift and end-of-video silence by scheduling frames from a dedicated 16,384 Hz hardware playback clock.
-- Normalized source audio timestamps with asynchronous resampling, improving files with timestamp gaps or overlaps.
-- Paused frame stepping now repositions the audio stream to the selected frame before playback resumes.
+- Fixed audio/video drift and end-of-video silence using a dedicated 16,384 Hz playback clock.
+- Normalized source audio timestamps with asynchronous resampling.
+- Paused frame stepping now repositions audio before playback resumes.
 
 ## [0.6.0] - 2026-07-31
 
 ### Added
 
-- Added L/R seeking with synchronized audio restart.
-- Added reproducible LLVM player builds.
+- L/R seeking with synchronized audio restart.
+- Reproducible LLVM player builds.
 
 ## [0.5.0] - 2026-07-30
 
 ### Added
 
-- Added the portable local-web Windows GUI and the complete first conversion workflow.
+- The portable local-web Windows interface and first complete conversion workflow.

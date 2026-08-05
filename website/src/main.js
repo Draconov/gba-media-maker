@@ -62,8 +62,8 @@ const elements = {
   timelineStart: document.querySelector("#timelineStart"),
   timelineEnd: document.querySelector("#timelineEnd"),
   timelineCurrentText: document.querySelector("#timelineCurrentText"),
-  timelineStartText: document.querySelector("#timelineStartText"),
-  timelineEndText: document.querySelector("#timelineEndText"),
+  timelineStartTimeInput: document.querySelector("#timelineStartTimeInput"),
+  timelineEndTimeInput: document.querySelector("#timelineEndTimeInput"),
   inlineTimeline: document.querySelector("#inlineTimeline"),
   timelineTrack: document.querySelector("#timelineTrack"),
   timelineSelection: document.querySelector("#timelineSelection"),
@@ -555,9 +555,9 @@ function updateTimelineLabels() {
   const end = clampNumber(elements.timelineEnd.value, 0, duration);
   const percent = (value) => `${Math.max(0, Math.min(100, (value / duration) * 100)).toFixed(4)}%`;
 
-  elements.timelineStartText.textContent = formatClock(start, true);
+  if (document.activeElement !== elements.timelineStartTimeInput) elements.timelineStartTimeInput.value = formatClock(start, true);
   elements.timelineCurrentText.textContent = formatClock(current, true);
-  elements.timelineEndText.textContent = formatClock(end, true);
+  if (document.activeElement !== elements.timelineEndTimeInput) elements.timelineEndTimeInput.value = formatClock(end, true);
   elements.timelineTrack.style.setProperty("--timeline-start", percent(start));
   elements.timelineTrack.style.setProperty("--timeline-current", percent(current));
   elements.timelineTrack.style.setProperty("--timeline-end", percent(end));
@@ -1676,6 +1676,32 @@ function applyTimelineBoundary(kind, rawValue) {
   renderFiles();
 }
 
+function commitTimelineTimeInput(kind, input) {
+  const parsed = parseClock(input.value);
+  if (!Number.isFinite(parsed)) {
+    input.setCustomValidity("Enter time as MM:SS, H:MM:SS, or seconds.");
+    input.reportValidity();
+    input.setCustomValidity("");
+    updateTimelineLabels();
+    return;
+  }
+  setTimelineBoundaryPreview(kind, parsed);
+  const range = kind === "start" ? elements.timelineStart : elements.timelineEnd;
+  applyTimelineBoundary(kind, range.value);
+  input.value = formatClock(Number(range.value), true);
+}
+
+function restoreTimelineTimeInput(kind, input) {
+  const range = kind === "start" ? elements.timelineStart : elements.timelineEnd;
+  input.value = formatClock(Number(range.value), true);
+}
+
+function togglePreviewPlayback() {
+  if (!elements.previewVideo.src) return;
+  if (elements.previewVideo.paused) elements.previewVideo.play().catch(() => {});
+  else elements.previewVideo.pause();
+}
+
 async function createAudioPreview() {
   const entry = selectedEntry();
   if (!entry || conversionRunning) return;
@@ -1821,6 +1847,33 @@ elements.titlePreviewInput.addEventListener("keydown", (event) => {
 for (const eventName of ["click", "keyup", "select"]) {
   elements.titlePreviewInput.addEventListener(eventName, updateTitlePreview);
 }
+
+for (const [input, kind] of [
+  [elements.timelineStartTimeInput, "start"],
+  [elements.timelineEndTimeInput, "end"],
+]) {
+  input.addEventListener("focus", () => input.select());
+  input.addEventListener("change", () => commitTimelineTimeInput(kind, input));
+  input.addEventListener("blur", () => restoreTimelineTimeInput(kind, input));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitTimelineTimeInput(kind, input);
+      input.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      restoreTimelineTimeInput(kind, input);
+      input.blur();
+    }
+  });
+}
+
+elements.previewVideo.addEventListener("click", togglePreviewPlayback);
+elements.previewVideo.addEventListener("keydown", (event) => {
+  if (event.key !== " " && event.key !== "Enter") return;
+  event.preventDefault();
+  togglePreviewPlayback();
+});
 
 elements.timelineStartHandle.addEventListener("pointerdown", (event) => beginTimelineDrag("start", event));
 elements.timelinePlayHandle.addEventListener("pointerdown", (event) => beginTimelineDrag("current", event));
