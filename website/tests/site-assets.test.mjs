@@ -74,9 +74,12 @@ test("selected clip editor uses a full-width player and an editable GBA title fi
   assert.match(style, /\.timeline-handle-start[\s\S]*--timeline-start/);
   assert.match(script, /sanitizeMenuTitle\(elements\.titlePreviewInput\.value\)/);
   assert.match(script, /document\.activeElement === elements\.titlePreviewInput/);
+  assert.match(style, /#titlePreviewInput\s*\{[^}]*position:\s*absolute;[^}]*color:\s*transparent;[^}]*background:\s*transparent;/s);
+  assert.match(style, /\.title-editor\s*\{[^}]*background:\s*#000;/s);
+  assert.match(script, /text === "" \? \(kind === "start" \? 0 : duration\)/);
   assert.match(script, /beginTimelineDrag\("start"/);
   assert.match(script, /timelineValueFromClientX/);
-  assert.match(script, /parseClock\(input\.value\)/);
+  assert.match(script, /parseClock\(text\)/);
   assert.match(script, /togglePreviewPlayback/);
   assert.match(style, /\.timeline-handle-current[\s\S]*background:\s*#fff;/);
   assert.doesNotMatch(style, /\.timeline-handle-current[\s\S]*border-radius:\s*50%/);

@@ -1677,7 +1677,9 @@ function applyTimelineBoundary(kind, rawValue) {
 }
 
 function commitTimelineTimeInput(kind, input) {
-  const parsed = parseClock(input.value);
+  const text = input.value.trim();
+  const duration = Math.max(0, Number(elements.timelineEnd.max) || elements.previewVideo.duration || selectedEntry()?.duration || 0);
+  const parsed = text === "" ? (kind === "start" ? 0 : duration) : parseClock(text);
   if (!Number.isFinite(parsed)) {
     input.setCustomValidity("Enter time as MM:SS, H:MM:SS, or seconds.");
     input.reportValidity();
