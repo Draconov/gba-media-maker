@@ -5,7 +5,7 @@
 
 **Turn ordinary videos into playable Game Boy Advance ROMs — in the browser or with the portable Windows app.**
 
-[![Version](https://img.shields.io/badge/version-0.9.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.10.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
 [![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
 [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
@@ -80,13 +80,23 @@ The generated player keeps the proven v0.9 playback path:
 - Optional limiter
 - Selected-channel audio preview in both the desktop and web editors
 
-### Multi-clip menu
+### Menu design and multi-clip menu
 
-- Custom darker blue-wave background
-- One, two, or three title columns
-- Total clip duration and current selection status
-- Four-direction D-pad navigation
-- Independent blinking OBJ-sprite arrow
+Version 0.10 adds a dedicated **Menu design** panel whenever **One ROM — clip menu** is selected. The desktop and browser editions use the same theme format and embed the chosen design directly into the exported ROM.
+
+- Live pixel preview built from the same 120×80 indexed background data used by the GBA player
+- Integer-scaled preview with the player's exact 3×5 font, text coordinates, divider lines, and selector shape
+- Built-in **Classic dark**, **Ocean Wave — static**, **Ocean Wave — animated**, and **Blue Wave — animated** backgrounds
+- Ocean Wave animation uses a lightweight palette shimmer: the bright curl changes about twice per second and the lower water about five times per second
+- Selectable UI-colour presets for normal and selected text
+- Optional one-pixel UI outline with a selectable outline colour
+- Custom PNG, JPEG, WebP, or GIF backgrounds, cropped to 120×80 and optimized to a GBA RGB555 indexed palette
+- GIF backgrounds sampled to at most 16 looping frames; frame animations are drawn on the hidden Mode 4 page and switched during VBlank
+- Theme data, animation settings, palette, UI colours, and outline settings are stored inside each menu ROM instead of requiring a separate player binary
+- Menu-theme storage is included in the pre-conversion size estimate
+- Menu-design choices are preserved in `.gbavideo` project files
+- One, two, or three title columns with total duration and current-selection status
+- Four-direction D-pad navigation and an independent blinking OBJ-sprite selector
 - The selected menu item is remembered when returning from playback and across restarts when SRAM resume is enabled
 - Each clip stores its own resume frame instead of sharing one global position
 - No unstable video thumbnails in the GBA menu
@@ -159,6 +169,7 @@ The web edition now mirrors the Windows application's conversion workflow:
 - `Part N of approximately M` and source-position progress
 - Frame rate, framing, palette, dithering, compression, audio channel, volume, normalization, limiter, trimming, speed, looping, seek step, and SRAM resume
 - Project save/open with source-file relinking, project defaults, per-clip overrides, clip reordering, a selected-clip timeline, GBA-font title preview, and audio preview
+- Menu-design parity with the desktop app, including live preview, UI and outline colours, built-in static/animated backgrounds, and custom image/GIF backgrounds
 
 Browser processing is local: selected videos are copied into FFmpeg's in-browser filesystem and are not uploaded to a project server. Browser security does not allow a saved project to silently reopen local files, so the web app relinks them by filename after the user selects them again.
 
@@ -260,7 +271,7 @@ PowerShell helpers:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.9.0
+./scripts/package-release.ps1 -Version 0.10.0
 ```
 
 ## Project layout
@@ -269,8 +280,9 @@ PowerShell helpers:
 player/                  ARM7TDMI player source and build scripts
 assets/player_stub.bin   Prebuilt 32 KiB GBA player template
 converter.go             FFmpeg pipeline, palettes, compression, and ROM assembly
-web/                     Interface embedded in the Windows app
-website/                 Standalone GitHub Pages converter
+menu_theme.go            MTH1 menu-theme validation and ROM embedding
+web/                     Interface and menu-theme tools embedded in the Windows app
+website/                 Standalone GitHub Pages converter and matching theme tools
 webapp.go                Local desktop HTTP API
 scripts/                 Desktop build and packaging helpers
 docs/                    Architecture documentation

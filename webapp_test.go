@@ -63,7 +63,7 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.9.0")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.10.0")) {
 		t.Fatal("version missing")
 	}
 	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF"} {

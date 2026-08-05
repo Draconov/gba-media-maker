@@ -513,7 +513,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.9.0", Settings: req}
+	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.10.0", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath

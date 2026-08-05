@@ -141,17 +141,62 @@ function drawGlyph(buffer,x,y,ch,fg,outline,outlineEnabled) {
   for(const [px,py] of points) if(px>=0&&py>=0&&px<FRAME_WIDTH&&py<FRAME_HEIGHT) buffer[py*FRAME_WIDTH+px]=fg;
 }
 function drawText(buffer,x,y,text,fg,outline,outlineEnabled) { for(let i=0;i<text.length;i++) drawGlyph(buffer,x+i*4,y,text[i],fg,outline,outlineEnabled); }
+
+/* Match the real menu OBJ artwork: 2,3,4,3,2 logical pixels wide. */
+function drawMenuArrow(buffer,x,y,fg,outline,outlineEnabled) {
+  const rowWidths=[2,3,4,3,2], points=[];
+  for(let row=0;row<rowWidths.length;row++) for(let col=0;col<rowWidths[row];col++) points.push([x+col,y+row]);
+  if(outlineEnabled) {
+    for(const [px,py] of points) for(let oy=-1;oy<=1;oy++) for(let ox=-1;ox<=1;ox++) {
+      const xx=px+ox,yy=py+oy;
+      if(xx>=0&&yy>=0&&xx<FRAME_WIDTH&&yy<FRAME_HEIGHT) buffer[yy*FRAME_WIDTH+xx]=outline;
+    }
+  }
+  for(const [px,py] of points) buffer[py*FRAME_WIDTH+px]=fg;
+}
+
+function menuPreviewScale(canvas) {
+  const available=Math.max(FRAME_WIDTH,Math.floor(canvas.parentElement?.clientWidth||canvas.clientWidth||480));
+  return Math.max(1,Math.min(4,Math.floor(available/FRAME_WIDTH)));
+}
+
+function paintIntegerScaled(canvas,logical) {
+  const scale=menuPreviewScale(canvas),width=FRAME_WIDTH*scale,height=FRAME_HEIGHT*scale;
+  if(canvas.width!==width) canvas.width=width;
+  if(canvas.height!==height) canvas.height=height;
+  canvas.style.width=`${width}px`;
+  canvas.style.height=`${height}px`;
+  const ctx=canvas.getContext('2d',{alpha:false});
+  ctx.imageSmoothingEnabled=false;
+  const image=ctx.createImageData(width,height);
+  for(let y=0;y<FRAME_HEIGHT;y++) for(let x=0;x<FRAME_WIDTH;x++) {
+    const [r,g,b]=rgb555ToRGB(logical[y*FRAME_WIDTH+x]);
+    for(let sy=0;sy<scale;sy++) for(let sx=0;sx<scale;sx++) {
+      const p=((y*scale+sy)*width+x*scale+sx)*4;
+      image.data[p]=r; image.data[p+1]=g; image.data[p+2]=b; image.data[p+3]=255;
+    }
+  }
+  ctx.putImageData(image,0,0);
+}
+
 function renderMenuPreview(canvas,theme,settings={},elapsed=0) {
-  if(!canvas||!theme) return; const frameIndex=theme.kind==='frames'?Math.floor(elapsed/((theme.frameVBlanks||12)/59.7275*1000))%theme.frames.length:0;
-  const palette=paletteForPreview(theme,elapsed); const source=theme.frames[frameIndex]||theme.frames[0]; const logical=new Uint16Array(FRAME_BYTES);
+  if(!canvas||!theme) return;
+  const frameIndex=theme.kind==='frames'?Math.floor(elapsed/((theme.frameVBlanks||12)/59.7275*1000))%theme.frames.length:0;
+  const palette=paletteForPreview(theme,elapsed),source=theme.frames[frameIndex]||theme.frames[0],logical=new Uint16Array(FRAME_BYTES);
   for(let i=0;i<FRAME_BYTES;i++) logical[i]=getColour(palette,source[i]);
-  const colors=settingsColours(settings), outlineEnabled=!!settings.outline; const ui=colors.ui,selected=colors.selected,outline=colors.outline;
-  for(let x=0;x<FRAME_WIDTH;x++) { if(outlineEnabled) {if(13>=0) logical[13*FRAME_WIDTH+x]=outline;if(15<FRAME_HEIGHT)logical[15*FRAME_WIDTH+x]=outline;} logical[14*FRAME_WIDTH+x]=ui; }
-  drawText(logical,36,2,'SELECT VIDEO',ui,outline,outlineEnabled); drawText(logical,2,8,'CLIP 1/3',ui,outline,outlineEnabled); drawText(logical,74,8,'TOTAL 01:05',ui,outline,outlineEnabled);
-  drawText(logical,8,17,'FIRST VIDEO',selected,outline,outlineEnabled); drawText(logical,8,23,'SECOND VIDEO',ui,outline,outlineEnabled); drawText(logical,8,29,'THIRD VIDEO',ui,outline,outlineEnabled);
-  for(let row=0;row<5;row++) for(let x=0;x<2+Math.abs(2-row);x++) { const px=1+x,py=17+row; if(outlineEnabled) for(let oy=-1;oy<=1;oy++) for(let ox=-1;ox<=1;ox++) if(px+ox>=0&&py+oy>=0) logical[(py+oy)*FRAME_WIDTH+px+ox]=outline; logical[py*FRAME_WIDTH+px]=selected; }
-  const image=new ImageData(FRAME_WIDTH,FRAME_HEIGHT); for(let i=0;i<FRAME_BYTES;i++) { const [r,g,b]=rgb555ToRGB(logical[i]); const p=i*4; image.data[p]=r;image.data[p+1]=g;image.data[p+2]=b;image.data[p+3]=255; }
-  const temp=document.createElement('canvas'); temp.width=FRAME_WIDTH;temp.height=FRAME_HEIGHT;temp.getContext('2d').putImageData(image,0,0); const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(temp,0,0,canvas.width,canvas.height);
+  const colors=settingsColours(settings),outlineEnabled=!!settings.outline,ui=colors.ui,selected=colors.selected,outline=colors.outline;
+  for(let x=0;x<FRAME_WIDTH;x++) {
+    if(outlineEnabled) { logical[13*FRAME_WIDTH+x]=outline; logical[15*FRAME_WIDTH+x]=outline; }
+    logical[14*FRAME_WIDTH+x]=ui;
+  }
+  drawText(logical,36,2,'SELECT VIDEO',ui,outline,outlineEnabled);
+  drawText(logical,2,8,'CLIP 1/3',ui,outline,outlineEnabled);
+  drawText(logical,74,8,'TOTAL 01:05',ui,outline,outlineEnabled);
+  drawText(logical,8,17,'FIRST VIDEO',selected,outline,outlineEnabled);
+  drawText(logical,8,23,'SECOND VIDEO',ui,outline,outlineEnabled);
+  drawText(logical,8,29,'THIRD VIDEO',ui,outline,outlineEnabled);
+  drawMenuArrow(logical,3,17,selected,outline,outlineEnabled);
+  paintIntegerScaled(canvas,logical);
 }
 function startPreview(canvas,getTheme,getSettings) { let stopped=false,start=performance.now(); const tick=now=>{if(stopped)return;renderMenuPreview(canvas,getTheme(),getSettings(),now-start);requestAnimationFrame(tick);};requestAnimationFrame(tick);return()=>{stopped=true;}; }
 
