@@ -63,28 +63,40 @@
           <button id="resetClipTitleButton" class="secondary" type="button">Title from filename</button>
         </div>
         <div class="preview-layout">
-          <div class="preview-player-wrap">
-            <video id="previewVideo" controls playsinline muted></video>
-            <canvas id="titlePreview" width="208" height="32" aria-label="GBA clip-title preview"></canvas>
-            <p id="titleWarning" class="validation"></p>
-          </div>
-          <div class="timeline-panel">
+          <div class="video-editor-stage">
+            <div class="video-stage">
+              <video id="previewVideo" controls playsinline muted></video>
+              <div class="video-boundary-badges" aria-hidden="true">
+                <span>Start <strong id="videoStartBadge">0:00.00</strong></span>
+                <span>End <strong id="videoEndBadge">0:00.00</strong></span>
+              </div>
+            </div>
+
             <div id="timelineThumbs" class="timeline-thumbs" aria-hidden="true"></div>
-            <label>Preview position <span id="timelineCurrentText">0:00.00</span>
-              <input id="timelinePlay" type="range" min="0" max="1" step="0.04" value="0" />
-            </label>
-            <label>Start <span id="timelineStartText">0:00.00</span>
-              <input id="timelineStart" type="range" min="0" max="1" step="0.04" value="0" />
-            </label>
-            <label>End <span id="timelineEndText">0:00.00</span>
-              <input id="timelineEnd" type="range" min="0" max="1" step="0.04" value="1" />
-            </label>
+            <div class="timeline-controls">
+              <label class="timeline-wide">Preview position <span id="timelineCurrentText">0:00.00</span>
+                <input id="timelinePlay" type="range" min="0" max="1" step="0.04" value="0" />
+              </label>
+              <label>Start <span id="timelineStartText">0:00.00</span>
+                <input id="timelineStart" type="range" min="0" max="1" step="0.04" value="0" />
+              </label>
+              <label>End <span id="timelineEndText">0:00.00</span>
+                <input id="timelineEnd" type="range" min="0" max="1" step="0.04" value="1" />
+              </label>
+            </div>
+
             <div class="timeline-actions">
               <button id="jumpBegin" class="secondary" type="button">Start</button>
               <button id="jumpEnd" class="secondary" type="button">End</button>
               <button id="audioPreviewButton" class="secondary" type="button">Create audio preview</button>
             </div>
             <audio id="audioPreviewPlayer" controls hidden></audio>
+
+            <div id="titleEditor" class="title-editor" role="group" aria-label="Editable GBA clip-menu title" title="Click to edit the clip-menu title">
+              <canvas id="titlePreview" width="208" height="32" aria-hidden="true"></canvas>
+              <input id="titlePreviewInput" type="text" maxlength="12" autocomplete="off" spellcheck="false" aria-label="Clip-menu title, maximum 12 GBA characters" />
+            </div>
+            <p id="titleWarning" class="validation"></p>
           </div>
         </div>
       </section>

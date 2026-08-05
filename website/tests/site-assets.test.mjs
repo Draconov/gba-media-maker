@@ -38,13 +38,32 @@ test("web edition exposes desktop parity controls", async () => {
   ]);
   for (const id of [
     "saveProjectButton", "openProjectInput", "previewVideo", "timelineStart", "timelineEnd",
-    "audioPreviewButton", "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
+    "videoStartBadge", "videoEndBadge", "titleEditor", "titlePreviewInput", "audioPreviewButton",
+    "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
   ]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(script, /performLongSplit/);
   assert.match(script, /Estimated output:/);
   assert.match(script, /Part \$\{partNumber\} of approximately/);
   assert.match(script, /indexedDB\.open\("gba-video-maker"/);
+});
+
+
+test("selected clip editor uses a full-width player and an editable GBA title field", async () => {
+  const [html, style, script] = await Promise.all([
+    readFile(resolve(website, "index.html"), "utf8"),
+    readFile(resolve(website, "src/style.css"), "utf8"),
+    readFile(resolve(website, "src/main.js"), "utf8"),
+  ]);
+  assert.match(html, /class="video-editor-stage"/);
+  assert.match(html, /class="video-stage"/);
+  assert.match(html, /id="titlePreviewInput"[^>]*maxlength="12"/);
+  assert.match(html, /id="videoStartBadge"/);
+  assert.match(html, /id="videoEndBadge"/);
+  assert.match(style, /\.preview-layout\s*\{\s*display:\s*block;/);
+  assert.match(style, /#previewVideo[\s\S]*width:\s*100%;/);
+  assert.match(script, /sanitizeMenuTitle\(elements\.titlePreviewInput\.value\)/);
+  assert.match(script, /document\.activeElement === elements\.titlePreviewInput/);
 });
 
 test("every queried website element exists in the HTML", async () => {

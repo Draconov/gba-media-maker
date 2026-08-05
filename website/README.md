@@ -14,7 +14,7 @@ The web edition now follows the Windows application's conversion workflow and us
 - `Part N of approximately M` and source-position progress during splitting
 - Persistent completed-part recovery through IndexedDB; reselect the same source file to resume
 - Save/open `.gbavideo` projects with browser-safe source relinking
-- Selected-clip video timeline, start/end controls, eight preview frames, GBA-font title preview, and selected-channel audio preview
+- Full-width selected-clip player with integrated start/end controls, eight preview frames, a directly editable yellow GBA-font title field, and selected-channel audio preview
 - Presets, 32 MiB optimizer, framing, four frame rates, palettes, dithering, compression, PCM audio options, normalization, limiter, speed, volume, looping, seeking, and SRAM resume
 - The original fixed 120×80 v0.9 playback format and the same `assets/player_stub.bin` as Windows
 - Fully local processing: source videos are not uploaded to a server

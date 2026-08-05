@@ -52,7 +52,9 @@ const elements = {
   previewCard: document.querySelector("#previewCard"),
   selectedClipName: document.querySelector("#selectedClipName"),
   previewVideo: document.querySelector("#previewVideo"),
+  titleEditor: document.querySelector("#titleEditor"),
   titlePreview: document.querySelector("#titlePreview"),
+  titlePreviewInput: document.querySelector("#titlePreviewInput"),
   titleWarning: document.querySelector("#titleWarning"),
   resetClipTitleButton: document.querySelector("#resetClipTitleButton"),
   timelineThumbs: document.querySelector("#timelineThumbs"),
@@ -62,6 +64,8 @@ const elements = {
   timelineCurrentText: document.querySelector("#timelineCurrentText"),
   timelineStartText: document.querySelector("#timelineStartText"),
   timelineEndText: document.querySelector("#timelineEndText"),
+  videoStartBadge: document.querySelector("#videoStartBadge"),
+  videoEndBadge: document.querySelector("#videoEndBadge"),
   jumpBegin: document.querySelector("#jumpBegin"),
   jumpEnd: document.querySelector("#jumpEnd"),
   audioPreviewButton: document.querySelector("#audioPreviewButton"),
@@ -478,7 +482,8 @@ function updateTitlePreview() {
   const scale = 4;
   const startX = 8;
   const startY = 6;
-  const title = String(entry?.title || "VIDEO").toUpperCase().padEnd(12, " ").slice(0, 12);
+  const rawTitle = sanitizeMenuTitle(entry?.title || "");
+  const title = rawTitle.padEnd(12, " ").slice(0, 12);
   [...title].forEach((character, index) => {
     const bits = GBA_GLYPHS[character] || 0;
     for (let row = 0; row < 5; row += 1) {
@@ -488,11 +493,18 @@ function updateTitlePreview() {
       }
     }
   });
-  const invalid = entry && entry.title !== sanitizeMenuTitle(entry.title);
+
+  if (document.activeElement === elements.titlePreviewInput) {
+    const caretIndex = Math.min(elements.titlePreviewInput.selectionStart ?? rawTitle.length, 12);
+    const caretX = Math.min(canvas.width - 4, startX + caretIndex * 16);
+    context.fillRect(caretX, startY, 2, 20);
+  }
+
+  if (elements.titlePreviewInput && elements.titlePreviewInput.value !== rawTitle) {
+    elements.titlePreviewInput.value = rawTitle;
+  }
   const duplicates = entry ? entries.filter((candidate) => candidate.id !== entry.id && candidate.title === entry.title && entry.title).length : 0;
-  elements.titleWarning.textContent = invalid
-    ? "Unsupported characters are not available in the GBA menu font."
-    : duplicates ? "Another clip uses the same menu title." : "";
+  elements.titleWarning.textContent = duplicates ? "Another clip uses the same menu title." : "";
 }
 
 function revokePreviewURLs() {
@@ -535,6 +547,8 @@ function updateTimelineLabels() {
   elements.timelineStartText.textContent = formatClock(elements.timelineStart.value, true);
   elements.timelineCurrentText.textContent = formatClock(elements.timelinePlay.value, true);
   elements.timelineEndText.textContent = formatClock(elements.timelineEnd.value, true);
+  elements.videoStartBadge.textContent = elements.timelineStartText.textContent;
+  elements.videoEndBadge.textContent = elements.timelineEndText.textContent;
 }
 
 async function renderTimelineThumbnails(entry) {
@@ -862,6 +876,7 @@ function setBusy(busy) {
     elements.maxPartDuration, elements.chapterAware, elements.partTitleScreens, elements.resumeLongSplit,
     elements.saveProjectButton, elements.openProjectInput, elements.optimizerButton,
     elements.timelinePlay, elements.timelineStart, elements.timelineEnd, elements.audioPreviewButton,
+    elements.titlePreviewInput,
   ];
   for (const control of settings) control.disabled = busy;
   for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
@@ -1695,6 +1710,34 @@ elements.resetClipTitleButton.addEventListener("click", () => {
   resetResult();
   renderFiles();
 });
+elements.titlePreviewInput.addEventListener("input", () => {
+  const entry = selectedEntry();
+  if (!entry) return;
+  const cleaned = sanitizeMenuTitle(elements.titlePreviewInput.value);
+  if (elements.titlePreviewInput.value !== cleaned) elements.titlePreviewInput.value = cleaned;
+  entry.title = cleaned;
+  resetResult();
+  updateTitlePreview();
+  updateEstimate();
+});
+elements.titlePreviewInput.addEventListener("focus", () => {
+  elements.titlePreviewInput.setSelectionRange(elements.titlePreviewInput.value.length, elements.titlePreviewInput.value.length);
+  updateTitlePreview();
+});
+elements.titlePreviewInput.addEventListener("blur", () => {
+  const entry = selectedEntry();
+  if (entry && !entry.title) entry.title = "VIDEO";
+  renderFiles();
+});
+elements.titlePreviewInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    elements.titlePreviewInput.blur();
+  }
+});
+for (const eventName of ["click", "keyup", "select"]) {
+  elements.titlePreviewInput.addEventListener(eventName, updateTitlePreview);
+}
 elements.timelinePlay.addEventListener("input", () => {
   elements.previewVideo.currentTime = Number(elements.timelinePlay.value);
   updateTimelineLabels();
