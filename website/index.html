@@ -66,28 +66,34 @@
           <div class="video-editor-stage">
             <div class="video-stage">
               <video id="previewVideo" controls playsinline muted></video>
-              <div class="video-boundary-badges" aria-hidden="true">
-                <span>Start <strong id="videoStartBadge">0:00.00</strong></span>
-                <span>End <strong id="videoEndBadge">0:00.00</strong></span>
+
+              <div id="inlineTimeline" class="inline-timeline" aria-label="Video trim timeline">
+                <div id="timelineThumbs" class="timeline-thumbs" aria-hidden="true"></div>
+
+                <div id="timelineTrack" class="timeline-track" aria-label="Start, preview and end positions">
+                  <div class="timeline-track-rail" aria-hidden="true"></div>
+                  <div id="timelineSelection" class="timeline-selection" aria-hidden="true"></div>
+                  <div id="timelineCurrentMarker" class="timeline-current-marker" aria-hidden="true"></div>
+                  <button id="timelineStartHandle" class="timeline-handle timeline-handle-start" type="button" aria-label="Drag start position"></button>
+                  <button id="timelinePlayHandle" class="timeline-handle timeline-handle-current" type="button" aria-label="Drag preview position"></button>
+                  <button id="timelineEndHandle" class="timeline-handle timeline-handle-end" type="button" aria-label="Drag end position"></button>
+                </div>
+
+                <input id="timelinePlay" class="timeline-value-input" type="range" min="0" max="1" step="0.04" value="0" aria-label="Preview position" />
+                <input id="timelineStart" class="timeline-value-input" type="range" min="0" max="1" step="0.04" value="0" aria-label="Start position" />
+                <input id="timelineEnd" class="timeline-value-input" type="range" min="0" max="1" step="0.04" value="1" aria-label="End position" />
+
+                <div class="timeline-status-row">
+                  <button id="jumpBegin" class="timeline-step-button" type="button" aria-label="Jump preview to start">◀</button>
+                  <span>Start <strong id="timelineStartText">0:00.00</strong></span>
+                  <span>Current <strong id="timelineCurrentText">0:00.00</strong></span>
+                  <span>End <strong id="timelineEndText">0:00.00</strong></span>
+                  <button id="jumpEnd" class="timeline-step-button" type="button" aria-label="Jump preview to end">▶</button>
+                </div>
               </div>
             </div>
 
-            <div id="timelineThumbs" class="timeline-thumbs" aria-hidden="true"></div>
-            <div class="timeline-controls">
-              <label class="timeline-wide">Preview position <span id="timelineCurrentText">0:00.00</span>
-                <input id="timelinePlay" type="range" min="0" max="1" step="0.04" value="0" />
-              </label>
-              <label>Start <span id="timelineStartText">0:00.00</span>
-                <input id="timelineStart" type="range" min="0" max="1" step="0.04" value="0" />
-              </label>
-              <label>End <span id="timelineEndText">0:00.00</span>
-                <input id="timelineEnd" type="range" min="0" max="1" step="0.04" value="1" />
-              </label>
-            </div>
-
             <div class="timeline-actions">
-              <button id="jumpBegin" class="secondary" type="button">Start</button>
-              <button id="jumpEnd" class="secondary" type="button">End</button>
               <button id="audioPreviewButton" class="secondary" type="button">Create audio preview</button>
             </div>
             <audio id="audioPreviewPlayer" controls hidden></audio>

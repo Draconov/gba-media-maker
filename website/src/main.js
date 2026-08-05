@@ -64,8 +64,13 @@ const elements = {
   timelineCurrentText: document.querySelector("#timelineCurrentText"),
   timelineStartText: document.querySelector("#timelineStartText"),
   timelineEndText: document.querySelector("#timelineEndText"),
-  videoStartBadge: document.querySelector("#videoStartBadge"),
-  videoEndBadge: document.querySelector("#videoEndBadge"),
+  inlineTimeline: document.querySelector("#inlineTimeline"),
+  timelineTrack: document.querySelector("#timelineTrack"),
+  timelineSelection: document.querySelector("#timelineSelection"),
+  timelineCurrentMarker: document.querySelector("#timelineCurrentMarker"),
+  timelineStartHandle: document.querySelector("#timelineStartHandle"),
+  timelinePlayHandle: document.querySelector("#timelinePlayHandle"),
+  timelineEndHandle: document.querySelector("#timelineEndHandle"),
   jumpBegin: document.querySelector("#jumpBegin"),
   jumpEnd: document.querySelector("#jumpEnd"),
   audioPreviewButton: document.querySelector("#audioPreviewButton"),
@@ -544,11 +549,89 @@ function syncSelectedPreview(force = false) {
 }
 
 function updateTimelineLabels() {
-  elements.timelineStartText.textContent = formatClock(elements.timelineStart.value, true);
-  elements.timelineCurrentText.textContent = formatClock(elements.timelinePlay.value, true);
-  elements.timelineEndText.textContent = formatClock(elements.timelineEnd.value, true);
-  elements.videoStartBadge.textContent = elements.timelineStartText.textContent;
-  elements.videoEndBadge.textContent = elements.timelineEndText.textContent;
+  const duration = Math.max(0.01, Number(elements.timelinePlay.max) || elements.previewVideo.duration || 1);
+  const start = clampNumber(elements.timelineStart.value, 0, duration);
+  const current = clampNumber(elements.timelinePlay.value, 0, duration);
+  const end = clampNumber(elements.timelineEnd.value, 0, duration);
+  const percent = (value) => `${Math.max(0, Math.min(100, (value / duration) * 100)).toFixed(4)}%`;
+
+  elements.timelineStartText.textContent = formatClock(start, true);
+  elements.timelineCurrentText.textContent = formatClock(current, true);
+  elements.timelineEndText.textContent = formatClock(end, true);
+  elements.timelineTrack.style.setProperty("--timeline-start", percent(start));
+  elements.timelineTrack.style.setProperty("--timeline-current", percent(current));
+  elements.timelineTrack.style.setProperty("--timeline-end", percent(end));
+}
+
+function timelineValueFromClientX(clientX) {
+  const rect = elements.timelineTrack.getBoundingClientRect();
+  const duration = Math.max(0.01, Number(elements.timelinePlay.max) || elements.previewVideo.duration || 1);
+  const ratio = rect.width > 0 ? clampNumber((clientX - rect.left) / rect.width, 0, 1) : 0;
+  return ratio * duration;
+}
+
+function setTimelinePreview(value) {
+  const duration = Math.max(0.01, Number(elements.timelinePlay.max) || elements.previewVideo.duration || 1);
+  const start = Number(elements.timelineStart.value);
+  const end = Number(elements.timelineEnd.value);
+  const clamped = clampNumber(value, Math.max(0, start), Math.min(duration, end));
+  elements.timelinePlay.value = String(clamped);
+  elements.previewVideo.currentTime = clamped;
+  updateTimelineLabels();
+}
+
+function setTimelineBoundaryPreview(kind, value) {
+  const duration = Math.max(0.01, Number(elements.timelinePlay.max) || elements.previewVideo.duration || 1);
+  const start = Number(elements.timelineStart.value);
+  const end = Number(elements.timelineEnd.value);
+  let clamped = clampNumber(value, 0, duration);
+  if (kind === "start") {
+    clamped = Math.min(clamped, Math.max(0, end - 0.04));
+    elements.timelineStart.value = String(clamped);
+    if (Number(elements.timelinePlay.value) < clamped) setTimelinePreview(clamped);
+  } else {
+    clamped = Math.max(clamped, Math.min(duration, start + 0.04));
+    elements.timelineEnd.value = String(clamped);
+    if (Number(elements.timelinePlay.value) > clamped) setTimelinePreview(clamped);
+  }
+  updateTimelineLabels();
+}
+
+function beginTimelineDrag(kind, event) {
+  if (conversionRunning) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const handle = event.currentTarget;
+  handle.setPointerCapture?.(event.pointerId);
+
+  const update = (pointerEvent) => {
+    const value = timelineValueFromClientX(pointerEvent.clientX);
+    if (kind === "current") setTimelinePreview(value);
+    else setTimelineBoundaryPreview(kind, value);
+  };
+  const finish = (pointerEvent) => {
+    update(pointerEvent);
+    handle.releasePointerCapture?.(pointerEvent.pointerId);
+    handle.removeEventListener("pointermove", update);
+    handle.removeEventListener("pointerup", finish);
+    handle.removeEventListener("pointercancel", finish);
+    if (kind === "start") applyTimelineBoundary("start", elements.timelineStart.value);
+    if (kind === "end") applyTimelineBoundary("end", elements.timelineEnd.value);
+  };
+
+  update(event);
+  handle.addEventListener("pointermove", update);
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+}
+
+function nudgeTimeline(kind, direction) {
+  const step = 0.04 * direction;
+  if (kind === "current") setTimelinePreview(Number(elements.timelinePlay.value) + step);
+  else {
+    setTimelineBoundaryPreview(kind, Number(elements[kind === "start" ? "timelineStart" : "timelineEnd"].value) + step);
+    applyTimelineBoundary(kind, kind === "start" ? elements.timelineStart.value : elements.timelineEnd.value);
+  }
 }
 
 async function renderTimelineThumbnails(entry) {
@@ -562,9 +645,9 @@ async function renderTimelineThumbnails(entry) {
   video.preload = "auto";
   try {
     await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = reject; });
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 10; index += 1) {
       if (token !== thumbRenderToken) break;
-      const time = entry.duration * ((index + 0.5) / 8);
+      const time = entry.duration * ((index + 0.5) / 10);
       await new Promise((resolve) => {
         const done = () => { video.removeEventListener("seeked", done); resolve(); };
         video.addEventListener("seeked", done);
@@ -1738,6 +1821,28 @@ elements.titlePreviewInput.addEventListener("keydown", (event) => {
 for (const eventName of ["click", "keyup", "select"]) {
   elements.titlePreviewInput.addEventListener(eventName, updateTitlePreview);
 }
+
+elements.timelineStartHandle.addEventListener("pointerdown", (event) => beginTimelineDrag("start", event));
+elements.timelinePlayHandle.addEventListener("pointerdown", (event) => beginTimelineDrag("current", event));
+elements.timelineEndHandle.addEventListener("pointerdown", (event) => beginTimelineDrag("end", event));
+elements.timelineTrack.addEventListener("pointerdown", (event) => {
+  if (event.target.closest(".timeline-handle")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  setTimelinePreview(timelineValueFromClientX(event.clientX));
+});
+for (const [handle, kind] of [
+  [elements.timelineStartHandle, "start"],
+  [elements.timelinePlayHandle, "current"],
+  [elements.timelineEndHandle, "end"],
+]) {
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    nudgeTimeline(kind, event.key === "ArrowLeft" ? -1 : 1);
+  });
+}
+
 elements.timelinePlay.addEventListener("input", () => {
   elements.previewVideo.currentTime = Number(elements.timelinePlay.value);
   updateTimelineLabels();

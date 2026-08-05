@@ -38,7 +38,8 @@ test("web edition exposes desktop parity controls", async () => {
   ]);
   for (const id of [
     "saveProjectButton", "openProjectInput", "previewVideo", "timelineStart", "timelineEnd",
-    "videoStartBadge", "videoEndBadge", "titleEditor", "titlePreviewInput", "audioPreviewButton",
+    "inlineTimeline", "timelineTrack", "timelineStartHandle", "timelinePlayHandle", "timelineEndHandle",
+    "titleEditor", "titlePreviewInput", "audioPreviewButton",
     "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
   ]) assert.match(html, new RegExp(`id="${id}"`));
@@ -58,12 +59,19 @@ test("selected clip editor uses a full-width player and an editable GBA title fi
   assert.match(html, /class="video-editor-stage"/);
   assert.match(html, /class="video-stage"/);
   assert.match(html, /id="titlePreviewInput"[^>]*maxlength="12"/);
-  assert.match(html, /id="videoStartBadge"/);
-  assert.match(html, /id="videoEndBadge"/);
+  assert.match(html, /id="inlineTimeline"/);
+  assert.match(html, /id="timelineTrack"/);
+  assert.match(html, /id="timelineStartHandle"/);
+  assert.match(html, /id="timelinePlayHandle"/);
+  assert.match(html, /id="timelineEndHandle"/);
   assert.match(style, /\.preview-layout\s*\{\s*display:\s*block;/);
   assert.match(style, /#previewVideo[\s\S]*width:\s*100%;/);
+  assert.match(style, /\.inline-timeline[\s\S]*position:\s*absolute;/);
+  assert.match(style, /\.timeline-handle-start[\s\S]*--timeline-start/);
   assert.match(script, /sanitizeMenuTitle\(elements\.titlePreviewInput\.value\)/);
   assert.match(script, /document\.activeElement === elements\.titlePreviewInput/);
+  assert.match(script, /beginTimelineDrag\("start"/);
+  assert.match(script, /timelineValueFromClientX/);
 });
 
 test("every queried website element exists in the HTML", async () => {
