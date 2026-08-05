@@ -60,7 +60,6 @@
             <h2>Selected clip</h2>
             <p id="selectedClipName"></p>
           </div>
-          <button id="resetClipTitleButton" class="secondary" type="button">Title from filename</button>
         </div>
         <div class="preview-layout">
           <div class="video-editor-stage">
@@ -97,14 +96,17 @@
               </div>
             </div>
 
-            <div class="timeline-actions">
+            <div class="audio-preview-row">
               <button id="audioPreviewButton" class="secondary" type="button">Create audio preview</button>
+              <audio id="audioPreviewPlayer" controls hidden></audio>
             </div>
-            <audio id="audioPreviewPlayer" controls hidden></audio>
 
-            <div id="titleEditor" class="title-editor" role="group" aria-label="Editable GBA clip-menu title" title="Click to edit the clip-menu title">
-              <canvas id="titlePreview" width="208" height="32" aria-hidden="true"></canvas>
-              <input id="titlePreviewInput" type="text" maxlength="12" autocomplete="off" spellcheck="false" aria-label="Clip-menu title, maximum 12 GBA characters" />
+            <div class="title-editor-row">
+              <div id="titleEditor" class="title-editor" role="group" aria-label="Editable GBA clip-menu title" title="Click to edit the clip-menu title">
+                <canvas id="titlePreview" width="208" height="32" aria-hidden="true"></canvas>
+                <input id="titlePreviewInput" type="text" maxlength="12" autocomplete="off" spellcheck="false" aria-label="Clip-menu title, maximum 12 GBA characters" />
+              </div>
+              <button id="resetClipTitleButton" class="secondary" type="button">Title from filename</button>
             </div>
             <p id="titleWarning" class="validation"></p>
           </div>

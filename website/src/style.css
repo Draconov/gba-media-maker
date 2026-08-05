@@ -595,12 +595,31 @@ footer { padding: 12px 4px 0; color: var(--muted); font-size: .86rem; text-align
   border-color: #f0d400;
   background: #fff;
 }
-.timeline-actions {
+.audio-preview-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
 }
-#audioPreviewPlayer { width: 100%; }
+.audio-preview-row #audioPreviewButton {
+  flex: 0 0 auto;
+}
+#audioPreviewPlayer {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 180px;
+  height: 44px;
+}
+
+.title-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.title-editor-row #resetClipTitleButton {
+  flex: 0 0 auto;
+}
 
 /* The GBA-font canvas is the only visible title field. The real text input
    covers it invisibly so typing, selection, paste, and keyboard navigation
@@ -644,6 +663,19 @@ footer { padding: 12px 4px 0; color: var(--muted); font-size: .86rem; text-align
   box-shadow: none;
   opacity: .01;
   cursor: text;
+}
+
+
+@media (max-width: 620px) {
+  .audio-preview-row,
+  .title-editor-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  #audioPreviewPlayer {
+    flex-basis: 100%;
+    min-width: 0;
+  }
 }
 
 input[type="range"] {
