@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.11.0] - 2026-08-06
+
+### Added
+
+#### Native title cards for split videos
+
+- A **Title cards for split video** editor that appears only when one source video is expected to produce more than one ROM part.
+- Previous/next buttons and a direct `Part N` selector followed by plain `of M` text for editing every generated part from one compact navigation row.
+- Shared settings by default, with optional per-part overrides and **Copy this part to all**.
+- Default title from the source filename and default subtitle `Part {part}`, resolved automatically for each ROM.
+- First-frame-of-part and timestamp-in-part backgrounds, plus a solid-colour background option.
+- Adjustable background darkening, title/subtitle text, Large/Medium/Small text sizing, alignment, start behaviour, timer, skip, and fade controls.
+- Reuse of the existing RGB555 custom colour picker for title text, outline, and solid backgrounds.
+- A pixel-accurate native **240×160** title-card preview in both desktop and browser editions.
+- `TCD1` title-card assets containing a full 240×160 RGB555 screen, timing, input, and fade flags.
+- Per-part title-card settings in `.gbavideo` project files.
+
+### Changed
+
+- Split ROMs can display the native title card before the 120×80 video player is initialized.
+- Title-card storage is included in split estimates and exact ROM-size checks.
+- The GBA player can fade the native title card to black and fade the first video frame in.
+- Legacy text-only split title screens remain supported for older project data.
+- Title-card previews use fast input seeking and a single FFmpeg decoder thread, keeping extraction lightweight even for later parts of long videos.
+- Desktop preview requests are debounced, cancelled when obsolete, cached by source frame, and coalesced so duplicate UI refreshes cannot launch multiple FFmpeg processes.
+- The title-card editor no longer reloads the selected part during every 500 ms state poll or unchanged size estimate.
+- Part navigation stays in one compact row in both the Windows app and browser edition.
+- All title-card checkboxes are grouped into one compact options row.
+- The default title-card background darkening is now 50%.
+- Labels were shortened to **Show title card at start** and **Use same settings for each part**.
+
+### Fixed
+
+- Fixed several simultaneous `ffmpeg.exe` preview processes driving CPU usage close to 100% while the split-video title-card editor was open.
+- Fixed the part selector expanding to the full panel width and pushing the previous/next buttons onto separate rows.
+- Fixed rapid part switching leaving obsolete preview extraction jobs running after a newer part was selected.
+- Fixed automatic split mode failing to preserve an explicitly disabled title-card preference.
+- Kept desktop and browser title-card defaults, rendering rules, RGB555 quantization, and ROM metadata layout synchronized.
+
 ## [0.10.0] - 2026-08-05
 
 ### Added

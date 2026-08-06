@@ -44,7 +44,8 @@ type publicVideo struct {
 }
 
 type appState struct {
-	mu sync.Mutex
+	mu        sync.Mutex
+	previewMu sync.Mutex
 
 	token       string
 	sessionDir  string
@@ -112,37 +113,38 @@ type clipSettingsRequest struct {
 }
 
 type convertRequest struct {
-	Start              string                `json:"start"`
-	End                string                `json:"end"`
-	Speed              float64               `json:"speed"`
-	FPS                string                `json:"fps"`
-	Fit                string                `json:"fit"`
-	Audio              string                `json:"audio"`
-	Volume             float64               `json:"volume"`
-	Loop               bool                  `json:"loop"`
-	RomTitle           string                `json:"romTitle"`
-	SeekSeconds        int                   `json:"seekSeconds"`
-	Normalize          bool                  `json:"normalize"`
-	Limiter            bool                  `json:"limiter"`
-	Resume             bool                  `json:"resume"`
-	Compression        string                `json:"compression"`
-	PaletteMode        string                `json:"paletteMode"`
-	DitherMode         string                `json:"ditherMode"`
-	OutputMode         string                `json:"outputMode"`
-	SplitVideo         bool                  `json:"splitVideo"`
-	SplitBudgetMiB     int                   `json:"splitBudgetMiB"`
-	MaxPartDuration    string                `json:"maxPartDuration"`
-	MaxPartMinutes     float64               `json:"maxPartMinutes,omitempty"` // legacy project files
-	ChapterAware       bool                  `json:"chapterAware"`
-	PartTitleScreens   bool                  `json:"partTitleScreens"`
-	ResumeLongSplit    bool                  `json:"resumeLongSplit"`
-	MenuBackground     string                `json:"menuBackground"`
-	MenuUIColor        string                `json:"menuUIColor"`
-	MenuSelectionColor string                `json:"menuSelectionColor"`
-	MenuOutline        bool                  `json:"menuOutline"`
-	MenuOutlineColor   string                `json:"menuOutlineColor"`
-	MenuTheme          *MenuThemeOptions     `json:"menuTheme,omitempty"`
-	Clips              []clipSettingsRequest `json:"clips"`
+	Start              string                    `json:"start"`
+	End                string                    `json:"end"`
+	Speed              float64                   `json:"speed"`
+	FPS                string                    `json:"fps"`
+	Fit                string                    `json:"fit"`
+	Audio              string                    `json:"audio"`
+	Volume             float64                   `json:"volume"`
+	Loop               bool                      `json:"loop"`
+	RomTitle           string                    `json:"romTitle"`
+	SeekSeconds        int                       `json:"seekSeconds"`
+	Normalize          bool                      `json:"normalize"`
+	Limiter            bool                      `json:"limiter"`
+	Resume             bool                      `json:"resume"`
+	Compression        string                    `json:"compression"`
+	PaletteMode        string                    `json:"paletteMode"`
+	DitherMode         string                    `json:"ditherMode"`
+	OutputMode         string                    `json:"outputMode"`
+	SplitVideo         bool                      `json:"splitVideo"`
+	SplitBudgetMiB     int                       `json:"splitBudgetMiB"`
+	MaxPartDuration    string                    `json:"maxPartDuration"`
+	MaxPartMinutes     float64                   `json:"maxPartMinutes,omitempty"` // legacy project files
+	ChapterAware       bool                      `json:"chapterAware"`
+	PartTitleScreens   bool                      `json:"partTitleScreens"` // legacy mirror of titleCards.enabled
+	ResumeLongSplit    bool                      `json:"resumeLongSplit"`
+	TitleCards         *TitleCardProjectSettings `json:"titleCards,omitempty"`
+	MenuBackground     string                    `json:"menuBackground"`
+	MenuUIColor        string                    `json:"menuUIColor"`
+	MenuSelectionColor string                    `json:"menuSelectionColor"`
+	MenuOutline        bool                      `json:"menuOutline"`
+	MenuOutlineColor   string                    `json:"menuOutlineColor"`
+	MenuTheme          *MenuThemeOptions         `json:"menuTheme,omitempty"`
+	Clips              []clipSettingsRequest     `json:"clips"`
 }
 
 type projectClip struct {
@@ -253,6 +255,33 @@ func (s *appState) snapshot() publicState {
 }
 
 func (s *appState) touch() { s.mu.Lock(); s.lastHeartbeat = time.Now(); s.mu.Unlock() }
+
+// ensurePreview serializes desktop preview generation and publishes the file
+// atomically. Several UI refreshes may ask for the same frame at once; only the
+// first request is allowed to start FFmpeg, while the others reuse its result.
+func (s *appState) ensurePreview(ctx context.Context, ffmpegPath, input string, timeSec float64, fit, outPath string) error {
+	if st, err := os.Stat(outPath); err == nil && st.Size() > 0 {
+		return nil
+	}
+	s.previewMu.Lock()
+	defer s.previewMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if st, err := os.Stat(outPath); err == nil && st.Size() > 0 {
+		return nil
+	}
+	tempPath := fmt.Sprintf("%s.%d.png", outPath, time.Now().UnixNano())
+	defer os.Remove(tempPath)
+	if err := generatePreviewContext(ctx, ffmpegPath, input, timeSec, fit, tempPath); err != nil {
+		return err
+	}
+	if st, err := os.Stat(tempPath); err != nil || st.Size() == 0 {
+		return errors.New("FFmpeg returned no preview frame")
+	}
+	_ = os.Remove(outPath)
+	return os.Rename(tempPath, outPath)
+}
 
 func (s *appState) refreshEngine() {
 	ff := locateFFmpeg()
@@ -514,7 +543,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.10.0", Settings: req}
+	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.11.0", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -916,8 +945,16 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		// physical 32 MiB cartridge limit, but hidden manual rules do not apply.
 		req.SplitBudgetMiB = 32
 		req.ChapterAware = true
-		req.PartTitleScreens = true
 		req.ResumeLongSplit = true
+	}
+	if req.TitleCards == nil && req.PartTitleScreens {
+		req.TitleCards = &TitleCardProjectSettings{
+			Enabled: true, UseShared: true,
+			Shared: defaultTitleCardSettings(videos[0].Name),
+		}
+	}
+	if req.TitleCards != nil {
+		req.PartTitleScreens = req.TitleCards.Enabled
 	}
 	mode := req.OutputMode
 	if len(inputs) == 1 {
@@ -950,7 +987,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		KeyInterval: 30, SplitBudgetMiB: req.SplitBudgetMiB,
 		MaxPartMinutes: maxPartSeconds / 60, ChapterAware: req.ChapterAware,
 		PartTitleScreens: req.PartTitleScreens, ResumeLongSplit: req.ResumeLongSplit,
-		MenuTheme: req.MenuTheme,
+		TitleCards: req.TitleCards, MenuTheme: req.MenuTheme,
 	}
 	return opt, infos, validateProject(opt)
 }
@@ -1116,6 +1153,11 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(menuThemesJS)
+	})
+	mux.HandleFunc(prefix+"/title-cards.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(titleCardsJS)
 	})
 	mux.HandleFunc(prefix+"/app.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -1312,13 +1354,12 @@ func (s *appState) routes(page []byte) http.Handler {
 				previewErr = nil
 				break
 			}
-			_ = os.Remove(out)
-			previewErr = generatePreview(ff, video.Path, candidate, fit, out)
+			previewErr = s.ensurePreview(r.Context(), ff, video.Path, candidate, fit, out)
 			if previewErr == nil {
-				if st, err := os.Stat(out); err == nil && st.Size() > 0 {
-					break
-				}
-				previewErr = errors.New("FFmpeg returned no preview frame")
+				break
+			}
+			if errors.Is(previewErr, context.Canceled) || errors.Is(previewErr, context.DeadlineExceeded) {
+				return
 			}
 		}
 		if previewErr != nil {
@@ -1331,7 +1372,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Cache-Control", "private, max-age=3600")
 		_, _ = w.Write(data)
 	})
 	api.HandleFunc("/audio-preview", func(w http.ResponseWriter, r *http.Request) {

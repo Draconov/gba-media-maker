@@ -674,7 +674,7 @@ function buildSeekTable(clip) {
   return seek;
 }
 
-export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputMode = "menu", resume = true, titleScreenPart = 0, titleScreenName = "", menuTheme = null } = {}) {
+export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputMode = "menu", resume = true, titleScreenPart = 0, titleScreenName = "", titleCard = null, menuTheme = null } = {}) {
   if (!(playerStub instanceof Uint8Array)) throw new TypeError("playerStub must be a Uint8Array");
   if (playerStub.length !== ASSET_OFFSET) {
     throw new Error(`Player template is ${playerStub.length} bytes; expected ${ASSET_OFFSET}.`);
@@ -685,6 +685,12 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
   writer.write(playerStub);
   const clipTableOffset = writer.reserve(clips.length * CLIP_DESCRIPTOR_SIZE);
   const menuThemeOffset = outputMode === "menu" && clips.length > 1 && menuTheme ? appendMenuTheme(writer, menuTheme) : 0;
+  let titleCardOffset = 0;
+  if (titleCard) {
+    const asset = titleCard instanceof Uint8Array ? titleCard : new Uint8Array(titleCard);
+    if (asset.length < 32) throw new Error("Title-card asset is incomplete.");
+    titleCardOffset = writer.writeAligned(asset);
+  }
 
   const clipOffsets = [];
   for (const clip of clips) {
@@ -719,7 +725,7 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
   setU16(rom, METADATA_OFFSET + 4, 5);
   let flags = resume ? 1 : 0;
   if (outputMode === "playlist") flags |= 2;
-  if (titleScreenPart > 0) flags |= 4;
+  if (titleScreenPart > 0 || titleCardOffset > 0) flags |= 4;
   setU16(rom, METADATA_OFFSET + 6, flags);
   setU16(rom, METADATA_OFFSET + 8, clips.length);
   setU32(rom, METADATA_OFFSET + 12, clipTableOffset);
@@ -729,6 +735,7 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
     rom.set(safeTitleScreenName(titleScreenName), METADATA_OFFSET + 24);
   }
   if (menuThemeOffset > 0) setU32(rom, METADATA_OFFSET + 48, menuThemeOffset);
+  if (titleCardOffset > 0) setU32(rom, METADATA_OFFSET + 52, titleCardOffset);
   patchGBAHeader(rom, romTitle);
 
   return {

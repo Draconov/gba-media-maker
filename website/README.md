@@ -20,7 +20,7 @@
 
 ## Overview
 
-Version 0.10 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
+Version 0.11 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
 
 ### Highlights
 
@@ -31,6 +31,8 @@ Version 0.10 follows the Windows application's conversion workflow and uses the 
 - Estimates ROM size and long-video part count before conversion
 - Recovers completed split parts through IndexedDB
 - Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF support as the Windows app
+- Provides native 240×160 split-part title cards with shared or individual settings, 50% default darkening, Large/Medium/Small text sizing, and a pixel-accurate preview
+- Keeps the `Part N` selector, plain `of M` total, navigation buttons, and all title-card checkboxes in compact single rows while avoiding duplicate preview extraction
 
 ## Output modes
 
@@ -94,7 +96,8 @@ Single-ROM conversion automatically falls back to numbered ROM parts when the so
 - 20 MiB, 30 MiB, and Maximum shortcuts
 - Optional maximum duration using seconds, `MM:SS`, or `H:MM:SS`
 - Chapter-aware cut points
-- Optional filename and `PART N` title screens
+- Optional native 240×160 title cards with first-frame backgrounds, source-filename titles, and automatic `Part {part}` subtitles
+- Shared settings or per-part overrides, using the same RGB555 colour picker as the menu editor
 - Numbered ROM output plus `PARTS.txt`
 - Estimated part count before conversion
 - Progress such as `Part 3 of approximately 7` and `Source position: 18:42 / 50:00`
@@ -146,11 +149,13 @@ website/
 ├── src/
 │   ├── main.js               interface, conversion workflow, and downloads
 │   ├── menu-themes.js        built-in themes, custom image/GIF conversion, and preview
+│   ├── title-cards.js        native title-card state, preview, and TCD1 serialization
 │   ├── style.css             responsive light/dark interface
 │   ├── rom.worker.js         palette and compression worker
-│   └── rom-core.js           palette, compression, theme embedding, and ROM assembly
+│   └── rom-core.js           palette, compression, theme/title-card embedding, and ROM assembly
 └── tests/
-    └── rom-core.test.mjs
+    ├── rom-core.test.mjs
+    └── title-cards.test.mjs
 ```
 
 The GitHub Pages workflow is stored at:

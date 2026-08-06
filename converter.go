@@ -110,10 +110,13 @@ type ProjectOptions struct {
 	SplitBudgetMiB   int
 	MaxPartMinutes   float64
 	ChapterAware     bool
-	PartTitleScreens bool
+	PartTitleScreens bool // legacy title-card toggle kept for project compatibility
 	ResumeLongSplit  bool
-	TitleScreenPart  int
-	TitleScreenName  string
+	TitleScreenPart  int    // legacy metadata fallback
+	TitleScreenName  string // legacy metadata fallback
+	TitleCards       *TitleCardProjectSettings
+	TitleCard        *TitleCardSettings // resolved settings for one generated ROM part
+	TitleCardAsset   []byte             // prepared native 240×160 Mode 3 image and timing header
 	MenuTheme        *MenuThemeOptions
 }
 
@@ -146,6 +149,7 @@ type ConvertOptions struct {
 	ResumeLongSplit  bool
 	TitleScreenPart  int
 	TitleScreenName  string
+	TitleCards       *TitleCardProjectSettings
 }
 
 type ConvertResult struct {
@@ -1152,6 +1156,9 @@ func validateProject(opt ProjectOptions) error {
 	if opt.OutputMode == "longsplit" && len(opt.Inputs) != 1 {
 		return errors.New("automatic long-video splitting requires exactly one input video")
 	}
+	if err := validateTitleCardProject(opt.TitleCards); err != nil {
+		return err
+	}
 	if opt.OutputMode == "menu" && len(opt.Inputs) > 1 && opt.MenuTheme != nil {
 		if err := opt.MenuTheme.validate(); err != nil {
 			return fmt.Errorf("menu theme: %w", err)
@@ -1279,6 +1286,11 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 			return ConvertResult{}, fmt.Errorf("menu theme: %w", err)
 		}
 	}
+	titleCardOffset := 0
+	if len(opt.TitleCardAsset) > 0 {
+		titleCardOffset = len(rom)
+		rom = appendAligned(rom, cloneTitleCardAsset(opt.TitleCardAsset))
+	}
 	var totalFrames int
 	var rawVideo, storedVideo int64
 	for i, c := range clips {
@@ -1342,7 +1354,7 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	if opt.OutputMode == "playlist" {
 		flags |= 0x0002
 	}
-	if opt.TitleScreenPart > 0 {
+	if opt.TitleScreenPart > 0 || titleCardOffset > 0 {
 		flags |= 0x0004
 	}
 	binary.LittleEndian.PutUint16(meta[6:8], flags)
@@ -1355,6 +1367,9 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	}
 	if menuThemeOffset > 0 {
 		binary.LittleEndian.PutUint32(meta[48:52], uint32(menuThemeOffset))
+	}
+	if titleCardOffset > 0 {
+		binary.LittleEndian.PutUint32(meta[52:56], uint32(titleCardOffset))
 	}
 	copy(rom[metadataOffset:metadataOffset+64], meta)
 	patchGBAHeader(rom, opt.RomTitle)
@@ -1490,12 +1505,16 @@ func estimateLongSplitParts(opt ProjectOptions, info MediaInfo, budget int64) in
 	if opt.AudioMode != "none" && info.AudioStreams > 0 {
 		audioBytes = displayDuration*audioRate + frames*4
 	}
-	estimatedBytes := float64(assetOffset+clipDescriptorSize+512) + videoBytes + paletteBytes + indexBytes + audioBytes
-	usable := float64(budget - int64(assetOffset+clipDescriptorSize+512))
+	perPartOverhead := int64(assetOffset + clipDescriptorSize + 512)
+	if opt.TitleCards != nil && opt.TitleCards.Enabled {
+		perPartOverhead += int64(titleCardHeaderSize + titleCardPixelBytes)
+	}
+	estimatedBytes := float64(perPartOverhead) + videoBytes + paletteBytes + indexBytes + audioBytes
+	usable := float64(budget - perPartOverhead)
 	if usable < 1 {
 		usable = 1
 	}
-	parts := int(math.Ceil(math.Max(1, estimatedBytes-float64(assetOffset+clipDescriptorSize+512)) / usable))
+	parts := int(math.Ceil(math.Max(1, estimatedBytes-float64(perPartOverhead)) / usable))
 	if opt.MaxPartMinutes > 0 {
 		byDuration := int(math.Ceil((end - start) / (opt.MaxPartMinutes * 60)))
 		if byDuration > parts {
@@ -1811,7 +1830,12 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 			partOpt.OutputMode = "rom"
 			partOpt.RomTitle = splitROMTitle(opt.RomTitle, part)
 			partOpt.Loop = false
-			if opt.PartTitleScreens {
+			if settings, enabled := resolveTitleCardSettings(opt.TitleCards, input.Name, part); enabled {
+				partOpt.TitleCard = &settings
+				partOpt.TitleScreenPart = part
+				partOpt.TitleScreenName = strings.TrimSuffix(input.Name, filepath.Ext(input.Name))
+			} else if opt.PartTitleScreens {
+				// Legacy projects still receive the old text-only title screen.
 				partOpt.TitleScreenPart = part
 				partOpt.TitleScreenName = strings.TrimSuffix(input.Name, filepath.Ext(input.Name))
 			}
@@ -2113,6 +2137,14 @@ func convertProjectExact(opt ProjectOptions, progress ProgressFunc) (ConvertResu
 		}
 		clips = append(clips, clip)
 	}
+	if opt.TitleCard != nil && len(opt.Inputs) == 1 {
+		progress(84, "Rendering native 240×160 title card…")
+		asset, assetErr := prepareTitleCardAsset(opt, opt.Inputs[0], tempDir)
+		if assetErr != nil {
+			return ConvertResult{}, assetErr
+		}
+		opt.TitleCardAsset = asset
+	}
 	return assembleROM(opt, clips, opt.OutputPath, progress)
 }
 
@@ -2206,17 +2238,43 @@ func convertVideo(opt ConvertOptions, progress ProgressFunc) (ConvertResult, err
 	if title == "" {
 		title = "GBA VIDEO"
 	}
-	return convertProject(ProjectOptions{Inputs: []ClipInput{{InputPath: opt.InputPath, Name: filepath.Base(opt.InputPath), Title: title}}, OutputPath: opt.OutputPath, FFmpegPath: opt.FFmpegPath, Start: opt.Start, End: opt.End, Speed: opt.Speed, VBlanks: opt.VBlanks, FitMode: opt.FitMode, AudioMode: opt.AudioMode, Volume: opt.Volume, Loop: opt.Loop, RomTitle: title, SeekSeconds: opt.SeekSeconds, Normalize: opt.Normalize, Limiter: opt.Limiter, Resume: opt.Resume, Compression: opt.Compression, PaletteMode: opt.PaletteMode, DitherMode: opt.DitherMode, OutputMode: "rom", KeyInterval: opt.KeyInterval}, progress)
+	return convertProject(ProjectOptions{
+		Inputs:     []ClipInput{{InputPath: opt.InputPath, Name: filepath.Base(opt.InputPath), Title: title}},
+		OutputPath: opt.OutputPath, FFmpegPath: opt.FFmpegPath,
+		Start: opt.Start, End: opt.End, Speed: opt.Speed, VBlanks: opt.VBlanks,
+		FitMode: opt.FitMode, AudioMode: opt.AudioMode, Volume: opt.Volume, Loop: opt.Loop,
+		RomTitle: title, SeekSeconds: opt.SeekSeconds, Normalize: opt.Normalize, Limiter: opt.Limiter,
+		Resume: opt.Resume, Compression: opt.Compression, PaletteMode: opt.PaletteMode,
+		DitherMode: opt.DitherMode, OutputMode: "rom", KeyInterval: opt.KeyInterval,
+		SplitBudgetMiB: opt.SplitBudgetMiB, MaxPartMinutes: opt.MaxPartMinutes,
+		ChapterAware: opt.ChapterAware, PartTitleScreens: opt.PartTitleScreens,
+		ResumeLongSplit: opt.ResumeLongSplit, TitleScreenPart: opt.TitleScreenPart,
+		TitleScreenName: opt.TitleScreenName, TitleCards: opt.TitleCards,
+	}, progress)
 }
 
-func generatePreview(ffmpegPath, input string, timeSec float64, fitMode, outPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+func generatePreviewContext(parent context.Context, ffmpegPath, input string, timeSec float64, fitMode, outPath string) error {
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
-	output, err := runCommandContext(ctx, ffmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-i", input, "-ss", fmt.Sprintf("%.6f", timeSec), "-frames:v", "1", "-vf", makePreviewFilter(fitMode), "-f", "image2", outPath)
+	// Preview extraction is intentionally lightweight. Input-side seeking avoids
+	// decoding a long video from the beginning, and one decoder thread prevents
+	// a tiny 240×160 preview from taking over the whole CPU.
+	output, err := runCommandContext(ctx, ffmpegPath,
+		"-y", "-hide_banner", "-loglevel", "error",
+		"-threads", "1", "-ss", fmt.Sprintf("%.6f", timeSec), "-i", input,
+		"-map", "0:v:0", "-frames:v", "1", "-an", "-sn", "-dn",
+		"-vf", makePreviewFilter(fitMode), "-threads", "1", "-f", "image2", outPath)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("preview failed: %s", strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func generatePreview(ffmpegPath, input string, timeSec float64, fitMode, outPath string) error {
+	return generatePreviewContext(context.Background(), ffmpegPath, input, timeSec, fitMode, outPath)
 }
 
 func generateAudioPreview(opt ProjectOptions, info MediaInfo, input, outPath string) error {

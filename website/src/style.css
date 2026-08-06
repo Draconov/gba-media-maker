@@ -784,3 +784,22 @@ input[type="range"] {
 @media(max-width:620px){.gba-color-popover{min-inline-size:min(316px,calc(100vw - 20px));max-inline-size:calc(100vw - 20px)}.gba-picker-content{width:292px}.gba-rgb-editor{gap:6px}.gba-rgb-channel{gap:3px}.gba-rgb-channel input{padding-inline:3px}}
 
 .menu-design-controls .color-picker-field{display:grid;gap:7px;align-content:start}
+
+/* Native split-part title-card editor */
+.title-card-panel{margin-top:18px}
+.title-card-checkbox-row{display:flex;align-items:center;gap:16px;flex-wrap:nowrap;max-width:100%;overflow-x:auto;padding:4px 1px 7px;scrollbar-width:thin}
+.title-card-checkbox-row .check-field{flex:0 0 auto;white-space:nowrap}
+.title-card-editor{display:grid;gap:14px}
+.title-card-nav{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;width:max-content;max-width:100%;overflow-x:auto;padding:2px 1px}
+.title-card-nav button{flex:0 0 40px;width:40px;min-width:40px;padding-inline:0}
+.title-card-nav select{flex:0 0 132px;width:132px;min-width:0;max-width:132px}
+.title-card-part-total{flex:0 0 auto;min-width:34px;white-space:nowrap;font-weight:700;text-align:left}
+.title-card-layout{display:grid;grid-template-columns:minmax(300px,480px) minmax(280px,1fr);gap:18px;align-items:start}
+.title-card-preview-wrap{min-width:0}
+.title-card-preview-wrap canvas{display:block;width:min(480px,100%);height:auto;aspect-ratio:3/2;background:#000;border:1px solid var(--line);border-radius:12px;image-rendering:pixelated}
+.title-card-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.title-card-fields .wide-field{grid-column:1/-1}
+.title-card-fields input[type="range"]{width:100%}
+@media(max-width:900px){.title-card-layout{grid-template-columns:1fr}.title-card-preview-wrap canvas{width:100%}}
+@media(max-width:640px){.title-card-fields{grid-template-columns:1fr}.title-card-fields .wide-field{grid-column:auto}}
+@media(max-width:430px){.title-card-nav{gap:6px}.title-card-nav select{flex-basis:108px;width:108px;max-width:108px}.title-card-part-total{font-size:.85rem}}

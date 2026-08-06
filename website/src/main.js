@@ -4,6 +4,7 @@ import { AUDIO_RATE, GBA_REFRESH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.
 import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
 import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
+import { buildTitleCardAsset, createTitleCardProject, defaultTitleCardSettings, normalizeTitleCardSettings, renderTitleCardPreview, resolveTitleCardSettings, sanitizeTitleCardText, TITLE_CARD_BYTES } from "./title-cards.js";
 import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
@@ -98,6 +99,37 @@ const elements = {
   maxPartDuration: document.querySelector("#maxPartDuration"),
   chapterAware: document.querySelector("#chapterAware"),
   partTitleScreens: document.querySelector("#partTitleScreens"),
+  titleCardGroup: document.querySelector("#titleCardGroup"),
+  titleCardControls: document.querySelector("#titleCardControls"),
+  titleCardPrev: document.querySelector("#titleCardPrev"),
+  titleCardNext: document.querySelector("#titleCardNext"),
+  titleCardPartLabel: document.querySelector("#titleCardPartLabel"),
+  titleCardPartSelect: document.querySelector("#titleCardPartSelect"),
+  titleCardUseShared: document.querySelector("#titleCardUseShared"),
+  titleCardCopyToAll: document.querySelector("#titleCardCopyToAll"),
+  titleCardPreview: document.querySelector("#titleCardPreview"),
+  titleCardBackground: document.querySelector("#titleCardBackground"),
+  titleCardDarkness: document.querySelector("#titleCardDarkness"),
+  titleCardDarknessValue: document.querySelector("#titleCardDarknessValue"),
+  titleCardFrameOffsetField: document.querySelector("#titleCardFrameOffsetField"),
+  titleCardFrameOffset: document.querySelector("#titleCardFrameOffset"),
+  titleCardSolidColorField: document.querySelector("#titleCardSolidColorField"),
+  titleCardSolidColor: document.querySelector("#titleCardSolidColor"),
+  titleCardSolidColorValue: document.querySelector("#titleCardSolidColorValue"),
+  titleCardTitle: document.querySelector("#titleCardTitle"),
+  titleCardSubtitle: document.querySelector("#titleCardSubtitle"),
+  titleCardAlignment: document.querySelector("#titleCardAlignment"),
+  titleCardTextSize: document.querySelector("#titleCardTextSize"),
+  titleCardTextColor: document.querySelector("#titleCardTextColor"),
+  titleCardTextColorValue: document.querySelector("#titleCardTextColorValue"),
+  titleCardOutline: document.querySelector("#titleCardOutline"),
+  titleCardOutlineColor: document.querySelector("#titleCardOutlineColor"),
+  titleCardOutlineColorValue: document.querySelector("#titleCardOutlineColorValue"),
+  titleCardStartMode: document.querySelector("#titleCardStartMode"),
+  titleCardDurationField: document.querySelector("#titleCardDurationField"),
+  titleCardDuration: document.querySelector("#titleCardDuration"),
+  titleCardAllowSkip: document.querySelector("#titleCardAllowSkip"),
+  titleCardFade: document.querySelector("#titleCardFade"),
   resumeLongSplit: document.querySelector("#resumeLongSplit"),
   estimateArea: document.querySelector("#estimateArea"),
   optimizerButton: document.querySelector("#optimizerButton"),
@@ -145,6 +177,14 @@ let preferredOutputMode = "rom";
 let customMenuTheme = null;
 let activeMenuTheme = null;
 let stopMenuPreview = null;
+let titleCardProject = null;
+let titleCardProjectSource = "";
+let titleCardPart = 1;
+let titleCardEstimatedParts = 1;
+let titleCardPreviewVideo = null;
+let titleCardPreviewURL = "";
+let titleCardPreviewToken = 0;
+let titleCardVisibilitySignature = "";
 
 function menuStyleSettings() {
   return { uiColor: elements.menuUIColor?.value || "#FFFFFF", selectedColor: elements.menuSelectionColor?.value || "#FFDE00", outline: Boolean(elements.menuOutline?.checked), outlineColor: elements.menuOutlineColor?.value || "#000000" };
@@ -200,6 +240,215 @@ async function loadCustomMenuBackground(file) {
     customMenuTheme = null;
     elements.menuBackgroundStatus.textContent = `Could not read this image or GIF: ${error instanceof Error ? error.message : String(error)}`;
   }
+}
+
+
+function titleCardSourceName() { return entries[0]?.file?.name || "GBA VIDEO"; }
+function ensureTitleCardProject(force = false) {
+  const source = titleCardSourceName();
+  if (force || !titleCardProject || titleCardProjectSource !== source) {
+    titleCardProject = createTitleCardProject(source);
+    titleCardProjectSource = source;
+    titleCardPart = 1;
+  }
+}
+function titleCardPartRecord(part, create = false) {
+  ensureTitleCardProject();
+  if (titleCardProject.useShared) return titleCardProject.shared;
+  let record = (titleCardProject.parts || []).find((item) => Number(item.part) === Number(part));
+  if (!record && create) {
+    record = { part: Number(part), settings: structuredClone(titleCardProject.shared) };
+    titleCardProject.parts.push(record);
+  }
+  return record?.settings || titleCardProject.shared;
+}
+function serializedTitleCards() {
+  ensureTitleCardProject();
+  const copy = structuredClone(titleCardProject || createTitleCardProject(titleCardSourceName()));
+  copy.enabled = Boolean(elements.partTitleScreens.checked);
+  copy.useShared = Boolean(elements.titleCardUseShared.checked);
+  return copy;
+}
+function titleCardReadout(input, output, fallback) {
+  if (!input || !output) return;
+  const color = describeColor(input.value, fallback);
+  output.textContent = `${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
+  input._gbaColorPickerController?.sync();
+}
+function updateTitleCardReadouts() {
+  titleCardReadout(elements.titleCardTextColor, elements.titleCardTextColorValue, "#FFFFFF");
+  titleCardReadout(elements.titleCardOutlineColor, elements.titleCardOutlineColorValue, "#000000");
+  titleCardReadout(elements.titleCardSolidColor, elements.titleCardSolidColorValue, "#000000");
+}
+function titleCardFormSettings() {
+  return {
+    title: elements.titleCardTitle.value,
+    subtitle: elements.titleCardSubtitle.value,
+    backgroundMode: elements.titleCardBackground.value,
+    frameOffsetSeconds: Number(elements.titleCardFrameOffset.value) || 0,
+    darkness: Number(elements.titleCardDarkness.value) || 0,
+    solidColor: elements.titleCardSolidColor.value,
+    textColor: elements.titleCardTextColor.value,
+    outlineColor: elements.titleCardOutlineColor.value,
+    drawOutline: elements.titleCardOutline.checked,
+    alignment: elements.titleCardAlignment.value,
+    textSize: elements.titleCardTextSize.value,
+    startMode: elements.titleCardStartMode.value,
+    durationSeconds: Number(elements.titleCardDuration.value) || 3,
+    allowSkip: elements.titleCardAllowSkip.checked,
+    fade: elements.titleCardFade.checked,
+  };
+}
+function updateTitleCardConditionalFields() {
+  const background = elements.titleCardBackground.value;
+  elements.titleCardFrameOffsetField.hidden = background !== "part-frame";
+  elements.titleCardSolidColorField.hidden = background !== "solid";
+  elements.titleCardDurationField.hidden = elements.titleCardStartMode.value !== "timer";
+  const enabled = elements.partTitleScreens.checked && !conversionRunning;
+  elements.titleCardAllowSkip.disabled = !enabled || elements.titleCardStartMode.value !== "timer";
+  elements.titleCardOutlineColor.disabled = !enabled || !elements.titleCardOutline.checked;
+  elements.titleCardOutlineColor._gbaColorPickerController?.sync();
+}
+function saveTitleCardFields() {
+  const target = titleCardPartRecord(titleCardPart, true);
+  Object.assign(target, titleCardFormSettings());
+  elements.titleCardDarknessValue.textContent = `${target.darkness}%`;
+  updateTitleCardConditionalFields();
+  updateTitleCardReadouts();
+  renderCurrentTitleCardPreview();
+  resetResult();
+}
+function loadTitleCardFields() {
+  ensureTitleCardProject();
+  const settings = titleCardPartRecord(titleCardPart, false) || defaultTitleCardSettings(titleCardSourceName());
+  elements.titleCardTitle.value = settings.title ?? "";
+  elements.titleCardSubtitle.value = settings.subtitle ?? "";
+  elements.titleCardBackground.value = settings.backgroundMode || "part-first-frame";
+  elements.titleCardFrameOffset.value = Number(settings.frameOffsetSeconds) || 0;
+  elements.titleCardDarkness.value = Number.isFinite(Number(settings.darkness)) ? Number(settings.darkness) : 50;
+  elements.titleCardDarknessValue.textContent = `${elements.titleCardDarkness.value}%`;
+  elements.titleCardSolidColor.value = settings.solidColor || "#000000";
+  elements.titleCardTextColor.value = settings.textColor || "#FFFFFF";
+  elements.titleCardOutlineColor.value = settings.outlineColor || "#000000";
+  elements.titleCardOutline.checked = settings.drawOutline !== false;
+  elements.titleCardAlignment.value = settings.alignment || "center";
+  elements.titleCardTextSize.value = ["medium", "small"].includes(settings.textSize) ? settings.textSize : "large";
+  elements.titleCardStartMode.value = settings.startMode === "timer" ? "timer" : "button";
+  elements.titleCardDuration.value = Number(settings.durationSeconds) || 3;
+  elements.titleCardAllowSkip.checked = settings.allowSkip !== false;
+  elements.titleCardFade.checked = settings.fade !== false;
+  updateTitleCardConditionalFields();
+  updateTitleCardReadouts();
+  renderCurrentTitleCardPreview();
+}
+function titleCardPartSourceTime(part) {
+  const entry = entries[0];
+  if (!entry) return 0;
+  const start = entry.useProject ? clampNumber(elements.defaultStart.value, 0, entry.duration || 86400) : clampNumber(entry.start, 0, entry.duration || 86400);
+  let end = entry.useProject ? Math.max(0, numericOr(elements.defaultEnd.value, 0)) : Math.max(0, numericOr(entry.end, 0));
+  if (!(end > start)) end = entry.duration || start;
+  const segment = Math.max(0, end - start) / Math.max(1, titleCardEstimatedParts);
+  const settings = titleCardPartRecord(part, false) || {};
+  const offset = settings.backgroundMode === "part-frame" ? Math.max(0, Number(settings.frameOffsetSeconds) || 0) : 0;
+  return Math.min(Math.max(start, end - 0.04), start + (part - 1) * segment + offset);
+}
+async function ensureTitleCardPreviewVideo() {
+  const entry = entries[0];
+  if (!entry) return null;
+  if (!titleCardPreviewVideo) {
+    titleCardPreviewVideo = document.createElement("video");
+    titleCardPreviewVideo.muted = true;
+    titleCardPreviewVideo.playsInline = true;
+    titleCardPreviewVideo.preload = "auto";
+  }
+  const key = `${entry.file.name}:${entry.file.size}:${entry.file.lastModified}`;
+  if (titleCardPreviewVideo.dataset.key !== key) {
+    if (titleCardPreviewURL) URL.revokeObjectURL(titleCardPreviewURL);
+    titleCardPreviewURL = URL.createObjectURL(entry.file);
+    titleCardPreviewVideo.dataset.key = key;
+    titleCardPreviewVideo.src = titleCardPreviewURL;
+    await new Promise((resolve, reject) => {
+      titleCardPreviewVideo.onloadedmetadata = () => resolve();
+      titleCardPreviewVideo.onerror = () => reject(new Error("Could not load title-card preview frame."));
+    });
+  }
+  return titleCardPreviewVideo;
+}
+async function renderCurrentTitleCardPreview() {
+  if (!elements.titleCardPreview || elements.titleCardGroup.hidden || !entries.length) return;
+  const token = ++titleCardPreviewToken;
+  const settings = titleCardPartRecord(titleCardPart, false);
+  const fit = entries[0].useProject ? elements.fitMode.value : entries[0].fitMode;
+  if (settings?.backgroundMode === "solid") {
+    renderTitleCardPreview(elements.titleCardPreview, elements.titleCardPreview, fit, settings, titleCardPart, titleCardSourceName());
+    return;
+  }
+  try {
+    const video = await ensureTitleCardPreviewVideo();
+    if (!video || token !== titleCardPreviewToken) return;
+    const time = Math.max(0, Math.min(Math.max(0, video.duration - 0.04), titleCardPartSourceTime(titleCardPart)));
+    if (Math.abs(video.currentTime - time) > 0.025) {
+      await new Promise((resolve) => {
+        const done = () => { video.removeEventListener("seeked", done); resolve(); };
+        video.addEventListener("seeked", done);
+        video.currentTime = time;
+      });
+    }
+    if (token !== titleCardPreviewToken) return;
+    renderTitleCardPreview(elements.titleCardPreview, video, fit, settings, titleCardPart, titleCardSourceName());
+  } catch {
+    const fallback = { ...settings, backgroundMode: "solid", solidColor: "#000000" };
+    renderTitleCardPreview(elements.titleCardPreview, elements.titleCardPreview, fit, fallback, titleCardPart, titleCardSourceName());
+  }
+}
+function updateTitleCardNavState() {
+  elements.titleCardPartSelect.value = String(titleCardPart);
+  elements.titleCardPartLabel.textContent = `of ${titleCardEstimatedParts}`;
+  const enabled = !conversionRunning && elements.partTitleScreens.checked;
+  elements.titleCardPrev.disabled = !enabled || titleCardPart <= 1;
+  elements.titleCardNext.disabled = !enabled || titleCardPart >= titleCardEstimatedParts;
+}
+function setTitleCardPart(part, force = false) {
+  const nextPart = Math.max(1, Math.min(titleCardEstimatedParts, Number(part) || 1));
+  const changed = nextPart !== titleCardPart;
+  titleCardPart = nextPart;
+  updateTitleCardNavState();
+  if (changed || force) loadTitleCardFields();
+}
+function updateTitleCardVisibility(estimate = lastEstimate) {
+  const wasVisible = !elements.titleCardGroup.hidden;
+  const visible = entries.length === 1 && elements.outputMode.value === "rom" && Number(estimate?.parts || 1) > 1;
+  elements.titleCardGroup.hidden = !visible;
+  if (!visible) {
+    titleCardVisibilitySignature = "";
+    return;
+  }
+  ensureTitleCardProject();
+  const previousParts = titleCardEstimatedParts;
+  titleCardEstimatedParts = Math.max(2, Number(estimate.parts) || 2);
+  titleCardProject.enabled = elements.partTitleScreens.checked;
+  titleCardProject.useShared = elements.titleCardUseShared.checked;
+  if (elements.titleCardPartSelect.options.length !== titleCardEstimatedParts) {
+    elements.titleCardPartSelect.replaceChildren(...Array.from({ length: titleCardEstimatedParts }, (_, index) => {
+      const option = document.createElement("option"); option.value = String(index + 1); option.textContent = `Part ${index + 1}`; return option;
+    }));
+  }
+  titleCardPart = Math.min(titleCardPart, titleCardEstimatedParts);
+  const entry = entries[0];
+  const start = entry.useProject ? elements.defaultStart.value : entry.start;
+  const end = entry.useProject ? elements.defaultEnd.value : entry.end;
+  const fit = entry.useProject ? elements.fitMode.value : entry.fitMode;
+  const signature = `${entry.file.name}|${entry.file.size}|${entry.file.lastModified}|${titleCardEstimatedParts}|${start}|${end}|${fit}`;
+  const sourceChanged = signature !== titleCardVisibilitySignature;
+  titleCardVisibilitySignature = signature;
+  const enabled = elements.partTitleScreens.checked && !conversionRunning;
+  elements.titleCardControls.classList.toggle("disabled-panel", !enabled);
+  for (const control of elements.titleCardControls.querySelectorAll("input,select,button")) control.disabled = !enabled;
+  for (const control of [elements.titleCardUseShared, elements.titleCardOutline, elements.titleCardAllowSkip, elements.titleCardFade]) control.disabled = !enabled;
+  elements.titleCardCopyToAll.hidden = elements.titleCardUseShared.checked;
+  if (!wasVisible || previousParts !== titleCardEstimatedParts || sourceChanged) setTitleCardPart(titleCardPart, true);
+  else updateTitleCardNavState();
+  updateTitleCardConditionalFields();
 }
 
 function formatBytes(bytes) {
@@ -315,6 +564,7 @@ function updateOutputModes() {
   elements.splitVideoRow.hidden = !single;
   if (!single) elements.splitVideo.checked = false;
   if (elements.menuSettingsGroup) elements.menuSettingsGroup.hidden = !(entries.length > 1 && elements.outputMode.value === "menu");
+  if (elements.titleCardGroup && !single) elements.titleCardGroup.hidden = true;
   updateSplitVisibility();
 }
 
@@ -334,6 +584,7 @@ function projectSettingsSnapshot() {
     maxPartDuration: elements.maxPartDuration.value,
     chapterAware: elements.chapterAware.checked,
     partTitleScreens: elements.partTitleScreens.checked,
+    titleCards: serializedTitleCards(),
     resumeLongSplit: elements.resumeLongSplit.checked,
     menuTheme: includeMenuTheme && elements.outputMode.value === "menu" ? serializedMenuTheme() : null,
   };
@@ -408,7 +659,10 @@ function applySettings(settings = {}) {
   assign(elements.splitBudget, "splitBudgetMiB", 31);
   assign(elements.maxPartDuration, "maxPartDuration", "0");
   elements.chapterAware.checked = settings.chapterAware !== false;
-  elements.partTitleScreens.checked = settings.partTitleScreens !== false;
+  elements.partTitleScreens.checked = settings.titleCards?.enabled ?? (settings.partTitleScreens !== false);
+  titleCardProject = settings.titleCards ? structuredClone(settings.titleCards) : null;
+  titleCardProjectSource = titleCardProject ? titleCardSourceName() : "";
+  if (titleCardProject) elements.titleCardUseShared.checked = titleCardProject.useShared !== false;
   elements.resumeLongSplit.checked = settings.resumeLongSplit !== false;
   if (elements.menuBackground) {
     elements.menuBackground.value = settings.menuBackground || settings.menuTheme?.id || "ocean-wave-animated";
@@ -484,14 +738,21 @@ function estimateProject(project = currentOptions(false)) {
     totalDuration += duration;
   }
   const metadataBytes = 0x8000 + entries.length * 96 + frames * 8 + (project.outputMode === "menu" ? menuThemeBytes() : 0);
-  const totalBytes = metadataBytes + videoBytes + audioBytes + paletteBytes;
+  let totalBytes = metadataBytes + videoBytes + audioBytes + paletteBytes;
   const budgetMiB = elements.splitVideo.checked ? Number(elements.splitBudget.value) : 32;
   const budget = Math.max(1, Math.min(32, budgetMiB)) * 1048576;
   const maxPartSeconds = elements.splitVideo.checked ? parseClock(elements.maxPartDuration.value) : 0;
   let partsBySize = Math.max(1, Math.ceil(totalBytes / budget));
   let partsByDuration = Number.isFinite(maxPartSeconds) && maxPartSeconds > 0 ? Math.max(1, Math.ceil(totalDuration / maxPartSeconds)) : 1;
   const needsSplit = entries.length === 1 && elements.outputMode.value === "rom" && (elements.splitVideo.checked || totalBytes > ROM_LIMIT);
-  const parts = needsSplit ? Math.max(partsBySize, partsByDuration) : 1;
+  let parts = needsSplit ? Math.max(partsBySize, partsByDuration) : 1;
+  if (needsSplit && elements.partTitleScreens.checked) {
+    for (let pass = 0; pass < 2; pass += 1) {
+      totalBytes = metadataBytes + videoBytes + audioBytes + paletteBytes + TITLE_CARD_BYTES * parts;
+      partsBySize = Math.max(1, Math.ceil(totalBytes / budget));
+      parts = Math.max(partsBySize, partsByDuration);
+    }
+  }
   return { fps, frames, videoBytes, audioBytes, paletteBytes, metadataBytes, totalBytes, totalDuration, parts, needsSplit, budget };
 }
 
@@ -500,6 +761,7 @@ function updateEstimate() {
     lastEstimate = null;
     elements.estimateArea.textContent = "Add a video to see an output estimate.";
     elements.optimizerButton.disabled = true;
+    if (elements.titleCardGroup) elements.titleCardGroup.hidden = true;
     return;
   }
   const durationError = elements.splitVideo.checked && !Number.isFinite(parseClock(elements.maxPartDuration.value));
@@ -514,6 +776,7 @@ function updateEstimate() {
     `Estimated data: ${formatBytes(lastEstimate.totalBytes)} · ${lastEstimate.frames.toLocaleString()} frames · ${lastEstimate.fps.toFixed(2)} fps<br>` +
     `Video ${formatBytes(lastEstimate.videoBytes)} · Audio ${formatBytes(lastEstimate.audioBytes)} · Palettes/indexes ${formatBytes(lastEstimate.paletteBytes)}`;
   elements.optimizerButton.disabled = conversionRunning || !entries.length;
+  updateTitleCardVisibility(lastEstimate);
 }
 
 function optimizeToFit() {
@@ -983,6 +1246,7 @@ function currentOptions(includeMenuTheme = true) {
     maxPartSeconds: parseClock(elements.maxPartDuration.value),
     chapterAware: elements.chapterAware.checked,
     partTitleScreens: elements.partTitleScreens.checked,
+    titleCards: serializedTitleCards(),
     resumeLongSplit: elements.resumeLongSplit.checked,
     menuBackground: elements.menuBackground?.value || "ocean-wave-animated",
     menuUIColor: elements.menuUIColor?.value || "#FFFFFF",
@@ -1050,10 +1314,16 @@ function setBusy(busy) {
     elements.timelinePlay, elements.timelineStart, elements.timelineEnd, elements.audioPreviewButton,
     elements.titlePreviewInput, elements.menuBackground, elements.customMenuBackground,
     elements.clearCustomMenuBackground, elements.menuUIColor, elements.menuSelectionColor, elements.menuOutline, elements.menuOutlineColor,
+    elements.titleCardPrev, elements.titleCardNext, elements.titleCardPartSelect, elements.titleCardUseShared,
+    elements.titleCardCopyToAll, elements.titleCardBackground, elements.titleCardDarkness, elements.titleCardFrameOffset,
+    elements.titleCardSolidColor, elements.titleCardTitle, elements.titleCardSubtitle, elements.titleCardAlignment, elements.titleCardTextSize,
+    elements.titleCardTextColor, elements.titleCardOutline, elements.titleCardOutlineColor, elements.titleCardStartMode,
+    elements.titleCardDuration, elements.titleCardAllowSkip, elements.titleCardFade,
   ];
-  for (const control of settings) control.disabled = busy;
+  for (const control of settings) if (control) control.disabled = busy;
   for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
   elements.optimizerButton.disabled = busy || !entries.length;
+  if (!elements.titleCardGroup.hidden && lastEstimate) updateTitleCardVisibility(lastEstimate);
 }
 
 function downloadResult() {
@@ -1227,6 +1497,37 @@ function videoFilter(fitMode, vblanks, speed = 1) {
   return `${scale},setpts=PTS/${speed.toFixed(8)},fps=${fps.toFixed(10)},format=rgb24`;
 }
 
+
+function titleCardVideoFilter(fitMode) {
+  if (fitMode === "crop") return "scale=240:160:force_original_aspect_ratio=increase,crop=240:160,format=rgb24";
+  if (fitMode === "stretch") return "scale=240:160,format=rgb24";
+  return "scale=240:160:force_original_aspect_ratio=decrease,pad=240:160:(ow-iw)/2:(oh-ih)/2:black,format=rgb24";
+}
+function solidTitleCardRGB(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || "#000000"));
+  const value = Number.parseInt(match?.[1] || "000000", 16);
+  const rgb = new Uint8Array(240 * 160 * 3);
+  const r = value >>> 16, g = (value >>> 8) & 255, b = value & 255;
+  for (let index = 0; index < 240 * 160; index += 1) { rgb[index * 3] = r; rgb[index * 3 + 1] = g; rgb[index * 3 + 2] = b; }
+  return rgb;
+}
+async function extractTitleCardFrame(inputName, index, fitMode, start, end, settings) {
+  if (settings.backgroundMode === "solid") return solidTitleCardRGB(settings.solidColor);
+  const outputName = `title-card-${index}.rgb`;
+  let when = start + (settings.backgroundMode === "part-frame" ? Math.max(0, Number(settings.frameOffsetSeconds) || 0) : 0);
+  if (end > start && when >= end) when = Math.max(start, end - 0.04);
+  const exitCode = await ffmpeg.exec([
+    "-hide_banner", "-loglevel", "error", "-i", inputName,
+    "-ss", when.toFixed(6), "-frames:v", "1", "-an", "-vf", titleCardVideoFilter(fitMode),
+    "-pix_fmt", "rgb24", "-f", "rawvideo", outputName,
+  ]);
+  if (exitCode !== 0) throw new Error(`FFmpeg could not extract the title-card background. ${recentFFmpegLogs.slice(-1)[0] || ""}`.trim());
+  const frame = await ffmpeg.readFile(outputName);
+  await ffmpeg.deleteFile(outputName);
+  if (!(frame instanceof Uint8Array) || frame.length !== 240 * 160 * 3) throw new Error("The title-card background frame is incomplete.");
+  return frame;
+}
+
 async function extractFrames(inputName, index, project, clipOptions, timing) {
   const outputName = `frames-${index}.rgb`;
   const estimatedFrames = Math.max(1, Math.ceil(timing.outputDuration * (GBA_REFRESH / project.vblanks)));
@@ -1295,7 +1596,7 @@ function recoveryFingerprint(entry, project, start, end) {
     project.vblanks, project.fitMode, project.audioMode, project.defaultVolume,
     project.normalize, project.limiter, project.compression, project.paletteMode,
     project.ditherMode, project.splitBudgetMiB, project.maxPartSeconds,
-    project.chapterAware, project.partTitleScreens,
+    project.chapterAware, project.partTitleScreens, JSON.stringify(project.titleCards || null),
   ];
   let hash = 2166136261;
   for (const character of JSON.stringify(settings)) {
@@ -1372,8 +1673,15 @@ async function encodeLoadedRange({ inputName, entry, probe, project, start, end,
     seekSeconds: project.seekSeconds,
     loop: false,
   }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.54, `Part ${part}: ${message}`));
+  let titleCard = null;
+  if (project.partTitleScreens) {
+    const settings = resolveTitleCardSettings(project.titleCards, entry.file.name, part) || normalizeTitleCardSettings({}, entry.file.name, part);
+    mapped(0.92, `Part ${part}: rendering native 240×160 title card…`);
+    const background = await extractTitleCardFrame(inputName, `part-${part}`, rangeOptions.fitMode, start, end, settings);
+    titleCard = buildTitleCardAsset(background, settings, part, entry.file.name);
+  }
   const stub = playerStub.slice();
-  mapped(0.94, `Part ${part}: assembling ROM…`);
+  mapped(0.95, `Part ${part}: assembling ROM…`);
   const assembled = await runRomTask("assembleROM", {
     playerStub: stub,
     clips: [clip],
@@ -1383,8 +1691,9 @@ async function encodeLoadedRange({ inputName, entry, probe, project, start, end,
       resume: project.resume,
       titleScreenPart: project.partTitleScreens ? part : 0,
       titleScreenName: project.partTitleScreens ? entry.file.name.replace(/\.[^.]+$/, "") : "",
+      titleCard,
     },
-  }, [stub.buffer, ...clipTransferList(clip)]);
+  }, [stub.buffer, ...clipTransferList(clip), ...(titleCard ? [titleCard.buffer] : [])]);
   return { ...assembled, start, end };
 }
 
@@ -1584,7 +1893,7 @@ async function performConversion() {
   await ensureFFmpeg();
   if (conversionCancelled) throw new Error("Conversion cancelled.");
 
-  updateProgress(6, "Loading the embedded v0.9 GBA player…");
+  updateProgress(6, "Loading the embedded GBA player…");
   const playerResponse = await fetch(new URL("player_stub.bin", document.baseURI));
   if (!playerResponse.ok) throw new Error("Could not load player_stub.bin from the website.");
   const playerStub = new Uint8Array(await playerResponse.arrayBuffer());
@@ -1596,7 +1905,8 @@ async function performConversion() {
       splitBudgetMiB: project.splitVideo ? project.splitBudgetMiB : 32,
       maxPartSeconds: project.splitVideo ? project.maxPartSeconds : 0,
       chapterAware: project.splitVideo ? project.chapterAware : true,
-      partTitleScreens: project.splitVideo ? project.partTitleScreens : true,
+      partTitleScreens: project.partTitleScreens,
+      titleCards: project.titleCards,
       resumeLongSplit: project.splitVideo ? project.resumeLongSplit : true,
     });
   }
@@ -1671,7 +1981,8 @@ async function performConversion() {
         splitBudgetMiB: 32,
         maxPartSeconds: 0,
         chapterAware: true,
-        partTitleScreens: true,
+        partTitleScreens: project.partTitleScreens,
+        titleCards: project.titleCards,
         resumeLongSplit: true,
       });
     }
@@ -1870,6 +2181,58 @@ if (elements.menuBackground) {
   });
 }
 
+if (elements.titleCardPreview) {
+  for (const [input, label] of [
+    [elements.titleCardTextColor, "Title-card text colour"],
+    [elements.titleCardOutlineColor, "Title-card outline colour"],
+    [elements.titleCardSolidColor, "Title-card background colour"],
+  ]) setupGBAColorPicker(input, { label });
+
+  const colorFields = new Map([
+    [elements.titleCardTextColor, "#FFFFFF"],
+    [elements.titleCardOutlineColor, "#000000"],
+    [elements.titleCardSolidColor, "#000000"],
+  ]);
+  for (const [input, fallback] of colorFields) {
+    input.addEventListener("input", saveTitleCardFields);
+    input.addEventListener("change", () => {
+      input.value = quantizeHexColor(input.value, fallback);
+      saveTitleCardFields();
+    });
+  }
+
+  elements.titleCardPrev.addEventListener("click", () => setTitleCardPart(titleCardPart - 1));
+  elements.titleCardNext.addEventListener("click", () => setTitleCardPart(titleCardPart + 1));
+  elements.titleCardPartSelect.addEventListener("change", () => setTitleCardPart(Number(elements.titleCardPartSelect.value)));
+  elements.titleCardUseShared.addEventListener("change", () => {
+    ensureTitleCardProject();
+    titleCardProject.useShared = elements.titleCardUseShared.checked;
+    elements.titleCardCopyToAll.hidden = titleCardProject.useShared;
+    loadTitleCardFields();
+    resetResult();
+    updateEstimate();
+  });
+  elements.titleCardCopyToAll.addEventListener("click", () => {
+    ensureTitleCardProject();
+    const source = structuredClone(titleCardPartRecord(titleCardPart, false));
+    titleCardProject.parts = Array.from({ length: titleCardEstimatedParts }, (_, index) => ({ part: index + 1, settings: structuredClone(source) }));
+    loadTitleCardFields();
+    resetResult();
+    updateEstimate();
+  });
+
+  for (const input of [
+    elements.titleCardTitle, elements.titleCardSubtitle, elements.titleCardBackground,
+    elements.titleCardFrameOffset, elements.titleCardDarkness, elements.titleCardOutline,
+    elements.titleCardAlignment, elements.titleCardTextSize, elements.titleCardStartMode, elements.titleCardDuration,
+    elements.titleCardAllowSkip, elements.titleCardFade,
+  ]) {
+    input.addEventListener("input", saveTitleCardFields);
+    input.addEventListener("change", saveTitleCardFields);
+  }
+  updateTitleCardReadouts();
+}
+
 const presetFields = [elements.vblanks, elements.fitMode, elements.paletteMode, elements.ditherMode, elements.compression, elements.audioMode, elements.normalize, elements.limiter];
 for (const control of presetFields) control.addEventListener("change", () => { markPresetCustom(); updateEstimate(); syncSelectedPreview(); });
 
@@ -1909,6 +2272,13 @@ elements.fileInput.addEventListener("change", () => {
 elements.clearButton.addEventListener("click", () => {
   entries = [];
   selectedEntryId = "";
+  titleCardProject = null;
+  titleCardProjectSource = "";
+  titleCardPart = 1;
+  titleCardVisibilitySignature = "";
+  if (titleCardPreviewURL) URL.revokeObjectURL(titleCardPreviewURL);
+  titleCardPreviewURL = "";
+  if (titleCardPreviewVideo) { titleCardPreviewVideo.removeAttribute("src"); titleCardPreviewVideo.dataset.key = ""; }
   revokePreviewURLs();
   resetResult();
   renderFiles();
@@ -2063,6 +2433,7 @@ window.addEventListener("beforeunload", () => {
   try { ffmpeg?.terminate(); } catch { /* nothing */ }
   romWorker?.terminate();
   revokePreviewURLs();
+  if (titleCardPreviewURL) URL.revokeObjectURL(titleCardPreviewURL);
   if (resultURL) URL.revokeObjectURL(resultURL);
 });
 

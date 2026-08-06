@@ -31,6 +31,16 @@ let menuBackgroundID = 'ocean-wave-animated';
 let customMenuTheme = null;
 let activeMenuTheme = null;
 let stopMenuPreview = null;
+let titleCardProject = null;
+let titleCardProjectSource = "";
+let titleCardPart = 1;
+let titleCardEstimatedParts = 1;
+let titleCardPreviewTimer = null;
+let titleCardPreviewAbort = null;
+let titleCardPreviewPendingKey = "";
+let titleCardPreviewDesiredKey = "";
+let titleCardSectionSignature = "";
+const titleCardPreviewCache = new Map();
 
 function headers(extra = {}) { return Object.assign({'X-GBA-Token': TOKEN}, extra); }
 async function api(path, options = {}) {
@@ -182,7 +192,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
+  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardOutline','titleCardOutlineColor','titleCardAlignment','titleCardTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -378,6 +388,259 @@ async function loadCustomMenuBackground(file) {
     customMenuTheme = null;
     $('menuBackgroundStatus').textContent = 'Could not read this image or GIF: ' + error.message;
   }
+}
+
+
+function titleCardSourceName() { return state?.videos?.[0]?.name || "GBA VIDEO"; }
+function resetTitleCardPreviewCache() {
+  clearTimeout(titleCardPreviewTimer);
+  titleCardPreviewTimer = null;
+  titleCardPreviewAbort?.abort();
+  titleCardPreviewAbort = null;
+  titleCardPreviewPendingKey = "";
+  titleCardPreviewDesiredKey = "";
+  titleCardPreviewCache.clear();
+}
+function ensureTitleCardProject(force = false) {
+  const source = titleCardSourceName();
+  if (!window.TitleCardTools) return;
+  if (force || !titleCardProject || titleCardProjectSource !== source) {
+    resetTitleCardPreviewCache();
+    titleCardSectionSignature = "";
+    titleCardProject = TitleCardTools.createTitleCardProject(source);
+    titleCardProjectSource = source;
+    titleCardPart = 1;
+  }
+}
+function titleCardPartRecord(part, create = false) {
+  ensureTitleCardProject();
+  if (!titleCardProject) return null;
+  if (titleCardProject.useShared) return titleCardProject.shared;
+  let record = (titleCardProject.parts || []).find(item => Number(item.part) === Number(part));
+  if (!record && create) {
+    record = {part:Number(part),settings:JSON.parse(JSON.stringify(titleCardProject.shared))};
+    titleCardProject.parts.push(record);
+  }
+  return record?.settings || titleCardProject.shared;
+}
+function serializeTitleCards() {
+  ensureTitleCardProject();
+  const copy = JSON.parse(JSON.stringify(titleCardProject || TitleCardTools.createTitleCardProject(titleCardSourceName())));
+  copy.enabled = !!$('partTitleScreens')?.checked;
+  copy.useShared = !!$('titleCardUseShared')?.checked;
+  return copy;
+}
+function titleCardColorReadout(inputID, outputID, fallback) {
+  const input=$(inputID), output=$(outputID);
+  if (!input || !output || !window.MenuThemeTools) return;
+  const color=MenuThemeTools.describeColor(input.value,fallback);
+  output.textContent=`${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
+  input._gbaColorPickerController?.sync();
+}
+function updateTitleCardColorReadouts() {
+  titleCardColorReadout('titleCardTextColor','titleCardTextColorValue','#FFFFFF');
+  titleCardColorReadout('titleCardOutlineColor','titleCardOutlineColorValue','#000000');
+  titleCardColorReadout('titleCardSolidColor','titleCardSolidColorValue','#000000');
+}
+function rawTitleCardSettings() {
+  return {
+    title:$('titleCardTitle').value,
+    subtitle:$('titleCardSubtitle').value,
+    backgroundMode:$('titleCardBackground').value,
+    frameOffsetSeconds:Number($('titleCardFrameOffset').value)||0,
+    darkness:Number($('titleCardDarkness').value)||0,
+    solidColor:$('titleCardSolidColor').value,
+    textColor:$('titleCardTextColor').value,
+    outlineColor:$('titleCardOutlineColor').value,
+    drawOutline:$('titleCardOutline').checked,
+    alignment:$('titleCardAlignment').value,
+    textSize:$('titleCardTextSize').value,
+    startMode:$('titleCardStartMode').value,
+    durationSeconds:Number($('titleCardDuration').value)||3,
+    allowSkip:$('titleCardAllowSkip').checked,
+    fade:$('titleCardFade').checked,
+  };
+}
+function saveTitleCardFields() {
+  if (!titleCardProject) ensureTitleCardProject();
+  const target = titleCardPartRecord(titleCardPart, true);
+  if (!target) return;
+  Object.assign(target, rawTitleCardSettings());
+  $('titleCardDarknessValue').textContent = `${target.darkness}%`;
+  updateTitleCardConditionalFields();
+  updateTitleCardColorReadouts();
+  renderTitleCardPreview();
+}
+function loadTitleCardFields() {
+  ensureTitleCardProject();
+  const settings = titleCardPartRecord(titleCardPart, false) || TitleCardTools.defaultTitleCardSettings(titleCardSourceName());
+  $('titleCardTitle').value = settings.title ?? '';
+  $('titleCardSubtitle').value = settings.subtitle ?? '';
+  $('titleCardBackground').value = settings.backgroundMode || 'part-first-frame';
+  $('titleCardFrameOffset').value = Number(settings.frameOffsetSeconds)||0;
+  $('titleCardDarkness').value = Number.isFinite(Number(settings.darkness)) ? Number(settings.darkness) : 50;
+  $('titleCardDarknessValue').textContent = `${$('titleCardDarkness').value}%`;
+  $('titleCardSolidColor').value = settings.solidColor || '#000000';
+  $('titleCardTextColor').value = settings.textColor || '#FFFFFF';
+  $('titleCardOutlineColor').value = settings.outlineColor || '#000000';
+  $('titleCardOutline').checked = settings.drawOutline !== false;
+  $('titleCardAlignment').value = settings.alignment || 'center';
+  $('titleCardTextSize').value = ['medium','small'].includes(settings.textSize) ? settings.textSize : 'large';
+  $('titleCardStartMode').value = settings.startMode === 'timer' ? 'timer' : 'button';
+  $('titleCardDuration').value = Number(settings.durationSeconds)||3;
+  $('titleCardAllowSkip').checked = settings.allowSkip !== false;
+  $('titleCardFade').checked = settings.fade !== false;
+  updateTitleCardConditionalFields();
+  updateTitleCardColorReadouts();
+  renderTitleCardPreview();
+}
+function updateTitleCardConditionalFields() {
+  const background=$('titleCardBackground').value;
+  $('titleCardFrameOffsetField').classList.toggle('hidden', background !== 'part-frame');
+  $('titleCardSolidColorField').classList.toggle('hidden', background !== 'solid');
+  $('titleCardDurationField').classList.toggle('hidden', $('titleCardStartMode').value !== 'timer');
+  $('titleCardAllowSkip').closest('label').classList.toggle('scope-muted', $('titleCardStartMode').value !== 'timer');
+  const enabled = !!$('partTitleScreens').checked && !state?.converting;
+  $('titleCardAllowSkip').disabled = !enabled || $('titleCardStartMode').value !== 'timer';
+  $('titleCardOutlineColor').disabled = !enabled || !$('titleCardOutline').checked;
+  $('titleCardOutlineColor')._gbaColorPickerController?.sync();
+}
+function estimatedTitleCardSourceTime(part) {
+  const video=state?.videos?.[0];
+  if (!video?.info) return 0;
+  const clip=effectiveClip(video.id);
+  const start=Math.max(0,parseClock(clip.start)||0);
+  let end=clip.end?.trim()?parseClock(clip.end):video.info.duration;
+  if (!Number.isFinite(end)) end=video.info.duration;
+  end=Math.min(video.info.duration,Math.max(start,end));
+  const segment=(end-start)/Math.max(1,titleCardEstimatedParts);
+  const settings=titleCardPartRecord(part,false)||{};
+  const offset=settings.backgroundMode==='part-frame'?Math.max(0,Number(settings.frameOffsetSeconds)||0):0;
+  return Math.min(Math.max(start,end-0.04),start+(part-1)*segment+offset);
+}
+function titleCardPreviewFrameKey(part, fit) {
+  const video = state?.videos?.[0];
+  const time = estimatedTitleCardSourceTime(part);
+  return `${video?.id || "video"}|${time.toFixed(3)}|${fit}`;
+}
+function drawCurrentTitleCardPreview(source) {
+  if (!$('titleCardPreview') || !$('titleCardSection') || $('titleCardSection').classList.contains('hidden')) return;
+  const settings = titleCardPartRecord(titleCardPart, false);
+  const fit = effectiveClip(state.videos[0].id).fit || 'fit';
+  TitleCardTools.renderTitleCardPreview($('titleCardPreview'), source, fit, settings, titleCardPart, titleCardSourceName());
+}
+function rememberTitleCardPreview(key, image) {
+  titleCardPreviewCache.delete(key);
+  titleCardPreviewCache.set(key, image);
+  while (titleCardPreviewCache.size > 16) titleCardPreviewCache.delete(titleCardPreviewCache.keys().next().value);
+}
+function imageFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not decode preview frame.')); };
+    image.src = url;
+  });
+}
+function renderTitleCardPreview() {
+  if (!$('titleCardPreview') || !$('titleCardSection') || $('titleCardSection').classList.contains('hidden')) return;
+  ensureTitleCardProject();
+  const settings = titleCardPartRecord(titleCardPart, false);
+  const fit = effectiveClip(state.videos[0].id).fit || 'fit';
+  if (settings?.backgroundMode === 'solid') {
+    titleCardPreviewDesiredKey = 'solid';
+    clearTimeout(titleCardPreviewTimer);
+    titleCardPreviewTimer = null;
+    titleCardPreviewAbort?.abort();
+    titleCardPreviewAbort = null;
+    titleCardPreviewPendingKey = '';
+    drawCurrentTitleCardPreview($('titleCardPreview'));
+    return;
+  }
+
+  const key = titleCardPreviewFrameKey(titleCardPart, fit);
+  titleCardPreviewDesiredKey = key;
+  const cached = titleCardPreviewCache.get(key);
+  if (cached) {
+    if (titleCardPreviewPendingKey && titleCardPreviewPendingKey !== key) titleCardPreviewAbort?.abort();
+    drawCurrentTitleCardPreview(cached);
+    return;
+  }
+  if (titleCardPreviewPendingKey === key) return;
+
+  clearTimeout(titleCardPreviewTimer);
+  if (titleCardPreviewPendingKey && titleCardPreviewPendingKey !== key) titleCardPreviewAbort?.abort();
+  titleCardPreviewTimer = setTimeout(async () => {
+    titleCardPreviewTimer = null;
+    if (titleCardPreviewDesiredKey !== key || titleCardPreviewPendingKey === key) return;
+    const controller = new AbortController();
+    titleCardPreviewAbort = controller;
+    titleCardPreviewPendingKey = key;
+    const time = estimatedTitleCardSourceTime(titleCardPart);
+    const url = BASE + '/preview?index=0&time=' + encodeURIComponent(time) + '&fit=' + encodeURIComponent(fit);
+    try {
+      const response = await fetch(url, {signal: controller.signal, cache: 'force-cache'});
+      if (!response.ok) throw new Error('Preview request failed.');
+      const image = await imageFromBlob(await response.blob());
+      rememberTitleCardPreview(key, image);
+      if (titleCardPreviewDesiredKey === key) drawCurrentTitleCardPreview(image);
+    } catch (error) {
+      if (error?.name !== 'AbortError' && titleCardPreviewDesiredKey === key) {
+        const fallback = {...titleCardPartRecord(titleCardPart, false), backgroundMode:'solid', solidColor:'#000000'};
+        const fitNow = effectiveClip(state.videos[0].id).fit || 'fit';
+        TitleCardTools.renderTitleCardPreview($('titleCardPreview'), $('titleCardPreview'), fitNow, fallback, titleCardPart, titleCardSourceName());
+      }
+    } finally {
+      if (titleCardPreviewPendingKey === key) titleCardPreviewPendingKey = '';
+      if (titleCardPreviewAbort === controller) titleCardPreviewAbort = null;
+    }
+  }, 180);
+}
+function updateTitleCardNavState() {
+  $('titleCardPartSelect').value = String(titleCardPart);
+  $('titleCardPartLabel').textContent = `of ${titleCardEstimatedParts}`;
+  const enabled = !!$('partTitleScreens').checked && !state?.converting;
+  $('titleCardPrev').disabled = !enabled || titleCardPart <= 1;
+  $('titleCardNext').disabled = !enabled || titleCardPart >= titleCardEstimatedParts;
+}
+function setTitleCardPart(part, force = false) {
+  const nextPart = Math.max(1, Math.min(titleCardEstimatedParts, Number(part) || 1));
+  const changed = nextPart !== titleCardPart;
+  titleCardPart = nextPart;
+  updateTitleCardNavState();
+  if (changed || force) loadTitleCardFields();
+}
+function updateTitleCardSection(estimateResult) {
+  const section = $('titleCardSection');
+  const wasVisible = !section.classList.contains('hidden');
+  const visible = state?.videos?.length === 1 && Number(estimateResult?.estimatedParts || 1) > 1;
+  section.classList.toggle('hidden', !visible);
+  if (!visible) {
+    titleCardSectionSignature = '';
+    return;
+  }
+  ensureTitleCardProject();
+  const previousParts = titleCardEstimatedParts;
+  titleCardEstimatedParts = Math.max(2, Number(estimateResult.estimatedParts) || 2);
+  titleCardProject.enabled = $('partTitleScreens').checked;
+  titleCardProject.useShared = $('titleCardUseShared').checked;
+  if ($('titleCardPartSelect').options.length !== titleCardEstimatedParts) {
+    $('titleCardPartSelect').innerHTML = Array.from({length:titleCardEstimatedParts}, (_, index) => `<option value="${index + 1}">Part ${index + 1}</option>`).join('');
+  }
+  if (titleCardPart > titleCardEstimatedParts) titleCardPart = titleCardEstimatedParts;
+  const clip = effectiveClip(state.videos[0].id);
+  const signature = `${state.videos[0].id}|${titleCardEstimatedParts}|${clip.start}|${clip.end}|${clip.fit}`;
+  const sourceChanged = signature !== titleCardSectionSignature;
+  titleCardSectionSignature = signature;
+  const enabled = $('partTitleScreens').checked;
+  $('titleCardControls').classList.toggle('scope-muted', !enabled);
+  for (const control of $('titleCardControls').querySelectorAll('input,select,button')) control.disabled = !enabled || !!state?.converting;
+  for (const id of ['titleCardUseShared','titleCardOutline','titleCardAllowSkip','titleCardFade']) $(id).disabled = !enabled || !!state?.converting;
+  $('titleCardCopyToAll').classList.toggle('hidden', $('titleCardUseShared').checked);
+  if (!wasVisible || previousParts !== titleCardEstimatedParts || sourceChanged) setTitleCardPart(titleCardPart, true);
+  else updateTitleCardNavState();
+  updateTitleCardConditionalFields();
 }
 
 function updateSplitControls() {
@@ -601,6 +864,7 @@ function globalValues(includeMenuTheme = true) {
     maxPartDuration:$('maxPartDuration').value.trim() || '0',
     chapterAware:$('chapterAware').checked, partTitleScreens:$('partTitleScreens').checked,
     resumeLongSplit:$('resumeLongSplit').checked,
+    titleCards:serializeTitleCards(),
     menuBackground:$('menuBackground')?.value || 'ocean-wave-animated',
     menuUIColor:$('menuUIColor')?.value || '#FFFFFF',
     menuSelectionColor:$('menuSelectionColor')?.value || '#FFDE00',
@@ -659,7 +923,7 @@ function estimateModel(model) {
 function estimate() {
   const model = modelSnapshot();
   const result = estimateModel(model);
-  if (result.error) { $('estimate').textContent = result.error; return result; }
+  if (result.error) { $('estimate').textContent = result.error; $('titleCardSection')?.classList.add('hidden'); return result; }
   const single = state.videos.length === 1;
   const manualSplit = single && !!model.global.splitVideo;
   const budgetMiB = manualSplit ? Math.max(1, Math.min(32, Number(model.global.splitBudgetMiB) || 31)) : 32;
@@ -671,7 +935,15 @@ function estimate() {
   const maxPartSeconds = manualSplit ? parsePartDuration(model.global.maxPartDuration) : 0;
   if (!Number.isFinite(maxPartSeconds)) { $('estimate').innerHTML = '<b class="estimate-over">Maximum duration must be 0 or MM:SS, for example 1:05.</b>'; return {...result,error:'invalid maximum part duration'}; }
   if (single && maxPartSeconds > 0) estimatedParts = Math.max(estimatedParts, Math.ceil(result.sourceDuration / maxPartSeconds));
-  const automaticSplit = single && estimatedParts > 1;
+  let automaticSplit = single && estimatedParts > 1;
+  if (automaticSplit && $('partTitleScreens')?.checked && window.TitleCardTools) {
+    for (let pass=0; pass<2; pass++) {
+      const withCards=payload + TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
+      estimatedParts=Math.max(estimatedParts,Math.ceil(withCards/usable));
+    }
+    result.bytes += TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
+  }
+  automaticSplit = single && estimatedParts > 1;
   $('optimize').classList.toggle('hidden', automaticSplit);
   const over = result.bytes > ROM_LIMIT;
   const headline = automaticSplit
@@ -686,6 +958,7 @@ function estimate() {
     '<br>Video ' + (result.breakdown.video/MIB).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/MIB).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/MIB).toFixed(2) + ' MiB' + splitNote;
   result.estimatedParts = estimatedParts;
   result.splitBudgetMiB = budgetMiB;
+  updateTitleCardSection(result);
   return result;
 }
 
@@ -783,7 +1056,11 @@ function applyPendingProject() {
   $('splitVideo').checked = !!settings.splitVideo;
   $('splitBudget').value = settings.splitBudgetMiB || 31;
   $('maxPartDuration').value = settings.maxPartDuration || partDurationValue((Number(settings.maxPartMinutes) || 0) * 60);
-  $('chapterAware').checked = settings.chapterAware !== false; $('partTitleScreens').checked = settings.partTitleScreens !== false; $('resumeLongSplit').checked = settings.resumeLongSplit !== false; updateSplitBudgetLabel(); updateSplitControls();
+  $('chapterAware').checked = settings.chapterAware !== false; $('partTitleScreens').checked = settings.titleCards?.enabled ?? (settings.partTitleScreens !== false); $('resumeLongSplit').checked = settings.resumeLongSplit !== false;
+  titleCardProject = settings.titleCards ? JSON.parse(JSON.stringify(settings.titleCards)) : null;
+  titleCardProjectSource = titleCardProject ? titleCardSourceName() : "";
+  if (titleCardProject) $('titleCardUseShared').checked = titleCardProject.useShared !== false;
+  updateSplitBudgetLabel(); updateSplitControls();
   $('romTitle').value = settings.romTitle || ''; romTitleAuto = false;
   if ($('menuBackground')) {
     $('menuBackground').value = settings.menuBackground || settings.menuTheme?.id || 'ocean-wave-animated';
@@ -833,6 +1110,35 @@ if ($('menuBackground')) {
   $('clearCustomMenuBackground').onclick = () => { customMenuTheme = null; $('customMenuBackground').value = ''; $('menuBackgroundStatus').textContent = 'Choose a PNG, JPG, WebP or GIF.'; rebuildMenuTheme(); estimate(); };
 }
 
+
+if (window.TitleCardTools && $('titleCardPreview')) {
+  for (const [inputID,label] of [['titleCardTextColor','Title-card text colour'],['titleCardOutlineColor','Title-card outline colour'],['titleCardSolidColor','Title-card background colour']]) {
+    MenuThemeTools.setupGBAColorPicker($(inputID),{label});
+  }
+  updateTitleCardColorReadouts();
+  $('titleCardPrev').onclick=()=>setTitleCardPart(titleCardPart-1);
+  $('titleCardNext').onclick=()=>setTitleCardPart(titleCardPart+1);
+  $('titleCardPartSelect').onchange=()=>setTitleCardPart(Number($('titleCardPartSelect').value));
+  $('titleCardUseShared').onchange=()=>{
+    ensureTitleCardProject(); titleCardProject.useShared=$('titleCardUseShared').checked;
+    $('titleCardCopyToAll').classList.toggle('hidden',titleCardProject.useShared);
+    loadTitleCardFields(); estimate();
+  };
+  $('titleCardCopyToAll').onclick=()=>{
+    const source=JSON.parse(JSON.stringify(titleCardPartRecord(titleCardPart,false)));
+    titleCardProject.parts=Array.from({length:titleCardEstimatedParts},(_,index)=>({part:index+1,settings:JSON.parse(JSON.stringify(source))}));
+    loadTitleCardFields(); estimate();
+  };
+  $('partTitleScreens').addEventListener('change',()=>{ ensureTitleCardProject(); titleCardProject.enabled=$('partTitleScreens').checked; estimate(); });
+  for (const id of ['titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardOutline','titleCardOutlineColor','titleCardAlignment','titleCardTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade']) {
+    $(id).addEventListener('input',saveTitleCardFields);
+    $(id).addEventListener('change',()=>{
+      if (['titleCardSolidColor','titleCardTextColor','titleCardOutlineColor'].includes(id)) $(id).value=MenuThemeTools.quantizeHexColor($(id).value,id==='titleCardTextColor'?'#FFFFFF':'#000000');
+      saveTitleCardFields();
+    });
+  }
+}
+
 $('audioPreview').onclick = async () => {
   try {
     $('audioPreview').disabled = true;
@@ -848,7 +1154,7 @@ $('convert').onclick = async () => {
 $('download').onclick = () => { const link = document.createElement('a'); link.href = BASE + '/download'; link.download = state.downloadName || 'GBA_Video_Maker_output'; link.click(); };
 $('retryEngine').onclick = () => api('/engine/retry', {method:'POST'});
 $('resetTop').onclick = async () => {
-  await api('/reset', {method:'POST'}); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; romTitleAuto=true; $('romTitle').value=''; show('welcome');
+  await api('/reset', {method:'POST'}); resetTitleCardPreviewCache(); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; titleCardProject=null; titleCardProjectSource=''; titleCardPart=1; titleCardSectionSignature=''; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; romTitleAuto=true; $('romTitle').value=''; show('welcome');
 };
 setInterval(() => fetch(BASE + '/heartbeat', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}), 5000);
 window.addEventListener('pagehide', () => fetch(BASE + '/close-intent', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}));

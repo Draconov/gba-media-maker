@@ -273,13 +273,46 @@
               <span>Prefer chapter boundaries</span>
             </label>
             <label class="check-field">
-              <input id="partTitleScreens" type="checkbox" checked />
-              <span>Add filename / PART title screens</span>
-            </label>
-            <label class="check-field">
               <input id="resumeLongSplit" type="checkbox" checked />
               <span>Resume interrupted splitting</span>
             </label>
+          </div>
+
+          <div id="titleCardGroup" class="menu-settings-panel title-card-panel" hidden>
+            <div class="section-heading compact-heading"><div><h3>Title cards for split video</h3><p>Each ROM part can open with a native 240×160 title screen.</p></div></div>
+            <div class="title-card-checkbox-row wide-field" role="group" aria-label="Title-card options">
+              <label class="check-field"><input id="partTitleScreens" type="checkbox" checked><span>Show title card at start</span></label>
+              <label class="check-field"><input id="titleCardUseShared" type="checkbox" checked><span>Use same settings for each part</span></label>
+              <label class="check-field"><input id="titleCardOutline" type="checkbox" checked><span>Draw text outline</span></label>
+              <label class="check-field"><input id="titleCardAllowSkip" type="checkbox" checked><span>Allow A to skip timer</span></label>
+              <label class="check-field"><input id="titleCardFade" type="checkbox" checked><span>Fade into video</span></label>
+            </div>
+            <div id="titleCardControls" class="title-card-editor">
+              <div class="title-card-nav wide-field">
+                <button id="titleCardPrev" type="button" class="secondary" aria-label="Previous part">◀</button>
+                <select id="titleCardPartSelect" aria-label="Select title-card part"></select>
+                <span id="titleCardPartLabel" class="title-card-part-total">of 2</span>
+                <button id="titleCardNext" type="button" class="secondary" aria-label="Next part">▶</button>
+              </div>
+              <button id="titleCardCopyToAll" type="button" class="secondary" hidden>Copy this part to all</button>
+              <div class="title-card-layout wide-field">
+                <div class="title-card-preview-wrap"><canvas id="titleCardPreview" width="240" height="160"></canvas><p class="muted-note">Native 240×160 GBA preview. Part boundaries are estimated until conversion.</p></div>
+                <div class="title-card-fields">
+                  <label class="wide-field"><span>Background</span><select id="titleCardBackground"><option value="part-first-frame">First frame of this part</option><option value="part-frame">Frame from this part</option><option value="solid">Solid colour</option></select></label>
+                  <label><span>Darkening: <strong id="titleCardDarknessValue">50%</strong></span><input id="titleCardDarkness" type="range" min="0" max="90" step="5" value="50"></label>
+                  <label id="titleCardFrameOffsetField"><span>Frame position in part (seconds)</span><input id="titleCardFrameOffset" type="number" min="0" step="0.1" value="0"></label>
+                  <div id="titleCardSolidColorField" class="color-picker-field" hidden><label for="titleCardSolidColor">Background colour</label><span class="gba-color-control"><input id="titleCardSolidColor" type="color" value="#000000"><output id="titleCardSolidColorValue" class="gba-color-value">#000000 · RGB555 0,0,0</output></span></div>
+                  <label class="wide-field"><span>Title</span><input id="titleCardTitle" maxlength="36"></label>
+                  <label class="wide-field"><span>Subtitle</span><input id="titleCardSubtitle" maxlength="40"></label>
+                  <label><span>Text alignment</span><select id="titleCardAlignment"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></label>
+                  <label><span>Text size</span><select id="titleCardTextSize"><option value="large" selected>Large</option><option value="medium">Medium</option><option value="small">Small</option></select></label>
+                  <div class="color-picker-field"><label for="titleCardTextColor">Text colour</label><span class="gba-color-control"><input id="titleCardTextColor" type="color" value="#ffffff"><output id="titleCardTextColorValue" class="gba-color-value">#FFFFFF · RGB555 31,31,31</output></span></div>
+                  <div class="color-picker-field"><label for="titleCardOutlineColor">Outline colour</label><span class="gba-color-control"><input id="titleCardOutlineColor" type="color" value="#000000"><output id="titleCardOutlineColorValue" class="gba-color-value">#000000 · RGB555 0,0,0</output></span></div>
+                  <label><span>Start behaviour</span><select id="titleCardStartMode"><option value="button" selected>Wait for A</option><option value="timer">Start automatically</option></select></label>
+                  <label id="titleCardDurationField" hidden><span>Automatic delay (seconds)</span><input id="titleCardDuration" type="number" min="0.1" max="60" step="0.1" value="3"></label>
+                </div>
+              </div>
+            </div>
           </div>
 
         <div id="menuSettingsGroup" class="menu-settings-panel" hidden>

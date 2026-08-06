@@ -32,6 +32,8 @@ typedef unsigned int   u32;
 #define REG_TM3CNT_L     REG16(0x0400010C)
 #define REG_TM3CNT_H     REG16(0x0400010E)
 #define REG_KEYINPUT     REG16(0x04000130)
+#define REG_BLDCNT       REG16(0x04000050)
+#define REG_BLDY         REG16(0x04000054)
 
 #define PALRAM           ((volatile u16 *)0x05000000)
 #define OBJ_PALRAM       ((volatile u16 *)0x05000200)
@@ -42,6 +44,7 @@ typedef unsigned int   u32;
 #define SRAM_BASE        ((volatile u8 *)0x0E000000)
 #define ROM_BASE         0x08000000u
 
+#define MODE3_BG2        0x0403
 #define MODE4_BG2        0x0404
 #define MODE4_BG2_OBJ    (MODE4_BG2 | 0x1040u)
 #define PAGE_SELECT      0x0010
@@ -67,6 +70,11 @@ typedef unsigned int   u32;
 #define CLIP_FLAG_SCENE_PAL  0x0008u
 #define GBV5_MAGIC           0x35564247u
 #define MENU_THEME_MAGIC     0x3148544Du
+#define TITLE_CARD_MAGIC      0x31444354u
+#define TITLE_CARD_FLAG_WAIT_A    0x0001u
+#define TITLE_CARD_FLAG_SKIP      0x0002u
+#define TITLE_CARD_FLAG_FADE      0x0004u
+#define TITLE_CARD_PIXEL_BYTES    76800u
 #define MENU_THEME_STATIC    0u
 #define MENU_THEME_SHIMMER   1u
 #define MENU_THEME_FRAMES    2u
@@ -136,6 +144,15 @@ struct GlobalMetadata {
     u32 clip_descriptor_size;
     u32 title_screen_part;
     char title_screen_name[24];
+    u32 reserved[4];
+};
+
+struct TitleCardHeader {
+    u32 magic;
+    u16 version;
+    u16 flags;
+    u32 pixel_bytes;
+    u32 duration_vblanks;
     u32 reserved[4];
 };
 
@@ -219,6 +236,7 @@ extern const struct GlobalMetadata gba_video_metadata;
 static u8 frame_a[FRAME_BYTES];
 static u8 frame_b[FRAME_BYTES];
 static const struct MenuThemeHeader *active_menu_theme;
+static int title_card_video_fade_in = 0;
 static int active_menu_outline;
 static const char sram_type[] __attribute__((used)) = "SRAM_V113";
 
@@ -1119,18 +1137,86 @@ static void make_part_label(char out[12], u32 part)
     out[pos] = 0;
 }
 
+static const struct TitleCardHeader *title_card_for_metadata(const struct GlobalMetadata *meta)
+{
+    const struct TitleCardHeader *card;
+    if (meta->reserved[1] == 0u) return 0;
+    card = (const struct TitleCardHeader *)rom_ptr(meta->reserved[1]);
+    if (card->magic != TITLE_CARD_MAGIC || card->version != 1u || card->pixel_bytes != TITLE_CARD_PIXEL_BYTES) return 0;
+    return card;
+}
+
+static void reset_blend(void)
+{
+    REG_BLDCNT = 0u;
+    REG_BLDY = 0u;
+}
+
+static void show_native_title_card(const struct TitleCardHeader *card)
+{
+    volatile u16 *dst = VRAM_PAGE0;
+    const u16 *src = (const u16 *)(card + 1);
+    u32 i, elapsed = 0u;
+    u16 pressed;
+
+    REG_DISPCNT = FORCE_BLANK;
+    menu_arrow_hide();
+    audio_stop();
+    reset_blend();
+    for (i = 0u; i < TITLE_CARD_PIXEL_BYTES / 2u; ++i) dst[i] = src[i];
+    wait_vblank();
+    REG_DISPCNT = MODE3_BG2;
+    while (keys_down() != 0u) wait_vblank();
+
+    if (card->flags & TITLE_CARD_FLAG_WAIT_A) {
+        for (;;) {
+            wait_vblank();
+            pressed = keys_down();
+            if (pressed & KEY_A) break;
+        }
+    } else {
+        while (elapsed < card->duration_vblanks) {
+            wait_vblank();
+            ++elapsed;
+            pressed = keys_down();
+            if ((card->flags & TITLE_CARD_FLAG_SKIP) && (pressed & KEY_A)) break;
+        }
+    }
+    while (keys_down() != 0u) wait_vblank();
+
+    if (card->flags & TITLE_CARD_FLAG_FADE) {
+        REG_BLDCNT = 0x00FFu; /* brightness decrease on every visible layer */
+        for (i = 0u; i <= 16u; ++i) {
+            REG_BLDY = (u16)i;
+            wait_vblank();
+        }
+        title_card_video_fade_in = 1;
+    } else {
+        reset_blend();
+        title_card_video_fade_in = 0;
+    }
+    REG_DISPCNT = FORCE_BLANK;
+}
+
 static void show_part_title_screen(const struct GlobalMetadata *meta, const struct ClipDescriptor *clip)
 {
+    const struct TitleCardHeader *card = title_card_for_metadata(meta);
     volatile u16 *dst = VRAM_PAGE0;
     const char *title;
     u32 title_length;
     char part_text[12];
     u32 wait_count;
+
+    if (card) {
+        show_native_title_card(card);
+        return;
+    }
     if (!(meta->flags & GLOBAL_FLAG_TITLE_SCREEN) || meta->title_screen_part == 0u) return;
     title = meta->title_screen_name[0] != 0 ? meta->title_screen_name : clip->title;
     title_length = fixed_text_length(title, meta->title_screen_name[0] != 0 ? 24u : 12u);
     REG_DISPCNT = FORCE_BLANK;
     menu_arrow_hide();
+    reset_blend();
     clear_screen(dst);
     set_ui_palette();
     draw_text(dst, centered_text_x(title, title_length), 31u, title, title_length, UI_WHITE);
@@ -1499,7 +1585,20 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     audio_stop(); REG_DISPCNT=FORCE_BLANK;
     copy_palette(palette_for_frame(clip,frame));
     render_frame_with_ui(current,frame,VRAM_PAGE0,clip,ui);
+    if (title_card_video_fade_in) {
+        REG_BLDCNT = 0x00FFu;
+        REG_BLDY = 16u;
+    } else reset_blend();
     wait_vblank(); REG_DISPCNT=MODE4_BG2;
+    if (title_card_video_fade_in) {
+        u32 fade_step;
+        for (fade_step = 16u; fade_step > 0u; --fade_step) {
+            REG_BLDY = (u16)(fade_step - 1u);
+            wait_vblank();
+        }
+        title_card_video_fade_in = 0;
+        reset_blend();
+    }
     previous_keys=keys_down();
     playback_clock_init(&clock, clip->vblanks_per_frame);
     playback_timer_reset();

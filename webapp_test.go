@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -55,6 +58,51 @@ func TestRunWebAppLifecycle(t *testing.T) {
 	}
 }
 
+func TestPreviewGenerationCoalescesDuplicateRequests(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test helper uses a POSIX shell")
+	}
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "calls.txt")
+	script := filepath.Join(dir, "fake-ffmpeg.sh")
+	body := "#!/bin/sh\n" +
+		"echo call >> " + counter + "\n" +
+		"sleep 0.15\n" +
+		"for last; do :; done\n" +
+		"printf preview > \"$last\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state := &appState{}
+	out := filepath.Join(dir, "preview.png")
+	var wg sync.WaitGroup
+	errs := make(chan error, 6)
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- state.ensurePreview(context.Background(), script, "input.mp4", 12.5, "fit", out)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(calls), "call"); got != 1 {
+		t.Fatalf("duplicate preview requests started FFmpeg %d times; want 1", got)
+	}
+	if data, err := os.ReadFile(out); err != nil || string(data) != "preview" {
+		t.Fatalf("preview cache was not published atomically: data=%q err=%v", data, err)
+	}
+}
+
 func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	page, err := renderPage("abc123")
 	if err != nil {
@@ -63,10 +111,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.10.0")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.11.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Text size"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -79,6 +127,12 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	}
 	if !bytes.Contains(appJS, []byte("gbavm-session-token")) {
 		t.Fatal("external application script missing")
+	}
+	if !bytes.Contains(appJS, []byte("titleCardPreviewPendingKey")) || !bytes.Contains(appJS, []byte("AbortController")) {
+		t.Fatal("title-card preview request coalescing is missing")
+	}
+	if !bytes.Contains(appCSS, []byte("flex-wrap:nowrap")) || !bytes.Contains(appCSS, []byte(".title-card-nav select")) || !bytes.Contains(appCSS, []byte(".title-card-checkbox-row")) {
+		t.Fatal("compact one-row title-card navigation is missing")
 	}
 }
 
@@ -268,7 +322,7 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || len(icon) < 1000 {
 		t.Fatalf("bad app icon response status=%d bytes=%d", resp.StatusCode, len(icon))
 	}
-	for _, asset := range []string{"style.css", "menu-themes.js", "app.js"} {
+	for _, asset := range []string{"style.css", "menu-themes.js", "title-cards.js", "app.js"} {
 		resp, err = http.Get(server.URL + "/" + state.token + "/" + asset)
 		if err != nil {
 			t.Fatal(err)
@@ -563,12 +617,16 @@ func TestSingleROMAutomaticallySplitsWhenBudgetIsExceeded(t *testing.T) {
 	input := filepath.Join(dir, "automatic-test.mkv")
 	makeFixture(t, ff, input, 8.0, "45")
 	output := filepath.Join(dir, "automatic-test.gba")
+	cardProject := &TitleCardProjectSettings{
+		Enabled: true, UseShared: true, Shared: defaultTitleCardSettings("MY_VIDEO.mp4"),
+	}
 	opt := ProjectOptions{
 		Inputs:     []ClipInput{{InputPath: input, Name: "MY_VIDEO.mp4", Title: "MY VIDEO"}},
 		OutputPath: output, FFmpegPath: ff, Start: 0, End: 8, Speed: 1,
 		VBlanks: 8, FitMode: "fit", AudioMode: "none", Volume: 1,
 		RomTitle: "MY VIDEO", SeekSeconds: 5, Compression: "none",
 		PaletteMode: "shared", DitherMode: "off", OutputMode: "rom", KeyInterval: 30,
+		PartTitleScreens: true, TitleCards: cardProject,
 	}
 	res, err := convertProjectWithAutoSplitBudget(opt, 260*1024, nil)
 	if err != nil {
@@ -582,6 +640,34 @@ func TestSingleROMAutomaticallySplitsWhenBudgetIsExceeded(t *testing.T) {
 	}
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatalf("oversized temporary ROM was not removed: %v", err)
+	}
+	zr, err := zip.OpenReader(res.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	titleROMs := 0
+	for _, file := range zr.File {
+		if filepath.Ext(file.Name) != ".gba" {
+			continue
+		}
+		r, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rom, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pointer := binary.LittleEndian.Uint32(rom[metadataOffset+52:])
+		if pointer == 0 || int(pointer)+4 > len(rom) || binary.LittleEndian.Uint32(rom[pointer:pointer+4]) != titleCardMagic {
+			t.Fatalf("%s has no native title card", file.Name)
+		}
+		titleROMs++
+	}
+	if titleROMs < 2 {
+		t.Fatalf("native title cards found in only %d ROMs", titleROMs)
 	}
 }
 
@@ -654,8 +740,11 @@ func TestBuildOptionsIgnoresHiddenManualSplitRules(t *testing.T) {
 	if opt.SplitBudgetMiB != 32 || opt.MaxPartMinutes != 0 {
 		t.Fatalf("hidden manual rules leaked into normal Single ROM mode: %+v", opt)
 	}
-	if !opt.ChapterAware || !opt.PartTitleScreens || !opt.ResumeLongSplit {
+	if !opt.ChapterAware || !opt.ResumeLongSplit {
 		t.Fatalf("automatic overflow split defaults were not restored: %+v", opt)
+	}
+	if opt.PartTitleScreens || opt.TitleCards != nil {
+		t.Fatalf("the user's title-card preference was not preserved: %+v", opt)
 	}
 }
 

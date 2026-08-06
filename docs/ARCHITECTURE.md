@@ -9,7 +9,8 @@ One or more video files
 Local web UI on 127.0.0.1
         │
         ├─ FFmpeg inspection
-        ├─ start/end preview generation
+        ├─ start/end and title-card preview generation
+        ├─ cached/coalesced FFmpeg preview jobs
         ├─ audio preview generation
         ├─ frame extraction and 120×80 scaling
         ├─ scene detection and palette quantization
@@ -31,6 +32,14 @@ The Windows executable embeds the HTML, CSS, JavaScript, conversion code, and a 
 6. Preview endpoints invoke FFmpeg for exact framing and selected-channel audio samples.
 7. Conversion progress is polled through token-prefixed local endpoints.
 8. The server exits after the app window disappears and the heartbeat expires.
+
+## Split-part title-card pipeline
+
+When one source video is split into multiple ROMs, each part may include a `TCD1` asset generated before ROM assembly. The converter extracts the selected part-relative source frame, fits it to 240×160, applies background darkening, renders title/subtitle text with RGB555 colours, and stores the completed native screen with timing and input flags.
+
+Desktop preview extraction is debounced and keyed by source path, timestamp, and framing mode. Identical requests share one in-flight job, completed frames are cached, and selecting another part cancels obsolete work. Preview FFmpeg commands use fast input seeking and one decoder thread so the editor cannot fan out into several CPU-heavy processes.
+
+The player displays the pre-rendered screen before initializing normal 120×80 playback. It may wait for `A` or a timer, optionally fade to black, initialize the video, and fade the first frame in.
 
 ## Frame conversion
 

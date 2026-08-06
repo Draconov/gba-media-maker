@@ -43,6 +43,9 @@ test("web edition exposes desktop parity controls", async () => {
     "titleEditor", "titlePreviewInput", "audioPreviewButton",
     "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
+    "titleCardGroup", "titleCardPreview", "titleCardPartSelect", "titleCardUseShared",
+    "titleCardTitle", "titleCardSubtitle", "titleCardBackground", "titleCardDarkness", "titleCardTextSize",
+    "titleCardTextColor", "titleCardOutlineColor", "titleCardStartMode", "titleCardFade",
     "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground",
     "menuUIColor", "menuSelectionColor", "menuOutline", "menuOutlineColor",
   ]) assert.match(html, new RegExp(`id="${id}"`));
@@ -52,6 +55,26 @@ test("web edition exposes desktop parity controls", async () => {
   assert.match(script, /indexedDB\.open\("gba-video-maker"/);
   assert.match(script, /decodeCustomFile/);
   assert.match(script, /serializeTheme/);
+  assert.match(script, /buildTitleCardAsset/);
+  assert.match(script, /renderTitleCardPreview/);
+});
+
+
+test("title-card navigation stays in one row and avoids redundant reloads", async () => {
+  const [style, script] = await Promise.all([
+    readFile(resolve(website, "src/style.css"), "utf8"),
+    readFile(resolve(website, "src/main.js"), "utf8"),
+  ]);
+  assert.match(style, /\.title-card-checkbox-row\{[^}]*flex-wrap:nowrap;/);
+  assert.match(style, /\.title-card-nav\{[^}]*flex-wrap:nowrap;/);
+  assert.match(style, /\.title-card-nav select\{[^}]*width:132px;/);
+  assert.match(script, /function updateTitleCardNavState\(\)/);
+  assert.match(script, /sourceChanged/);
+  assert.match(script, /setTitleCardPart\(titleCardPart, true\)/);
+  const html = await readFile(resolve(website, "index.html"), "utf8");
+  assert.match(html, /Show title card at start/);
+  assert.match(html, /Use same settings for each part/);
+  assert.match(html, /id="titleCardPartLabel"[^>]*>of 2</);
 });
 
 

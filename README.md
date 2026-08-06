@@ -5,7 +5,7 @@
 
 **Turn ordinary videos into playable Game Boy Advance ROMs — in the browser or with the portable Windows app.**
 
-[![Version](https://img.shields.io/badge/version-0.10.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
 [![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
 [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
@@ -44,6 +44,8 @@ The generated player keeps the proven v0.9 playback path:
 
 ### Video and ROM controls
 
+Version 0.11 adds native per-part title cards for automatically split single-video conversions, plus a lighter preview pipeline and compact one-row part navigation.
+
 - **Automatic long-video split:** no special mode is required. Create a normal **Single ROM**; when it cannot safely fit, the app selects the largest safe source-time segment for each part, verifies the encoded size, continues from the exact ending timestamp, and exports `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` in one ZIP
 - **Before starting:** the estimator shows `Estimated output: N ROM parts` using the selected ROM-size target and optional duration cap
 - **During conversion:** progress shows `Part N of approximately M` and the current source position, for example `18:42 / 50:00`
@@ -51,7 +53,10 @@ The generated player keeps the proven v0.9 playback path:
 - **Duration-based parts:** enter a maximum duration as `MM:SS` (for example `1:05`); `0` leaves the duration automatic
 - **Chapter-aware splitting:** when chapter metadata is present, the splitter prefers a nearby earlier chapter boundary instead of cutting in the middle of a chapter
 - **Long-job recovery:** accepted parts are kept in a persistent recovery folder and reused when the same conversion is started again after an interruption
-- **Part title cards:** split ROMs can show the sanitized source filename followed by `PART N` before playback
+- **Native per-part title cards:** split ROMs can open on a full 240×160 title card using the first frame of that part at 50% default darkening, the source filename as the title, and `Part {part}` as the automatic subtitle
+- **Shared or individual design:** edit one style for every part or navigate with the compact `Part N` / `of M` controls and override title, subtitle, background frame, darkness, colours, alignment, Large/Medium/Small text size, timing, and fade behaviour
+- **Compact options:** all title-card checkboxes stay together in one horizontal row
+- **Exact preview:** both editions show the title card with the same RGB555 rendering and 3×5 font data embedded in the ROM
 
 - Drag in one or more videos
 - Trim start and end times
@@ -82,7 +87,7 @@ The generated player keeps the proven v0.9 playback path:
 
 ### Menu design and multi-clip menu
 
-Version 0.10 adds a dedicated **Menu design** panel whenever **One ROM — clip menu** is selected. The desktop and browser editions use the same theme format and embed the chosen design directly into the exported ROM.
+Version 0.10 added a dedicated **Menu design** panel whenever **One ROM — clip menu** is selected. The desktop and browser editions use the same theme format and embed the chosen design directly into the exported ROM.
 
 - Live pixel preview built from the same 120×80 indexed background data used by the GBA player
 - Integer-scaled preview with the player's exact 3×5 font, text coordinates, divider lines, and selector shape
@@ -111,7 +116,9 @@ The automatic split panel provides:
 - A 1–32 MiB ROM-data target slider, plus 20 MiB, 30 MiB, and Maximum presets
 - An optional fixed maximum source duration per part
 - Chapter-aware split points when the source contains chapters
-- Optional filename / `PART N` title screens
+- Optional native 240×160 title cards with shared or per-part settings
+- First-frame backgrounds darkened behind the source filename and automatic `Part {part}` subtitle
+- Wait-for-A or timed start, optional skip, and fade into video
 - Persistent recovery of completed parts after cancellation or failure (desktop cache on Windows; IndexedDB in the web app)
 
 The pre-conversion estimate reports the approximate part count. While encoding, the status area shows both the current part and source timestamp. The estimate can change as real compressed sizes become available.
@@ -271,7 +278,7 @@ PowerShell helpers:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.10.0
+./scripts/package-release.ps1 -Version 0.11.0
 ```
 
 ## Project layout
@@ -281,9 +288,10 @@ player/                  ARM7TDMI player source and build scripts
 assets/player_stub.bin   Prebuilt 32 KiB GBA player template
 converter.go             FFmpeg pipeline, palettes, compression, and ROM assembly
 menu_theme.go            MTH1 menu-theme validation and ROM embedding
-web/                     Interface and menu-theme tools embedded in the Windows app
-website/                 Standalone GitHub Pages converter and matching theme tools
-webapp.go                Local desktop HTTP API
+title_card.go            Native 240×160 title-card rendering and TCD1 assets
+web/                     Desktop interface, menu themes, and title-card editor
+website/                 Standalone GitHub Pages converter with matching tools
+webapp.go                Local desktop HTTP API and preview-job coordination
 scripts/                 Desktop build and packaging helpers
 docs/                    Architecture documentation
 .github/workflows/       CI, release, and Pages deployment

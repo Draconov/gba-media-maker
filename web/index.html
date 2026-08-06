@@ -8,7 +8,7 @@
 <meta name="gbavm-session-token" content="__SESSION_TOKEN__">
 <link rel="icon" type="image/png" href="./icon.png">
 <link rel="stylesheet" href="./style.css">
-<title>GBA Video Maker 0.10.0</title>
+<title>GBA Video Maker 0.11.0</title>
 </head>
 <body>
 <div class="shell">
@@ -159,13 +159,52 @@
               </div>
               <div class="field"><label>Maximum duration per part (MM:SS, 0 = automatic)</label><input id="maxPartDuration" type="text" inputmode="numeric" value="0" placeholder="0 or 1:05"></div>
               <label class="check"><input id="chapterAware" type="checkbox" checked> Prefer chapter boundaries</label>
-              <label class="check"><input id="partTitleScreens" type="checkbox" checked> Add filename / PART title screens</label>
               <label class="check"><input id="resumeLongSplit" type="checkbox" checked> Resume interrupted splitting</label>
             </div>
           </div>
         </div>
         <p class="tiny">Enable Split the video to choose a ROM-size target, an optional MM:SS duration limit, chapter-aware boundaries, title screens, and interrupted-job recovery. Videos that cannot fit one 32 MiB cartridge are still split automatically even when this option is off. Menu ROMs remember the selected item and save resume positions separately for each clip.</p>
         <p class="tiny">Playlist controls: SELECT+Left previous clip, SELECT+Right next clip. Other controls: A pause; B restart or menu; L/R seek; Left/Right seek or paused frame-step; Up/Down volume; SELECT mute; START HUD; START+SELECT help.</p>
+      </section>
+
+      <section id="titleCardSection" class="section hidden">
+        <h3>Title cards for split video</h3>
+        <div class="title-card-checkbox-row" role="group" aria-label="Title-card options">
+          <label class="check"><input id="partTitleScreens" type="checkbox" checked> Show title card at start</label>
+          <label class="check"><input id="titleCardUseShared" type="checkbox" checked> Use same settings for each part</label>
+          <label class="check"><input id="titleCardOutline" type="checkbox" checked> Draw text outline</label>
+          <label class="check"><input id="titleCardAllowSkip" type="checkbox" checked> Allow A to skip timer</label>
+          <label class="check"><input id="titleCardFade" type="checkbox" checked> Fade into video</label>
+        </div>
+        <div id="titleCardControls" class="title-card-editor">
+          <div class="title-card-nav">
+            <button id="titleCardPrev" type="button" class="mini-btn" aria-label="Previous part">◀</button>
+            <select id="titleCardPartSelect" aria-label="Select title-card part"></select>
+            <span id="titleCardPartLabel" class="title-card-part-total">of 2</span>
+            <button id="titleCardNext" type="button" class="mini-btn" aria-label="Next part">▶</button>
+          </div>
+          <button id="titleCardCopyToAll" type="button" class="btn compact hidden">Copy this part to all</button>
+          <div class="title-card-layout">
+            <div class="title-card-preview-wrap">
+              <canvas id="titleCardPreview" width="240" height="160" aria-label="Native 240 by 160 GBA title-card preview"></canvas>
+              <p class="tiny">Native 240×160 GBA preview. Part boundaries are estimated until conversion.</p>
+            </div>
+            <div class="fields title-card-fields">
+              <div class="field full"><label>Background</label><select id="titleCardBackground"><option value="part-first-frame">First frame of this part</option><option value="part-frame">Frame from this part</option><option value="solid">Solid colour</option></select></div>
+              <div class="field"><label>Darkening: <b id="titleCardDarknessValue">50%</b></label><input id="titleCardDarkness" type="range" min="0" max="90" step="5" value="50"></div>
+              <div id="titleCardFrameOffsetField" class="field"><label>Frame position in part (seconds)</label><input id="titleCardFrameOffset" type="number" min="0" step="0.1" value="0"></div>
+              <div id="titleCardSolidColorField" class="field color-picker-field hidden"><label for="titleCardSolidColor">Background colour</label><div class="gba-color-control"><input id="titleCardSolidColor" type="color" value="#000000"><output id="titleCardSolidColorValue" class="gba-color-value">#000000 · RGB555 0,0,0</output></div></div>
+              <div class="field full"><label>Title</label><input id="titleCardTitle" maxlength="36"></div>
+              <div class="field full"><label>Subtitle</label><input id="titleCardSubtitle" maxlength="40"></div>
+              <div class="field"><label>Text alignment</label><select id="titleCardAlignment"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></div>
+              <div class="field"><label>Text size</label><select id="titleCardTextSize"><option value="large" selected>Large</option><option value="medium">Medium</option><option value="small">Small</option></select></div>
+              <div class="field color-picker-field"><label for="titleCardTextColor">Text colour</label><div class="gba-color-control"><input id="titleCardTextColor" type="color" value="#ffffff"><output id="titleCardTextColorValue" class="gba-color-value">#FFFFFF · RGB555 31,31,31</output></div></div>
+              <div class="field color-picker-field"><label for="titleCardOutlineColor">Outline colour</label><div class="gba-color-control"><input id="titleCardOutlineColor" type="color" value="#000000"><output id="titleCardOutlineColorValue" class="gba-color-value">#000000 · RGB555 0,0,0</output></div></div>
+              <div class="field"><label>Start behaviour</label><select id="titleCardStartMode"><option value="button" selected>Wait for A</option><option value="timer">Start automatically</option></select></div>
+              <div id="titleCardDurationField" class="field hidden"><label>Automatic delay (seconds)</label><input id="titleCardDuration" type="number" min="0.1" max="60" step="0.1" value="3"></div>
+            </div>
+          </div>
+        </div>
       </section>
 
 
@@ -207,6 +246,7 @@
 </div>
 
 <script src="./menu-themes.js" defer></script>
+<script src="./title-cards.js" defer></script>
 <script src="./app.js" defer></script>
 </body>
 </html>

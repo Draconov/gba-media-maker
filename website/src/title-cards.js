@@ -1,0 +1,265 @@
+const WIDTH = 240;
+const HEIGHT = 160;
+const HEADER_SIZE = 32;
+const MAGIC = 0x31444354;
+const GBA_REFRESH = 59.727500569606;
+
+const FLAG_WAIT_A = 1;
+const FLAG_SKIP = 2;
+const FLAG_FADE = 4;
+
+const GLYPHS = {
+  "0":0x7B6F,"1":0x2C97,"2":0x73E7,"3":0x73CF,"4":0x5BC9,"5":0x79CF,"6":0x79EF,"7":0x7292,"8":0x7BEF,"9":0x7BCF,
+  A:0x2BED,B:0x6BAE,C:0x7927,D:0x6B6E,E:0x79E7,F:0x79E4,G:0x79AF,H:0x5BED,I:0x7497,J:0x124E,K:0x5D6D,L:0x4927,M:0x5FE9,N:0x5F6D,O:0x7B6F,P:0x7BE4,Q:0x7B7B,R:0x7BED,S:0x79CF,T:0x7492,U:0x5B6F,V:0x5B6A,W:0x5BFD,X:0x5AAD,Y:0x5A92,Z:0x72A7,
+  " ":0,"-":0x01C0,"_":0x0007,".":0x0002,":":0x0410,"!":0x2492,"?":0x72C2,"/":0x1248,"+":0x05D0,"(":0x2488,")":0x1112,"&":0x2AAE,
+};
+
+function setU16(data, offset, value) {
+  data[offset] = value & 0xff;
+  data[offset + 1] = (value >>> 8) & 0xff;
+}
+function setU32(data, offset, value) {
+  data[offset] = value & 0xff;
+  data[offset + 1] = (value >>> 8) & 0xff;
+  data[offset + 2] = (value >>> 16) & 0xff;
+  data[offset + 3] = (value >>> 24) & 0xff;
+}
+
+export function sanitizeTitleCardText(value, maximum = 40) {
+  const clean = String(value || "").toUpperCase().replace(/[^A-Z0-9 _\-.:!?/&()+]/g, " ").replace(/\s+/g, " ").trim();
+  return maximum > 0 ? clean.slice(0, maximum).trim() : clean;
+}
+
+function sourceBaseName(sourceName) {
+  return String(sourceName || "GBA VIDEO").replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "");
+}
+
+export function defaultTitleCardSettings(sourceName = "GBA VIDEO") {
+  return {
+    title: sanitizeTitleCardText(sourceBaseName(sourceName), 36) || "GBA VIDEO",
+    subtitle: "Part {part}",
+    backgroundMode: "part-first-frame",
+    frameOffsetSeconds: 0,
+    darkness: 50,
+    solidColor: "#000000",
+    textColor: "#FFFFFF",
+    outlineColor: "#000000",
+    drawOutline: true,
+    alignment: "center",
+    textSize: "large",
+    startMode: "button",
+    durationSeconds: 3,
+    allowSkip: true,
+    fade: true,
+  };
+}
+
+export function createTitleCardProject(sourceName = "GBA VIDEO") {
+  return { enabled: true, useShared: true, shared: defaultTitleCardSettings(sourceName), parts: [] };
+}
+
+function normalizeHex(value, fallback) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(value || "").trim());
+  return `#${(match ? match[1] : fallback.replace("#", "")).toUpperCase()}`;
+}
+
+export function normalizeTitleCardSettings(value = {}, sourceName = "GBA VIDEO", part = 1) {
+  const defaults = defaultTitleCardSettings(sourceName);
+  const settings = { ...defaults, ...value };
+  settings.title = sanitizeTitleCardText(settings.title || defaults.title, 36) || defaults.title;
+  settings.subtitle = sanitizeTitleCardText(String(settings.subtitle ?? defaults.subtitle).replaceAll("{part}", String(part)), 40);
+  settings.backgroundMode = ["part-first-frame", "part-frame", "solid"].includes(settings.backgroundMode) ? settings.backgroundMode : defaults.backgroundMode;
+  settings.frameOffsetSeconds = Math.max(0, Number(settings.frameOffsetSeconds) || 0);
+  settings.darkness = Math.max(0, Math.min(90, Math.round(Number(settings.darkness) || 0)));
+  settings.solidColor = normalizeHex(settings.solidColor, defaults.solidColor);
+  settings.textColor = normalizeHex(settings.textColor, defaults.textColor);
+  settings.outlineColor = normalizeHex(settings.outlineColor, defaults.outlineColor);
+  settings.drawOutline = settings.drawOutline !== false;
+  settings.alignment = ["left", "right"].includes(settings.alignment) ? settings.alignment : "center";
+  settings.textSize = ["medium", "small"].includes(settings.textSize) ? settings.textSize : "large";
+  settings.startMode = settings.startMode === "timer" ? "timer" : "button";
+  settings.durationSeconds = Math.max(0.1, Math.min(60, Number(settings.durationSeconds) || defaults.durationSeconds));
+  settings.allowSkip = settings.allowSkip !== false;
+  settings.fade = settings.fade !== false;
+  return settings;
+}
+
+export function resolveTitleCardSettings(project, sourceName, part) {
+  if (!project?.enabled) return null;
+  let selected = project.shared || {};
+  if (!project.useShared) {
+    const match = (project.parts || []).find((item) => Number(item.part) === Number(part));
+    if (match) selected = match.settings || match;
+  }
+  return normalizeTitleCardSettings(selected, sourceName, part);
+}
+
+function hexRGB(value, fallback) {
+  const hex = normalizeHex(value, fallback).slice(1);
+  return [Number.parseInt(hex.slice(0, 2), 16), Number.parseInt(hex.slice(2, 4), 16), Number.parseInt(hex.slice(4, 6), 16)];
+}
+
+function rgb555(r, g, b) {
+  const r5 = Math.floor((r * 31 + 127) / 255);
+  const g5 = Math.floor((g * 31 + 127) / 255);
+  const b5 = Math.floor((b * 31 + 127) / 255);
+  return r5 | (g5 << 5) | (b5 << 10);
+}
+
+function rgb555ToRGBA(value, rgba, offset) {
+  rgba[offset] = Math.round((value & 31) * 255 / 31);
+  rgba[offset + 1] = Math.round(((value >>> 5) & 31) * 255 / 31);
+  rgba[offset + 2] = Math.round(((value >>> 10) & 31) * 255 / 31);
+  rgba[offset + 3] = 255;
+}
+
+function wrapText(text, maxChars, maxLines) {
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+  for (let word of words) {
+    while (word.length > maxChars) {
+      if (current) { lines.push(current); current = ""; if (lines.length >= maxLines) return lines; }
+      lines.push(word.slice(0, maxChars));
+      word = word.slice(maxChars);
+      if (lines.length >= maxLines) return lines;
+    }
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxChars) current = candidate;
+    else {
+      if (current) lines.push(current);
+      if (lines.length >= maxLines) return lines;
+      current = word;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines;
+}
+
+function setPixel(pixels, x, y, colour) {
+  if (x >= 0 && y >= 0 && x < WIDTH && y < HEIGHT) pixels[y * WIDTH + x] = colour;
+}
+function drawGlyph(pixels, x, y, scale, glyph, colour) {
+  for (let row = 0; row < 5; row += 1) for (let col = 0; col < 3; col += 1) {
+    const bit = 14 - (row * 3 + col);
+    if (!(glyph & (1 << bit))) continue;
+    for (let yy = 0; yy < scale; yy += 1) for (let xx = 0; xx < scale; xx += 1) setPixel(pixels, x + col * scale + xx, y + row * scale + yy, colour);
+  }
+}
+function lineX(line, scale, alignment) {
+  const width = line.length ? line.length * 4 * scale - scale : 0;
+  if (alignment === "left") return 12;
+  if (alignment === "right") return WIDTH - 12 - width;
+  return Math.floor((WIDTH - width) / 2);
+}
+function drawLine(pixels, line, y, scale, alignment, colour, outlineColour, outline) {
+  const x = lineX(line, scale, alignment);
+  if (outline) {
+    const radius = scale >= 3 ? 2 : 1;
+    for (const [ox, oy] of [[-radius,0],[radius,0],[0,-radius],[0,radius],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+      [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale + ox, y + oy, scale, GLYPHS[character] || 0, outlineColour));
+    }
+  }
+  [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale, y, scale, GLYPHS[character] || 0, colour));
+}
+
+function typography(size) {
+  if (size === "medium") return { titleScale: 3, subtitleScale: 2, titleMax: 19, subtitleMax: 29, titleLineHeight: 18, subtitleLineHeight: 12, gap: 8 };
+  if (size === "small") return { titleScale: 2, subtitleScale: 1, titleMax: 29, subtitleMax: 59, titleLineHeight: 12, subtitleLineHeight: 6, gap: 6 };
+  return { titleScale: 4, subtitleScale: 3, titleMax: 14, subtitleMax: 19, titleLineHeight: 24, subtitleLineHeight: 18, gap: 10 };
+}
+
+export function renderTitleCardPixels(backgroundRGB, rawSettings, part = 1, sourceName = "GBA VIDEO") {
+  if (!(backgroundRGB instanceof Uint8Array) || backgroundRGB.length !== WIDTH * HEIGHT * 3) throw new Error(`Title-card background must contain ${WIDTH * HEIGHT * 3} RGB bytes.`);
+  const settings = normalizeTitleCardSettings(rawSettings, sourceName, part);
+  const pixels = new Uint16Array(WIDTH * HEIGHT);
+  const factor = (100 - settings.darkness) / 100;
+  for (let index = 0; index < pixels.length; index += 1) {
+    pixels[index] = rgb555(
+      Math.round(backgroundRGB[index * 3] * factor),
+      Math.round(backgroundRGB[index * 3 + 1] * factor),
+      Math.round(backgroundRGB[index * 3 + 2] * factor),
+    );
+  }
+  const text = hexRGB(settings.textColor, "#FFFFFF");
+  const outline = hexRGB(settings.outlineColor, "#000000");
+  const textColour = rgb555(...text);
+  const outlineColour = rgb555(...outline);
+  const type = typography(settings.textSize);
+  const titleLines = wrapText(settings.title, type.titleMax, 2);
+  const subtitleLines = wrapText(settings.subtitle, type.subtitleMax, 2);
+  const totalHeight = titleLines.length * type.titleLineHeight + (subtitleLines.length ? type.gap + subtitleLines.length * type.subtitleLineHeight : 0);
+  let y = Math.max(10, Math.floor((HEIGHT - totalHeight) / 2));
+  for (const line of titleLines) { drawLine(pixels, line, y, type.titleScale, settings.alignment, textColour, outlineColour, settings.drawOutline); y += type.titleLineHeight; }
+  if (subtitleLines.length) {
+    y += type.gap;
+    for (const line of subtitleLines) { drawLine(pixels, line, y, type.subtitleScale, settings.alignment, textColour, outlineColour, settings.drawOutline); y += type.subtitleLineHeight; }
+  }
+  return { pixels, settings };
+}
+
+export function buildTitleCardAsset(backgroundRGB, rawSettings, part = 1, sourceName = "GBA VIDEO") {
+  const { pixels, settings } = renderTitleCardPixels(backgroundRGB, rawSettings, part, sourceName);
+  const asset = new Uint8Array(HEADER_SIZE + pixels.length * 2);
+  setU32(asset, 0, MAGIC);
+  setU16(asset, 4, 1);
+  let flags = settings.startMode === "button" ? FLAG_WAIT_A : 0;
+  if (settings.allowSkip) flags |= FLAG_SKIP;
+  if (settings.fade) flags |= FLAG_FADE;
+  setU16(asset, 6, flags);
+  setU32(asset, 8, pixels.length * 2);
+  setU32(asset, 12, Math.max(1, Math.round(settings.durationSeconds * GBA_REFRESH)));
+  const view = new DataView(asset.buffer);
+  pixels.forEach((value, index) => view.setUint16(HEADER_SIZE + index * 2, value, true));
+  return asset;
+}
+
+function sourceToRGB(source, fitMode = "fit") {
+  const canvas = document.createElement("canvas");
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.imageSmoothingEnabled = true;
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, WIDTH, HEIGHT);
+  const sourceWidth = source.videoWidth || source.naturalWidth || source.width || WIDTH;
+  const sourceHeight = source.videoHeight || source.naturalHeight || source.height || HEIGHT;
+  if (fitMode === "stretch") context.drawImage(source, 0, 0, WIDTH, HEIGHT);
+  else {
+    const scale = fitMode === "crop" ? Math.max(WIDTH / sourceWidth, HEIGHT / sourceHeight) : Math.min(WIDTH / sourceWidth, HEIGHT / sourceHeight);
+    const width = sourceWidth * scale;
+    const height = sourceHeight * scale;
+    context.drawImage(source, (WIDTH - width) / 2, (HEIGHT - height) / 2, width, height);
+  }
+  const rgba = context.getImageData(0, 0, WIDTH, HEIGHT).data;
+  const rgb = new Uint8Array(WIDTH * HEIGHT * 3);
+  for (let index = 0; index < WIDTH * HEIGHT; index += 1) {
+    rgb[index * 3] = rgba[index * 4];
+    rgb[index * 3 + 1] = rgba[index * 4 + 1];
+    rgb[index * 3 + 2] = rgba[index * 4 + 2];
+  }
+  return rgb;
+}
+
+export function renderTitleCardPreview(canvas, source, fitMode, rawSettings, part = 1, sourceName = "GBA VIDEO") {
+  if (!canvas || !source) return;
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const settings = normalizeTitleCardSettings(rawSettings, sourceName, part);
+  let rgb;
+  if (settings.backgroundMode === "solid") {
+    const [r, g, b] = hexRGB(settings.solidColor, "#000000");
+    rgb = new Uint8Array(WIDTH * HEIGHT * 3);
+    for (let index = 0; index < WIDTH * HEIGHT; index += 1) { rgb[index * 3] = r; rgb[index * 3 + 1] = g; rgb[index * 3 + 2] = b; }
+  } else rgb = sourceToRGB(source, fitMode);
+  const { pixels } = renderTitleCardPixels(rgb, settings, part, sourceName);
+  const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = false;
+  const image = context.createImageData(WIDTH, HEIGHT);
+  pixels.forEach((value, index) => rgb555ToRGBA(value, image.data, index * 4));
+  context.putImageData(image, 0, 0);
+}
+
+export const TITLE_CARD_BYTES = HEADER_SIZE + WIDTH * HEIGHT * 2;
+export const TITLE_CARD_WIDTH = WIDTH;
+export const TITLE_CARD_HEIGHT = HEIGHT;

@@ -18,3 +18,6 @@ var appJS []byte
 
 //go:embed web/menu-themes.js
 var menuThemesJS []byte
+
+//go:embed web/title-cards.js
+var titleCardsJS []byte
