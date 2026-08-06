@@ -3,7 +3,7 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { AUDIO_RATE, GBA_REFRESH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.js";
 import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
-import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor } from "./menu-themes.js";
+import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
 import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
@@ -158,6 +158,7 @@ function updateMenuColorReadouts() {
     if (!input || !output) continue;
     const color=describeColor(input.value,fallback);
     output.textContent=`${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
+    input._gbaColorPickerController?.sync();
   }
 }
 function snapMenuColor(input,fallback) {
@@ -184,6 +185,7 @@ function rebuildMenuTheme() {
   else activeMenuTheme = createBuiltinTheme(id, menuStyleSettings());
   elements.customMenuBackgroundRow.hidden = id !== "custom";
   elements.menuOutlineColor.disabled = !elements.menuOutline.checked || conversionRunning;
+  elements.menuOutlineColor._gbaColorPickerController?.sync();
 }
 function serializedMenuTheme() { rebuildMenuTheme(); return activeMenuTheme ? serializeTheme(activeMenuTheme) : null; }
 function menuThemeBytes() { return activeMenuTheme ? 64 + activeMenuTheme.palette.length + activeMenuTheme.frames.reduce((sum, frame) => sum + frame.length, 0) : 0; }
@@ -1848,6 +1850,9 @@ function configureCompatibilityMessage() {
 }
 
 if (elements.menuBackground) {
+  for (const [input,label] of [[elements.menuUIColor,"UI text colour"],[elements.menuSelectionColor,"Selection colour"],[elements.menuOutlineColor,"Outline colour"]]) {
+    setupGBAColorPicker(input,{label});
+  }
   updateMenuColorReadouts();
   rebuildMenuTheme();
   stopMenuPreview = startPreview(elements.menuPreview, () => activeMenuTheme, menuStyleSettings);

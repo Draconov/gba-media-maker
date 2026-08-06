@@ -20,6 +20,11 @@ const UI_PRESETS = {
   orange: { ui: 0x01FF, selected: 0x7FFF }
 };
 const OUTLINE_PRESETS = { black:0x0000, navy:0x2400, white:0x7FFF, blue:0x7C00, yellow:0x037F };
+const COMMON_GBA_COLORS = Object.freeze([
+  ['White',0x7FFF], ['Gray',0x4210], ['Black',0x0000], ['Red',0x001F], ['Orange',0x021F],
+  ['Yellow',0x037F], ['Green',0x03E0], ['Cyan',0x7FE0], ['Blue',0x7C00], ['Magenta',0x7C1F]
+].map(([name,rgb15])=>Object.freeze({name,rgb15,hex:rgb555ToHex(rgb15)})));
+let activeGBAColorPicker = null;
 
 function fromBase64(value) {
   const binary = atob(value); const out = new Uint8Array(binary.length);
@@ -40,9 +45,9 @@ function rgb555ToHex(value) {
 }
 function hexToRGB555(value,fallback=0) {
   if(typeof value==='number'&&Number.isFinite(value)) return value&0x7FFF;
-  const match=/^#?([0-9a-f]{6})$/i.exec(String(value||'').trim());
-  if(!match) return fallback&0x7FFF;
-  const number=parseInt(match[1],16);
+  const normalized=normalizeHexColor(value);
+  if(!normalized) return fallback&0x7FFF;
+  const number=parseInt(normalized.slice(1),16);
   return rgb555((number>>>16)&255,(number>>>8)&255,number&255);
 }
 function colourSetting(value,fallback,presets={}) {
@@ -54,6 +59,150 @@ function quantizeHexColor(value,fallback='#000000') { return rgb555ToHex(hexToRG
 function describeColor(value,fallback='#000000') {
   const rgb15=hexToRGB555(value,hexToRGB555(fallback,0));
   return {rgb15,hex:rgb555ToHex(rgb15),r:rgb15&31,g:(rgb15>>>5)&31,b:(rgb15>>>10)&31};
+}
+
+function normalizeHexColor(value) {
+  let text=String(value??'').trim().replace(/^0x/i,'').replace(/^#/,'');
+  if(/^[0-9a-f]{3}$/i.test(text)) text=text.split('').map(char=>char+char).join('');
+  if(!/^[0-9a-f]{6}$/i.test(text)) return null;
+  return `#${text.toUpperCase()}`;
+}
+function setupGBAColorPicker(input,{label='GBA colour'}={}) {
+  if(!input) return null;
+  if(input._gbaColorPickerController) return input._gbaColorPickerController;
+  const control=input.closest('.gba-color-control');
+  if(!control || typeof document==='undefined') return null;
+  control.classList.add('gba-color-enhanced');
+
+  const trigger=document.createElement('button');
+  trigger.type='button';
+  trigger.className='gba-color-trigger';
+  trigger.id=`${input.id}PickerButton`;
+  trigger.setAttribute('aria-haspopup','dialog');
+  trigger.setAttribute('aria-expanded','false');
+  trigger.innerHTML='<span class="gba-color-trigger-swatch" aria-hidden="true"></span><span class="gba-color-trigger-arrow" aria-hidden="true">▾</span>';
+  control.insertBefore(trigger,input);
+
+  for(const externalLabel of document.querySelectorAll(`label[for="${input.id}"]`)) externalLabel.htmlFor=trigger.id;
+
+  const panel=document.createElement('div');
+  panel.className='gba-color-popover';
+  panel.hidden=true;
+  panel.setAttribute('role','dialog');
+  panel.setAttribute('aria-label',`${label} tools`);
+
+  const nativeButton=document.createElement('label');
+  nativeButton.className='gba-native-picker-button';
+  nativeButton.innerHTML='<span class="gba-native-picker-icon" aria-hidden="true"></span><span>Open full colour picker</span>';
+  input.classList.add('gba-native-color-input');
+  input.setAttribute('aria-label',`Open full ${label.toLowerCase()} picker`);
+  nativeButton.append(input);
+  panel.append(nativeButton);
+
+  const rgbEditor=document.createElement('div');
+  rgbEditor.className='gba-rgb-editor';
+  const rgbInputs=[];
+  for(const channel of ['R','G','B']) {
+    const channelLabel=document.createElement('label');
+    channelLabel.className='gba-rgb-channel';
+    const numberInput=document.createElement('input');
+    numberInput.type='number'; numberInput.min='0'; numberInput.max='255'; numberInput.step='1'; numberInput.inputMode='numeric';
+    numberInput.setAttribute('aria-label',`${label} ${channel}`);
+    const caption=document.createElement('span'); caption.textContent=channel;
+    channelLabel.append(numberInput,caption); rgbEditor.append(channelLabel); rgbInputs.push(numberInput);
+  }
+  panel.append(rgbEditor);
+
+  const hexLabel=document.createElement('label');
+  hexLabel.className='gba-hex-editor';
+  const hexCaption=document.createElement('span'); hexCaption.textContent='HEX';
+  const hexInput=document.createElement('input');
+  hexInput.type='text'; hexInput.inputMode='text'; hexInput.autocomplete='off'; hexInput.spellcheck=false; hexInput.maxLength=9;
+  hexInput.placeholder='#RRGGBB'; hexInput.setAttribute('aria-label',`${label} HEX code`);
+  hexLabel.append(hexCaption,hexInput); panel.append(hexLabel);
+
+  const quickTitle=document.createElement('span');
+  quickTitle.className='gba-quick-title'; quickTitle.textContent='Common GBA colours'; panel.append(quickTitle);
+  const quickGrid=document.createElement('div');
+  quickGrid.className='gba-quick-colors';
+  const quickButtons=[];
+  for(const colour of COMMON_GBA_COLORS) {
+    const button=document.createElement('button');
+    button.type='button'; button.className='gba-quick-color'; button.style.background=colour.hex;
+    button.title=`${colour.name} — ${colour.hex}`; button.setAttribute('aria-label',`Choose ${colour.name} ${colour.hex}`);
+    button.dataset.hex=colour.hex; quickGrid.append(button); quickButtons.push(button);
+  }
+  panel.append(quickGrid); control.append(panel);
+
+  const swatch=trigger.querySelector('.gba-color-trigger-swatch');
+  function close() {
+    panel.hidden=true; trigger.setAttribute('aria-expanded','false');
+    if(activeGBAColorPicker===controller) activeGBAColorPicker=null;
+  }
+  function open() {
+    if(input.disabled) return;
+    if(activeGBAColorPicker && activeGBAColorPicker!==controller) activeGBAColorPicker.close();
+    panel.hidden=false; trigger.setAttribute('aria-expanded','true'); activeGBAColorPicker=controller;
+    panel.classList.remove('align-right');
+    if(panel.getBoundingClientRect().right > window.innerWidth-10) panel.classList.add('align-right');
+  }
+  function dispatch(kind) { input.dispatchEvent(new Event(kind,{bubbles:true})); }
+  function setRawHex(hex,commit=false) {
+    const normalized=normalizeHexColor(hex); if(!normalized) return false;
+    input.value=normalized; dispatch('input'); if(commit) dispatch('change'); return true;
+  }
+  function applyRGB(commit=false) {
+    const values=rgbInputs.map(field=>Number(field.value));
+    if(values.some(value=>!Number.isFinite(value))) return;
+    const clamped=values.map(value=>Math.min(255,Math.max(0,Math.round(value))));
+    const hex=`#${clamped.map(value=>value.toString(16).padStart(2,'0')).join('')}`;
+    setRawHex(hex,commit);
+  }
+  function sync() {
+    const colour=describeColor(input.value,'#000000');
+    swatch.style.background=colour.hex;
+    trigger.setAttribute('aria-label',`${label}: ${colour.hex}. Open colour tools`);
+    const [r8,g8,b8]=rgb555ToRGB(colour.rgb15);
+    for(const [field,value] of rgbInputs.map((field,index)=>[field,[r8,g8,b8][index]])) {
+      if(document.activeElement!==field) field.value=String(value);
+    }
+    if(document.activeElement!==hexInput) hexInput.value=colour.hex;
+    hexInput.classList.remove('invalid');
+    for(const button of quickButtons) button.setAttribute('aria-pressed',String(button.dataset.hex===colour.hex));
+    trigger.disabled=Boolean(input.disabled);
+    nativeButton.classList.toggle('disabled',Boolean(input.disabled));
+    if(input.disabled) close();
+  }
+
+  trigger.addEventListener('click',event=>{event.preventDefault(); panel.hidden?open():close();});
+  for(const field of rgbInputs) {
+    field.addEventListener('input',()=>applyRGB(false));
+    field.addEventListener('change',()=>applyRGB(true));
+    field.addEventListener('blur',()=>setTimeout(sync,0));
+    field.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyRGB(true);field.select();}});
+  }
+  hexInput.addEventListener('input',()=>{
+    const normalized=normalizeHexColor(hexInput.value);
+    hexInput.classList.toggle('invalid',!normalized);
+    if(normalized) setRawHex(normalized,false);
+  });
+  const commitHex=()=>{
+    const normalized=normalizeHexColor(hexInput.value);
+    if(!normalized){hexInput.classList.remove('invalid');sync();return;}
+    setRawHex(normalized,true); sync();
+  };
+  hexInput.addEventListener('change',commitHex);
+  hexInput.addEventListener('blur',()=>setTimeout(sync,0));
+  hexInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();commitHex();hexInput.select();}});
+  for(const button of quickButtons) button.addEventListener('click',()=>setRawHex(button.dataset.hex,true));
+  input.addEventListener('input',sync); input.addEventListener('change',sync);
+  document.addEventListener('pointerdown',event=>{if(!panel.hidden && !control.contains(event.target)) close();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden){close();trigger.focus();}});
+
+  const controller={open,close,sync,panel,trigger};
+  input._gbaColorPickerController=controller;
+  if(typeof MutationObserver!=='undefined') new MutationObserver(sync).observe(input,{attributes:true,attributeFilter:['disabled']});
+  sync(); return controller;
 }
 function settingsColours(settings={}) {
   const pair=UI_PRESETS[settings.uiColor] || UI_PRESETS.white;
@@ -226,6 +375,6 @@ function renderMenuPreview(canvas,theme,settings={},elapsed=0) {
 }
 function startPreview(canvas,getTheme,getSettings) { let stopped=false,start=performance.now(); const tick=now=>{if(stopped)return;renderMenuPreview(canvas,getTheme(),getSettings(),now-start);requestAnimationFrame(tick);};requestAnimationFrame(tick);return()=>{stopped=true;}; }
 
-const api={FRAME_WIDTH,FRAME_HEIGHT,FRAME_BYTES,UI_PRESETS,OUTLINE_PRESETS,createBuiltinTheme,decodeCustomFile,serializeTheme,deserializeTheme,renderMenuPreview,startPreview,applyUI,settingsColours,rgb555ToHex,hexToRGB555,quantizeHexColor,describeColor};
+const api={FRAME_WIDTH,FRAME_HEIGHT,FRAME_BYTES,UI_PRESETS,OUTLINE_PRESETS,COMMON_GBA_COLORS,createBuiltinTheme,decodeCustomFile,serializeTheme,deserializeTheme,renderMenuPreview,startPreview,applyUI,settingsColours,rgb555ToHex,hexToRGB555,quantizeHexColor,describeColor,normalizeHexColor,setupGBAColorPicker};
 
-export { FRAME_WIDTH, FRAME_HEIGHT, FRAME_BYTES, UI_PRESETS, OUTLINE_PRESETS, createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, renderMenuPreview, startPreview, applyUI, settingsColours, rgb555ToHex, hexToRGB555, quantizeHexColor, describeColor };
+export { FRAME_WIDTH, FRAME_HEIGHT, FRAME_BYTES, UI_PRESETS, OUTLINE_PRESETS, COMMON_GBA_COLORS, createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, renderMenuPreview, startPreview, applyUI, settingsColours, rgb555ToHex, hexToRGB555, quantizeHexColor, describeColor, normalizeHexColor, setupGBAColorPicker };

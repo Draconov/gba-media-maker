@@ -325,6 +325,7 @@ function updateMenuColorReadouts() {
     if (!input || !output) continue;
     const color=MenuThemeTools.describeColor(input.value,fallback);
     output.textContent=`${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
+    input._gbaColorPickerController?.sync();
   }
 }
 function snapMenuColor(inputID, fallback) {
@@ -352,6 +353,7 @@ function rebuildMenuTheme() {
   else activeMenuTheme = MenuThemeTools.createBuiltinTheme(menuBackgroundID, menuStyleSettings());
   $('customMenuBackgroundRow').classList.toggle('hidden', menuBackgroundID !== 'custom');
   $('menuOutlineColor').disabled = !$('menuOutline').checked || !!state?.converting;
+  $('menuOutlineColor')._gbaColorPickerController?.sync();
 }
 function serializedMenuTheme() {
   rebuildMenuTheme();
@@ -815,6 +817,9 @@ $('openProject').onclick = openProject;
 $('openProjectWelcome').onclick = event => { event.stopPropagation(); openProject(); };
 
 if ($('menuBackground')) {
+  for (const [inputID,label] of [['menuUIColor','UI text colour'],['menuSelectionColor','Selection colour'],['menuOutlineColor','Outline colour']]) {
+    MenuThemeTools.setupGBAColorPicker($(inputID),{label});
+  }
   updateMenuColorReadouts();
   rebuildMenuTheme();
   stopMenuPreview = MenuThemeTools.startPreview($('menuPreview'), () => activeMenuTheme, menuStyleSettings);
