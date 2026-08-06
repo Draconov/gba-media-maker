@@ -99,3 +99,27 @@ test("every queried website element exists in the HTML", async () => {
   assert.ok(queried.length > 30);
   for (const id of queried) assert.ok(ids.has(id), `missing #${id} in website/index.html`);
 });
+
+test("menu colour picker embeds the full custom picker and sizes its panel to content", async () => {
+  const [desktopScript, webScript, desktopStyle, webStyle] = await Promise.all([
+    readFile(resolve(repository, "web/menu-themes.js"), "utf8"),
+    readFile(resolve(website, "src/menu-themes.js"), "utf8"),
+    readFile(resolve(repository, "web/style.css"), "utf8"),
+    readFile(resolve(website, "src/style.css"), "utf8"),
+  ]);
+
+  for (const script of [desktopScript, webScript]) {
+    assert.match(script, /className='gba-sv-area'/);
+    assert.match(script, /pickerRow\.append\(eyedropperButton,currentSwatch,hueSlider\)/);
+    assert.match(script, /channelLabel\.append\(caption,numberInput\)/);
+    assert.doesNotMatch(script, /Open full colour picker/);
+    assert.doesNotMatch(script, /Common GBA colours/);
+  }
+
+  for (const style of [desktopStyle, webStyle]) {
+    assert.match(style, /\.gba-color-popover\{[^}]*inline-size:fit-content;/s);
+    assert.match(style, /\.gba-picker-content\{[^}]*max-width:100%;/s);
+    assert.match(style, /\.gba-sv-area\{[^}]*linear-gradient\(to top,#000,transparent\)/s);
+    assert.match(style, /\.gba-color-control\{[^}]*flex-wrap:wrap;/s);
+  }
+});

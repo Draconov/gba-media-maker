@@ -67,6 +67,37 @@ function normalizeHexColor(value) {
   if(!/^[0-9a-f]{6}$/i.test(text)) return null;
   return `#${text.toUpperCase()}`;
 }
+function rgbToHSV(r,g,b) {
+  const red=Math.min(255,Math.max(0,Number(r)||0))/255;
+  const green=Math.min(255,Math.max(0,Number(g)||0))/255;
+  const blue=Math.min(255,Math.max(0,Number(b)||0))/255;
+  const maximum=Math.max(red,green,blue), minimum=Math.min(red,green,blue), difference=maximum-minimum;
+  let hue=0;
+  if(difference) {
+    if(maximum===red) hue=60*(((green-blue)/difference)%6);
+    else if(maximum===green) hue=60*((blue-red)/difference+2);
+    else hue=60*((red-green)/difference+4);
+  }
+  if(hue<0) hue+=360;
+  return {h:hue,s:maximum?difference/maximum:0,v:maximum};
+}
+function hsvToHex(h,s,v) {
+  const hue=((Number(h)||0)%360+360)%360;
+  const saturation=Math.min(1,Math.max(0,Number(s)||0));
+  const value=Math.min(1,Math.max(0,Number(v)||0));
+  const chroma=value*saturation;
+  const section=hue/60;
+  const secondary=chroma*(1-Math.abs(section%2-1));
+  let red=0,green=0,blue=0;
+  if(section<1) [red,green,blue]=[chroma,secondary,0];
+  else if(section<2) [red,green,blue]=[secondary,chroma,0];
+  else if(section<3) [red,green,blue]=[0,chroma,secondary];
+  else if(section<4) [red,green,blue]=[0,secondary,chroma];
+  else if(section<5) [red,green,blue]=[secondary,0,chroma];
+  else [red,green,blue]=[chroma,0,secondary];
+  const match=value-chroma;
+  return `#${[red,green,blue].map(channel=>Math.round((channel+match)*255).toString(16).padStart(2,'0')).join('')}`.toUpperCase();
+}
 function setupGBAColorPicker(input,{label='GBA colour'}={}) {
   if(!input) return null;
   if(input._gbaColorPickerController) return input._gbaColorPickerController;
@@ -80,24 +111,65 @@ function setupGBAColorPicker(input,{label='GBA colour'}={}) {
   trigger.id=`${input.id}PickerButton`;
   trigger.setAttribute('aria-haspopup','dialog');
   trigger.setAttribute('aria-expanded','false');
-  trigger.innerHTML='<span class="gba-color-trigger-swatch" aria-hidden="true"></span><span class="gba-color-trigger-arrow" aria-hidden="true">▾</span>';
+  trigger.innerHTML='<span class="gba-color-trigger-swatch" aria-hidden="true"></span>';
   control.insertBefore(trigger,input);
 
   for(const externalLabel of document.querySelectorAll(`label[for="${input.id}"]`)) externalLabel.htmlFor=trigger.id;
 
+  input.classList.add('gba-native-color-input');
+  input.tabIndex=-1;
+  input.setAttribute('aria-hidden','true');
+
   const panel=document.createElement('div');
   panel.className='gba-color-popover';
+  panel.id=`${input.id}PickerPanel`;
   panel.hidden=true;
   panel.setAttribute('role','dialog');
-  panel.setAttribute('aria-label',`${label} tools`);
+  panel.setAttribute('aria-label',`${label} picker`);
+  trigger.setAttribute('aria-controls',panel.id);
 
-  const nativeButton=document.createElement('label');
-  nativeButton.className='gba-native-picker-button';
-  nativeButton.innerHTML='<span class="gba-native-picker-icon" aria-hidden="true"></span><span>Open full colour picker</span>';
-  input.classList.add('gba-native-color-input');
-  input.setAttribute('aria-label',`Open full ${label.toLowerCase()} picker`);
-  nativeButton.append(input);
-  panel.append(nativeButton);
+  const content=document.createElement('div');
+  content.className='gba-picker-content';
+
+  const svArea=document.createElement('div');
+  svArea.className='gba-sv-area';
+  svArea.tabIndex=0;
+  svArea.setAttribute('role','slider');
+  svArea.setAttribute('aria-label',`${label} saturation and brightness`);
+  svArea.setAttribute('aria-valuemin','0');
+  svArea.setAttribute('aria-valuemax','100');
+  const svThumb=document.createElement('span');
+  svThumb.className='gba-sv-thumb';
+  svThumb.setAttribute('aria-hidden','true');
+  svArea.append(svThumb);
+  content.append(svArea);
+
+  const pickerRow=document.createElement('div');
+  pickerRow.className='gba-picker-row';
+
+  const eyedropperButton=document.createElement('button');
+  eyedropperButton.type='button';
+  eyedropperButton.className='gba-eyedropper';
+  eyedropperButton.setAttribute('aria-label',`Pick ${label.toLowerCase()} from the screen`);
+  eyedropperButton.title='Pick a colour from the screen';
+  eyedropperButton.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.6 2.9a2.1 2.1 0 0 1 1.5.6l.4.4a2.1 2.1 0 0 1 0 3l-8.2 8.2-3.4.7.7-3.4 8.2-8.2a2.1 2.1 0 0 1 3 0l.4.4a2.1 2.1 0 0 1 .6 1.5l1.8 1.8-7.2 7.2-.5 2.3-2.3.5.5-2.3 7.2-7.2 1.8 1.8 8.2-8.2Z"/></svg>';
+
+  const currentSwatch=document.createElement('span');
+  currentSwatch.className='gba-current-swatch';
+  currentSwatch.setAttribute('role','img');
+  currentSwatch.setAttribute('aria-label',`${label} preview`);
+
+  const hueSlider=document.createElement('input');
+  hueSlider.type='range';
+  hueSlider.min='0';
+  hueSlider.max='359';
+  hueSlider.step='1';
+  hueSlider.value='0';
+  hueSlider.className='gba-hue-slider';
+  hueSlider.setAttribute('aria-label',`${label} hue`);
+  hueSlider.title='Hue';
+  pickerRow.append(eyedropperButton,currentSwatch,hueSlider);
+  content.append(pickerRow);
 
   const rgbEditor=document.createElement('div');
   rgbEditor.className='gba-rgb-editor';
@@ -105,51 +177,85 @@ function setupGBAColorPicker(input,{label='GBA colour'}={}) {
   for(const channel of ['R','G','B']) {
     const channelLabel=document.createElement('label');
     channelLabel.className='gba-rgb-channel';
+    const caption=document.createElement('span');
+    caption.textContent=channel;
     const numberInput=document.createElement('input');
-    numberInput.type='number'; numberInput.min='0'; numberInput.max='255'; numberInput.step='1'; numberInput.inputMode='numeric';
+    numberInput.type='number';
+    numberInput.min='0';
+    numberInput.max='255';
+    numberInput.step='1';
+    numberInput.inputMode='numeric';
     numberInput.setAttribute('aria-label',`${label} ${channel}`);
-    const caption=document.createElement('span'); caption.textContent=channel;
-    channelLabel.append(numberInput,caption); rgbEditor.append(channelLabel); rgbInputs.push(numberInput);
+    channelLabel.append(caption,numberInput);
+    rgbEditor.append(channelLabel);
+    rgbInputs.push(numberInput);
   }
-  panel.append(rgbEditor);
+  content.append(rgbEditor);
 
   const hexLabel=document.createElement('label');
   hexLabel.className='gba-hex-editor';
-  const hexCaption=document.createElement('span'); hexCaption.textContent='HEX';
+  const hexCaption=document.createElement('span');
+  hexCaption.textContent='HEX';
   const hexInput=document.createElement('input');
-  hexInput.type='text'; hexInput.inputMode='text'; hexInput.autocomplete='off'; hexInput.spellcheck=false; hexInput.maxLength=9;
-  hexInput.placeholder='#RRGGBB'; hexInput.setAttribute('aria-label',`${label} HEX code`);
-  hexLabel.append(hexCaption,hexInput); panel.append(hexLabel);
+  hexInput.type='text';
+  hexInput.inputMode='text';
+  hexInput.autocomplete='off';
+  hexInput.spellcheck=false;
+  hexInput.maxLength=9;
+  hexInput.placeholder='#RRGGBB';
+  hexInput.setAttribute('aria-label',`${label} HEX code`);
+  hexLabel.append(hexCaption,hexInput);
+  content.append(hexLabel);
 
-  const quickTitle=document.createElement('span');
-  quickTitle.className='gba-quick-title'; quickTitle.textContent='Common GBA colours'; panel.append(quickTitle);
   const quickGrid=document.createElement('div');
   quickGrid.className='gba-quick-colors';
   const quickButtons=[];
   for(const colour of COMMON_GBA_COLORS) {
     const button=document.createElement('button');
-    button.type='button'; button.className='gba-quick-color'; button.style.background=colour.hex;
-    button.title=`${colour.name} — ${colour.hex}`; button.setAttribute('aria-label',`Choose ${colour.name} ${colour.hex}`);
-    button.dataset.hex=colour.hex; quickGrid.append(button); quickButtons.push(button);
+    button.type='button';
+    button.className='gba-quick-color';
+    button.style.background=colour.hex;
+    button.title=`${colour.name} — ${colour.hex}`;
+    button.setAttribute('aria-label',`Choose ${colour.name} ${colour.hex}`);
+    button.dataset.hex=colour.hex;
+    quickGrid.append(button);
+    quickButtons.push(button);
   }
-  panel.append(quickGrid); control.append(panel);
+  content.append(quickGrid);
+  panel.append(content);
+  control.append(panel);
 
   const swatch=trigger.querySelector('.gba-color-trigger-swatch');
+  const EyeDropperClass=typeof window!=='undefined'?window.EyeDropper:null;
+  let lastHue=0;
+  let saturation=0;
+  let brightness=1;
+  let draggingSV=false;
+
+  function clamp01(value) { return Math.min(1,Math.max(0,value)); }
   function close() {
-    panel.hidden=true; trigger.setAttribute('aria-expanded','false');
+    panel.hidden=true;
+    trigger.setAttribute('aria-expanded','false');
     if(activeGBAColorPicker===controller) activeGBAColorPicker=null;
   }
   function open() {
     if(input.disabled) return;
     if(activeGBAColorPicker && activeGBAColorPicker!==controller) activeGBAColorPicker.close();
-    panel.hidden=false; trigger.setAttribute('aria-expanded','true'); activeGBAColorPicker=controller;
+    panel.hidden=false;
+    trigger.setAttribute('aria-expanded','true');
+    activeGBAColorPicker=controller;
     panel.classList.remove('align-right');
-    if(panel.getBoundingClientRect().right > window.innerWidth-10) panel.classList.add('align-right');
+    const bounds=panel.getBoundingClientRect();
+    if(bounds.right>window.innerWidth-10) panel.classList.add('align-right');
   }
   function dispatch(kind) { input.dispatchEvent(new Event(kind,{bubbles:true})); }
   function setRawHex(hex,commit=false) {
-    const normalized=normalizeHexColor(hex); if(!normalized) return false;
-    input.value=normalized; dispatch('input'); if(commit) dispatch('change'); return true;
+    const normalized=normalizeHexColor(hex);
+    if(!normalized) return false;
+    input.value=normalized;
+    dispatch('input');
+    if(commit) dispatch('change');
+    return true;
   }
   function applyRGB(commit=false) {
     const values=rgbInputs.map(field=>Number(field.value));
@@ -158,23 +264,91 @@ function setupGBAColorPicker(input,{label='GBA colour'}={}) {
     const hex=`#${clamped.map(value=>value.toString(16).padStart(2,'0')).join('')}`;
     setRawHex(hex,commit);
   }
+  function applyHue(commit=false) {
+    const hue=Math.min(359,Math.max(0,Math.round(Number(hueSlider.value)||0)));
+    lastHue=hue;
+    setRawHex(hsvToHex(lastHue,saturation>0.01?saturation:1,brightness>0.01?brightness:1),commit);
+  }
+  function applySV(clientX,clientY,commit=false) {
+    const bounds=svArea.getBoundingClientRect();
+    if(bounds.width<=0||bounds.height<=0) return;
+    saturation=clamp01((clientX-bounds.left)/bounds.width);
+    brightness=clamp01(1-(clientY-bounds.top)/bounds.height);
+    setRawHex(hsvToHex(lastHue,saturation,brightness),commit);
+  }
   function sync() {
     const colour=describeColor(input.value,'#000000');
     swatch.style.background=colour.hex;
-    trigger.setAttribute('aria-label',`${label}: ${colour.hex}. Open colour tools`);
+    currentSwatch.style.background=colour.hex;
+    trigger.setAttribute('aria-label',`${label}: ${colour.hex}. Open colour picker`);
+    currentSwatch.setAttribute('aria-label',`${label} preview ${colour.hex}`);
     const [r8,g8,b8]=rgb555ToRGB(colour.rgb15);
     for(const [field,value] of rgbInputs.map((field,index)=>[field,[r8,g8,b8][index]])) {
       if(document.activeElement!==field) field.value=String(value);
     }
+    const hsv=rgbToHSV(r8,g8,b8);
+    saturation=hsv.s;
+    brightness=hsv.v;
+    if(hsv.s>0.01&&hsv.v>0.01) lastHue=hsv.h;
+    const displayedHue=Math.round(lastHue)%360;
+    if(document.activeElement!==hueSlider) hueSlider.value=String(displayedHue);
+    const hueColour=`hsl(${displayedHue} 100% 50%)`;
+    hueSlider.style.setProperty('--hue-colour',hueColour);
+    svArea.style.setProperty('--hue-colour',hueColour);
+    svArea.style.setProperty('--sv-x',`${saturation*100}%`);
+    svArea.style.setProperty('--sv-y',`${(1-brightness)*100}%`);
+    svArea.setAttribute('aria-valuenow',String(Math.round(brightness*100)));
+    svArea.setAttribute('aria-valuetext',`${Math.round(saturation*100)}% saturation, ${Math.round(brightness*100)}% brightness`);
     if(document.activeElement!==hexInput) hexInput.value=colour.hex;
     hexInput.classList.remove('invalid');
     for(const button of quickButtons) button.setAttribute('aria-pressed',String(button.dataset.hex===colour.hex));
-    trigger.disabled=Boolean(input.disabled);
-    nativeButton.classList.toggle('disabled',Boolean(input.disabled));
-    if(input.disabled) close();
+    const disabled=Boolean(input.disabled);
+    trigger.disabled=disabled;
+    hueSlider.disabled=disabled;
+    svArea.tabIndex=disabled?-1:0;
+    svArea.setAttribute('aria-disabled',String(disabled));
+    for(const field of rgbInputs) field.disabled=disabled;
+    hexInput.disabled=disabled;
+    for(const button of quickButtons) button.disabled=disabled;
+    eyedropperButton.disabled=disabled||typeof EyeDropperClass!=='function';
+    eyedropperButton.title=typeof EyeDropperClass==='function'?'Pick a colour from the screen':'Screen eyedropper is not available here';
+    if(disabled) close();
   }
 
-  trigger.addEventListener('click',event=>{event.preventDefault(); panel.hidden?open():close();});
+  trigger.addEventListener('click',event=>{event.preventDefault();panel.hidden?open():close();});
+  svArea.addEventListener('pointerdown',event=>{
+    if(input.disabled) return;
+    draggingSV=true;
+    svArea.setPointerCapture?.(event.pointerId);
+    applySV(event.clientX,event.clientY,false);
+    event.preventDefault();
+  });
+  svArea.addEventListener('pointermove',event=>{
+    if(!draggingSV||input.disabled) return;
+    applySV(event.clientX,event.clientY,false);
+  });
+  const finishSV=event=>{
+    if(!draggingSV) return;
+    draggingSV=false;
+    applySV(event.clientX,event.clientY,true);
+    svArea.releasePointerCapture?.(event.pointerId);
+  };
+  svArea.addEventListener('pointerup',finishSV);
+  svArea.addEventListener('pointercancel',event=>{
+    draggingSV=false;
+    svArea.releasePointerCapture?.(event.pointerId);
+  });
+  svArea.addEventListener('keydown',event=>{
+    if(input.disabled) return;
+    const step=event.shiftKey?0.10:0.02;
+    if(event.key==='ArrowLeft') saturation=clamp01(saturation-step);
+    else if(event.key==='ArrowRight') saturation=clamp01(saturation+step);
+    else if(event.key==='ArrowUp') brightness=clamp01(brightness+step);
+    else if(event.key==='ArrowDown') brightness=clamp01(brightness-step);
+    else return;
+    event.preventDefault();
+    setRawHex(hsvToHex(lastHue,saturation,brightness),true);
+  });
   for(const field of rgbInputs) {
     field.addEventListener('input',()=>applyRGB(false));
     field.addEventListener('change',()=>applyRGB(true));
@@ -189,20 +363,35 @@ function setupGBAColorPicker(input,{label='GBA colour'}={}) {
   const commitHex=()=>{
     const normalized=normalizeHexColor(hexInput.value);
     if(!normalized){hexInput.classList.remove('invalid');sync();return;}
-    setRawHex(normalized,true); sync();
+    setRawHex(normalized,true);
+    sync();
   };
   hexInput.addEventListener('change',commitHex);
   hexInput.addEventListener('blur',()=>setTimeout(sync,0));
   hexInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();commitHex();hexInput.select();}});
+  hueSlider.addEventListener('input',()=>applyHue(false));
+  hueSlider.addEventListener('change',()=>applyHue(true));
+  hueSlider.addEventListener('blur',()=>setTimeout(sync,0));
+  eyedropperButton.addEventListener('click',async()=>{
+    if(typeof EyeDropperClass!=='function'||input.disabled) return;
+    try {
+      const result=await new EyeDropperClass().open();
+      if(result?.sRGBHex) setRawHex(result.sRGBHex,true);
+    } catch(error) {
+      if(error?.name!=='AbortError') console.warn('Screen eyedropper failed',error);
+    }
+  });
   for(const button of quickButtons) button.addEventListener('click',()=>setRawHex(button.dataset.hex,true));
-  input.addEventListener('input',sync); input.addEventListener('change',sync);
-  document.addEventListener('pointerdown',event=>{if(!panel.hidden && !control.contains(event.target)) close();});
+  input.addEventListener('input',sync);
+  input.addEventListener('change',sync);
+  document.addEventListener('pointerdown',event=>{if(!panel.hidden&&!control.contains(event.target)) close();});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden){close();trigger.focus();}});
 
   const controller={open,close,sync,panel,trigger};
   input._gbaColorPickerController=controller;
   if(typeof MutationObserver!=='undefined') new MutationObserver(sync).observe(input,{attributes:true,attributeFilter:['disabled']});
-  sync(); return controller;
+  sync();
+  return controller;
 }
 function settingsColours(settings={}) {
   const pair=UI_PRESETS[settings.uiColor] || UI_PRESETS.white;
