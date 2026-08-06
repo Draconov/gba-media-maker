@@ -153,7 +153,7 @@ function setupGBAColorPicker(input,{label='GBA colour'}={}) {
   eyedropperButton.className='gba-eyedropper';
   eyedropperButton.setAttribute('aria-label',`Pick ${label.toLowerCase()} from the screen`);
   eyedropperButton.title='Pick a colour from the screen';
-  eyedropperButton.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.6 2.9a2.1 2.1 0 0 1 1.5.6l.4.4a2.1 2.1 0 0 1 0 3l-8.2 8.2-3.4.7.7-3.4 8.2-8.2a2.1 2.1 0 0 1 3 0l.4.4a2.1 2.1 0 0 1 .6 1.5l1.8 1.8-7.2 7.2-.5 2.3-2.3.5.5-2.3 7.2-7.2 1.8 1.8 8.2-8.2Z"/></svg>';
+  eyedropperButton.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L13 14l-3-3 8.5-8.5Z"/><path d="m9 12-5.2 5.2a2 2 0 0 0-.6 1.4V21h2.4a2 2 0 0 0 1.4-.6L12 15"/><path d="m14.5 6.5 3 3"/></svg>';
 
   const currentSwatch=document.createElement('span');
   currentSwatch.className='gba-current-swatch';
@@ -279,8 +279,9 @@ function setupGBAColorPicker(input,{label='GBA colour'}={}) {
   }
   function sync() {
     const colour=describeColor(input.value,'#000000');
-    swatch.style.background=colour.hex;
-    currentSwatch.style.background=colour.hex;
+    trigger.style.setProperty('--gba-swatch-color',colour.hex);
+    swatch.style.backgroundColor=colour.hex;
+    currentSwatch.style.backgroundColor=colour.hex;
     trigger.setAttribute('aria-label',`${label}: ${colour.hex}. Open colour picker`);
     currentSwatch.setAttribute('aria-label',`${label} preview ${colour.hex}`);
     const [r8,g8,b8]=rgb555ToRGB(colour.rgb15);

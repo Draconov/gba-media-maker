@@ -112,6 +112,8 @@ test("menu colour picker embeds the full custom picker and sizes its panel to co
     assert.match(script, /className='gba-sv-area'/);
     assert.match(script, /pickerRow\.append\(eyedropperButton,currentSwatch,hueSlider\)/);
     assert.match(script, /channelLabel\.append\(caption,numberInput\)/);
+    assert.match(script, /trigger\.style\.setProperty\('--gba-swatch-color',colour\.hex\)/);
+    assert.match(script, /M18\.5 2\.5/);
     assert.doesNotMatch(script, /Open full colour picker/);
     assert.doesNotMatch(script, /Common GBA colours/);
   }
@@ -121,5 +123,9 @@ test("menu colour picker embeds the full custom picker and sizes its panel to co
     assert.match(style, /\.gba-picker-content\{[^}]*max-width:100%;/s);
     assert.match(style, /\.gba-sv-area\{[^}]*linear-gradient\(to top,#000,transparent\)/s);
     assert.match(style, /\.gba-color-control\{[^}]*flex-wrap:wrap;/s);
+    assert.match(style, /\.gba-color-trigger\{[^}]*border-radius:(?:8|9)px;[^}]*--gba-swatch-color/s);
+    assert.match(style, /\.gba-color-trigger-swatch\{[^}]*position:absolute;[^}]*border-radius:(?:5|6)px/s);
+    assert.match(style, /\.gba-current-swatch\{[^}]*border-radius:8px/s);
+    assert.match(style, /\.gba-eyedropper svg\{[^}]*fill:none;[^}]*stroke:currentColor/s);
   }
 });
