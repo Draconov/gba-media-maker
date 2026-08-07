@@ -139,6 +139,11 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 			t.Fatalf("independent title/subtitle typography UI is missing %q", want)
 		}
 	}
+	for _, want := range []string{"#titleCardSection{container-type:inline-size}", "grid-template-columns:clamp(320px,45%,480px) minmax(0,1fr)", "@container (max-width:800px)"} {
+		if !bytes.Contains(appCSS, []byte(want)) {
+			t.Fatalf("title-card container-fit CSS is missing %q", want)
+		}
+	}
 }
 
 func TestLocalServerSecurityGuards(t *testing.T) {

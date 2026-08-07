@@ -84,6 +84,9 @@ test("title-card navigation stays in one row and avoids redundant reloads", asyn
   assert.match(html, /class="title-card-type-header"/);
   assert.match(html, /id="titleCardSubtitleTextSize"/);
   assert.match(style, /\.title-card-type-row\{[^}]*grid-template-columns:/);
+  assert.match(style, /\.title-card-panel\{container-type:inline-size\}/);
+  assert.match(style, /\.title-card-layout\{[^}]*grid-template-columns:clamp\(320px,45%,480px\) minmax\(0,1fr\)/);
+  assert.match(style, /@container \(max-width:800px\)\{[\s\S]*?\.title-card-layout\{grid-template-columns:1fr\}/);
 });
 
 

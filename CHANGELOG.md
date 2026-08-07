@@ -3,9 +3,9 @@
 ## [0.12.1] - 2026-08-07
 
 ### Fixed
-- Title-card editor layout keeps all controls inside the panel on narrower desktop and website widths.
-- The preview/controls split collapses earlier so the typography table does not overflow the right column.
-- Typography columns shrink more gracefully, and the title-card field grid can drop to one column when space is tight.
+- Title-card editor layout now sizes against the actual title-card panel instead of the whole browser/window, preventing controls from escaping the card in the desktop two-pane layout.
+- The preview column shrinks responsively before the layout stacks, preserving the side-by-side editor whenever there is enough room.
+- Container-query fallbacks stack the preview/settings and typography controls only when the title-card panel itself is genuinely narrow.
 
 ### Added
 - Added a compact two-row typography table to split-video title cards.
