@@ -86,70 +86,84 @@ type ClipInput struct {
 }
 
 type ProjectOptions struct {
-	Inputs           []ClipInput
-	OutputPath       string
-	FFmpegPath       string
-	Start            float64
-	End              float64
-	Speed            float64
-	VBlanks          int
-	FitMode          string
-	AudioMode        string
-	Volume           float64
-	Loop             bool
-	RomTitle         string
-	SeekSeconds      int
-	Normalize        bool
-	Limiter          bool
-	Resume           bool
-	Compression      string // none, delta
-	PaletteMode      string // shared, scene
-	DitherMode       string // off, ordered, error
-	OutputMode       string // rom, playlist, menu, batch; longsplit is internal
-	KeyInterval      int
-	SplitBudgetMiB   int
-	MaxPartMinutes   float64
-	ChapterAware     bool
-	PartTitleScreens bool // legacy title-card toggle kept for project compatibility
-	ResumeLongSplit  bool
-	TitleScreenPart  int    // legacy metadata fallback
-	TitleScreenName  string // legacy metadata fallback
-	TitleCards       *TitleCardProjectSettings
-	TitleCard        *TitleCardSettings // resolved settings for one generated ROM part
-	TitleCardAsset   []byte             // prepared native 240×160 Mode 3 image and timing header
-	MenuTheme        *MenuThemeOptions
+	Inputs                 []ClipInput
+	OutputPath             string
+	FFmpegPath             string
+	Start                  float64
+	End                    float64
+	Speed                  float64
+	VBlanks                int
+	FitMode                string
+	AudioMode              string
+	Volume                 float64
+	Loop                   bool
+	RomTitle               string
+	SeekSeconds            int
+	Normalize              bool
+	Limiter                bool
+	Resume                 bool
+	Compression            string // none, delta
+	PaletteMode            string // shared, scene
+	DitherMode             string // off, ordered, error
+	OutputMode             string // rom, playlist, menu, batch; longsplit is internal
+	KeyInterval            int
+	SplitBudgetMiB         int
+	MaxPartMinutes         float64
+	ChapterAware           bool
+	PartTitleScreens       bool // legacy title-card toggle kept for project compatibility
+	ResumeLongSplit        bool
+	TitleScreenPart        int    // legacy metadata fallback
+	TitleScreenName        string // legacy metadata fallback
+	TitleCards             *TitleCardProjectSettings
+	TitleCard              *TitleCardSettings // resolved settings for one generated ROM part
+	TitleCardAsset         []byte             // prepared native 240×160 Mode 3 image and timing header
+	MenuTheme              *MenuThemeOptions
+	Preset                 string // best, balanced, long, small, extreme, custom
+	AudioCodec             string // pcm, adpcm, auto
+	ExtremeOptimization    bool
+	AdaptiveKeyframes      bool
+	EnhancedSceneDetection bool
+	SmartTargetMiB         int
+	SmartPriority          string
 }
 
 // ConvertOptions keeps the single-video command-line/test API convenient.
 type ConvertOptions struct {
-	InputPath        string
-	OutputPath       string
-	FFmpegPath       string
-	Start            float64
-	End              float64
-	Speed            float64
-	VBlanks          int
-	FitMode          string
-	AudioMode        string
-	Volume           float64
-	Loop             bool
-	RomTitle         string
-	SeekSeconds      int
-	Normalize        bool
-	Limiter          bool
-	Resume           bool
-	Compression      string
-	PaletteMode      string
-	DitherMode       string
-	KeyInterval      int
-	SplitBudgetMiB   int
-	MaxPartMinutes   float64
-	ChapterAware     bool
-	PartTitleScreens bool
-	ResumeLongSplit  bool
-	TitleScreenPart  int
-	TitleScreenName  string
-	TitleCards       *TitleCardProjectSettings
+	InputPath              string
+	OutputPath             string
+	FFmpegPath             string
+	Start                  float64
+	End                    float64
+	Speed                  float64
+	VBlanks                int
+	FitMode                string
+	AudioMode              string
+	Volume                 float64
+	Loop                   bool
+	RomTitle               string
+	SeekSeconds            int
+	Normalize              bool
+	Limiter                bool
+	Resume                 bool
+	Compression            string
+	PaletteMode            string
+	DitherMode             string
+	KeyInterval            int
+	SplitBudgetMiB         int
+	MaxPartMinutes         float64
+	ChapterAware           bool
+	PartTitleScreens       bool
+	ResumeLongSplit        bool
+	TitleScreenPart        int
+	TitleScreenName        string
+	TitleCards             *TitleCardProjectSettings
+	Preset                 string
+	AudioCodec             string
+	ExtremeOptimization    bool
+	AdaptiveKeyframes      bool
+	EnhancedSceneDetection bool
+	SmartTargetMiB         int
+	SmartPriority          string
 }
 
 type ConvertResult struct {
@@ -618,7 +632,7 @@ func quantizeFrame(src, dst []byte, palette []rgb5, lookup []byte, mode string, 
 	}
 }
 
-func detectSceneStarts(framesPath string, frameCount int, rgbFrameBytes int64) ([]int, error) {
+func detectSceneStartsLegacy(framesPath string, frameCount int, rgbFrameBytes int64) ([]int, error) {
 	if frameCount <= 1 {
 		return []int{0}, nil
 	}
@@ -667,26 +681,30 @@ func detectSceneStarts(framesPath string, frameCount int, rgbFrameBytes int64) (
 	return starts, nil
 }
 
-func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPath, paletteMode, ditherMode string, progress ProgressFunc) (int, int, error) {
+func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPath, paletteMode, ditherMode string, enhancedSceneDetection bool, progress ProgressFunc) (int, int, []int, error) {
 	st, err := os.Stat(framesPath)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	rgbFrameBytes := int64(frameBytes * 3)
 	if st.Size()%rgbFrameBytes != 0 {
-		return 0, 0, errors.New("FFmpeg produced an incomplete frame stream")
+		return 0, 0, nil, errors.New("FFmpeg produced an incomplete frame stream")
 	}
 	frameCount := int(st.Size() / rgbFrameBytes)
 	if frameCount < 1 {
-		return 0, 0, errors.New("no frames were produced")
+		return 0, 0, nil, errors.New("no frames were produced")
 	}
 
 	sceneStarts := []int{0}
 	if paletteMode == "scene" {
 		progress(18, "Detecting scene changes…")
-		sceneStarts, err = detectSceneStarts(framesPath, frameCount, rgbFrameBytes)
+		if enhancedSceneDetection {
+			sceneStarts, err = detectSceneStartsEnhanced(framesPath, frameCount)
+		} else {
+			sceneStarts, err = detectSceneStartsLegacy(framesPath, frameCount, rgbFrameBytes)
+		}
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, nil, err
 		}
 	}
 	sceneCount := len(sceneStarts)
@@ -703,7 +721,7 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 
 	f, err := os.Open(framesPath)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	defer f.Close()
 	frameBuf := make([]byte, rgbFrameBytes)
@@ -726,10 +744,10 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 				idx = start + int(math.Round(float64(n)*float64(end-start-1)/float64(samples-1)))
 			}
 			if _, err := f.Seek(int64(idx)*rgbFrameBytes, io.SeekStart); err != nil {
-				return 0, 0, err
+				return 0, 0, nil, err
 			}
 			if _, err := io.ReadFull(f, frameBuf); err != nil {
-				return 0, 0, err
+				return 0, 0, nil, err
 			}
 			for i := 0; i < len(frameBuf); i += 3 {
 				r := (int(frameBuf[i])*31 + 127) / 255
@@ -751,7 +769,7 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 		}
 	}
 	if err := os.WriteFile(palettePath, paletteBytes, 0644); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 
 	if sceneCount > 1 {
@@ -760,18 +778,18 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 			binary.LittleEndian.PutUint16(paletteIndexes[frame*2:frame*2+2], uint16(scene))
 		}
 		if err := os.WriteFile(paletteIndexPath, paletteIndexes, 0644); err != nil {
-			return 0, 0, err
+			return 0, 0, nil, err
 		}
 	} else if err := os.WriteFile(paletteIndexPath, nil, 0644); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	out, err := os.Create(videoPath)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	defer out.Close()
 	reader := bufio.NewReaderSize(f, int(rgbFrameBytes)*2)
@@ -803,7 +821,7 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 		}
 		for slot := 0; slot < count; slot++ {
 			if _, err := io.ReadFull(reader, rgbBuffers[slot]); err != nil {
-				return 0, 0, err
+				return 0, 0, nil, err
 			}
 		}
 		var quantizeWG sync.WaitGroup
@@ -820,7 +838,7 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 		for slot := 0; slot < count; slot++ {
 			frame := base + slot
 			if _, err := writer.Write(indexBuffers[slot]); err != nil {
-				return 0, 0, err
+				return 0, 0, nil, err
 			}
 			if frame%20 == 0 || frame+1 == frameCount {
 				progress(40+int(25*float64(frame+1)/float64(frameCount)), fmt.Sprintf("Converting frame %d of %d…", frame+1, frameCount))
@@ -828,9 +846,9 @@ func buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, videoPa
 		}
 	}
 	if err := writer.Flush(); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
-	return frameCount, sceneCount, nil
+	return frameCount, sceneCount, sceneStarts, nil
 }
 
 func writeRecord(w io.Writer, typ uint32, payload []byte) (int, error) {
@@ -895,7 +913,7 @@ func encodeDelta(prev, curr []byte) []byte {
 	return out
 }
 
-func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval int) (int64, int64, error) {
+func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval int, adaptive bool, sceneStarts []int) (int64, int64, error) {
 	st, err := os.Stat(rawPath)
 	if err != nil {
 		return 0, 0, err
@@ -932,7 +950,23 @@ func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval i
 	frames := int(rawSize / frameBytes)
 	prev := make([]byte, frameBytes)
 	cur := make([]byte, frameBytes)
+	sceneSet := make(map[int]bool, len(sceneStarts))
+	for _, frame := range sceneStarts {
+		if frame > 0 {
+			sceneSet[frame] = true
+		}
+	}
 	var offset uint32
+	lastKey := -keyInterval
+	changeBudget := 0
+	minAdaptiveInterval := 8
+	maxAdaptiveInterval := keyInterval * 3
+	if maxAdaptiveInterval < 60 {
+		maxAdaptiveInterval = 60
+	}
+	if maxAdaptiveInterval > 150 {
+		maxAdaptiveInterval = 150
+	}
 	for frame := 0; frame < frames; frame++ {
 		if _, err := io.ReadFull(in, cur); err != nil {
 			return 0, 0, err
@@ -944,12 +978,31 @@ func compressRawVideo(rawPath, streamPath, indexPath, mode string, keyInterval i
 		}
 		typ := uint32(0)
 		payload := cur
-		if frame > 0 && frame%keyInterval != 0 {
+		if frame > 0 {
 			delta := encodeDelta(prev, cur)
-			if len(delta)+8 < len(cur)+8 {
+			distance := frame - lastKey
+			forceKey := false
+			if adaptive {
+				changed := 0
+				for i := range cur {
+					if cur[i] != prev[i] {
+						changed++
+					}
+				}
+				changeBudget += changed
+				forceKey = sceneSet[frame] || distance >= maxAdaptiveInterval || (distance >= minAdaptiveInterval && len(delta) > frameBytes*82/100) || (distance >= keyInterval && changeBudget > frameBytes*5)
+			} else {
+				forceKey = frame%keyInterval == 0
+			}
+			if !forceKey && len(delta)+8 < len(cur)+8 {
 				typ = 1
 				payload = delta
+			} else {
+				lastKey = frame
+				changeBudget = 0
 			}
+		} else {
+			lastKey = 0
 		}
 		n, err := writeRecord(out, typ, payload)
 		if err != nil {
@@ -982,9 +1035,9 @@ func copyFile(src, dst string) error {
 	return cerr
 }
 
-func extractAudio(opt ProjectOptions, info MediaInfo, input string, duration float64, frameCount int, audioPath string) (bool, error) {
+func extractAudio(opt ProjectOptions, info MediaInfo, input string, duration float64, frameCount int, audioPath string) (bool, string, adpcmInfo, error) {
 	if opt.AudioMode == "none" || info.AudioStreams == 0 {
-		return false, os.WriteFile(audioPath, nil, 0644)
+		return false, audioCodecPCM, adpcmInfo{}, os.WriteFile(audioPath, nil, 0644)
 	}
 	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-map", "0:a:0", "-vn"}
 	filters := audioFilters(opt, info)
@@ -994,21 +1047,34 @@ func extractAudio(opt ProjectOptions, info MediaInfo, input string, duration flo
 	args = append(args, "-ac", "1", "-ar", strconv.Itoa(audioRate), "-f", "s8", audioPath)
 	output, err := runCommand(opt.FFmpegPath, args...)
 	if err != nil {
-		return false, fmt.Errorf("FFmpeg could not convert audio:\n%s", strings.TrimSpace(string(output)))
+		return false, audioCodecPCM, adpcmInfo{}, fmt.Errorf("FFmpeg could not convert audio:\n%s", strings.TrimSpace(string(output)))
 	}
 	display := float64(frameCount*opt.VBlanks) / gbaRefresh
 	required := int64(math.Ceil(display * audioRate))
 	aligned := (required + 15) / 16 * 16
 	audio, err := os.ReadFile(audioPath)
 	if err != nil {
-		return false, err
+		return false, audioCodecPCM, adpcmInfo{}, err
 	}
 	if int64(len(audio)) < aligned {
 		audio = append(audio, make([]byte, aligned-int64(len(audio)))...)
 	} else {
 		audio = audio[:aligned]
 	}
-	return true, os.WriteFile(audioPath, audio, 0644)
+	targetMiB := opt.SmartTargetMiB
+	if targetMiB < 1 || targetMiB > 32 {
+		targetMiB = 32
+	}
+	codec := resolveAudioCodec(opt.AudioCodec, opt.ExtremeOptimization, int64(len(audio)), int64(targetMiB)*1024*1024)
+	if codec == audioCodecADPCM {
+		encoded, adpcm, err := encodeIMAADPCM(audio, defaultADPCMBlockSamples)
+		if err != nil {
+			return false, codec, adpcmInfo{}, err
+		}
+		return true, codec, adpcm, os.WriteFile(audioPath, encoded, 0644)
+	}
+	pcmInfo := adpcmInfo{SampleCount: len(audio)}
+	return true, audioCodecPCM, pcmInfo, os.WriteFile(audioPath, audio, 0644)
 }
 
 func safeRomTitle(value string) []byte {
@@ -1082,14 +1148,16 @@ func appendAligned(rom []byte, data []byte) []byte {
 }
 
 type convertedClip struct {
-	input                                           ClipInput
-	options                                         ProjectOptions
-	info                                            MediaInfo
-	frameCount, paletteCount                        int
-	hasAudio                                        bool
-	palette, paletteIndex, video, videoIndex, audio string
-	rawVideo, storedVideo                           int64
-	duration                                        float64
+	input                                                ClipInput
+	options                                              ProjectOptions
+	info                                                 MediaInfo
+	frameCount, paletteCount                             int
+	hasAudio                                             bool
+	audioCodec                                           string
+	audioSampleCount, audioBlockSamples, audioBlockBytes int
+	palette, paletteIndex, video, videoIndex, audio      string
+	rawVideo, storedVideo                                int64
+	duration                                             float64
 }
 
 func optionsForClip(project ProjectOptions, input ClipInput) ProjectOptions {
@@ -1150,6 +1218,12 @@ func validateProject(opt ProjectOptions) error {
 	if opt.Compression != "none" && opt.Compression != "delta" {
 		return errors.New("invalid compression mode")
 	}
+	if opt.AudioCodec != "" && opt.AudioCodec != audioCodecPCM && opt.AudioCodec != audioCodecADPCM && opt.AudioCodec != audioCodecAuto {
+		return errors.New("invalid audio quality")
+	}
+	if !opt.ExtremeOptimization && (opt.AudioCodec == audioCodecADPCM || opt.AudioCodec == audioCodecAuto || opt.AdaptiveKeyframes || opt.EnhancedSceneDetection) {
+		return errors.New("experimental audio and adaptive encoding require the Extreme optimization preset")
+	}
 	if opt.OutputMode != "rom" && opt.OutputMode != "playlist" && opt.OutputMode != "menu" && opt.OutputMode != "batch" && opt.OutputMode != "longsplit" {
 		return errors.New("invalid output mode")
 	}
@@ -1195,7 +1269,7 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	rawVideoPath := prefix + ".raw"
 	videoPath := prefix + ".video"
 	videoIndexPath := prefix + ".vidx"
-	audioPath := prefix + ".s8"
+	audioPath := prefix + ".audio"
 	base := index * 80 / total
 	span := 80 / total
 	local := func(p int, msg string) { progress(base+p*span/100, fmt.Sprintf("%s — %s", input.Name, msg)) }
@@ -1203,21 +1277,21 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	if err := extractFrames(opt, input.InputPath, duration, framesPath, local); err != nil {
 		return convertedClip{}, err
 	}
-	frameCount, paletteCount, err := buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, rawVideoPath, opt.PaletteMode, opt.DitherMode, local)
+	frameCount, paletteCount, sceneStarts, err := buildPalettesAndRawVideo(framesPath, palettePath, paletteIndexPath, rawVideoPath, opt.PaletteMode, opt.DitherMode, opt.EnhancedSceneDetection, local)
 	if err != nil {
 		return convertedClip{}, err
 	}
 	local(72, "compressing video")
-	raw, stored, err := compressRawVideo(rawVideoPath, videoPath, videoIndexPath, opt.Compression, opt.KeyInterval)
+	raw, stored, err := compressRawVideo(rawVideoPath, videoPath, videoIndexPath, opt.Compression, opt.KeyInterval, opt.AdaptiveKeyframes, sceneStarts)
 	if err != nil {
 		return convertedClip{}, err
 	}
 	local(82, "converting audio")
-	hasAudio, err := extractAudio(opt, info, input.InputPath, duration, frameCount, audioPath)
+	hasAudio, audioCodec, audioInfo, err := extractAudio(opt, info, input.InputPath, duration, frameCount, audioPath)
 	if err != nil {
 		return convertedClip{}, err
 	}
-	return convertedClip{input: input, options: opt, info: info, frameCount: frameCount, paletteCount: paletteCount, hasAudio: hasAudio, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: raw, storedVideo: stored, duration: duration}, nil
+	return convertedClip{input: input, options: opt, info: info, frameCount: frameCount, paletteCount: paletteCount, hasAudio: hasAudio, audioCodec: audioCodec, audioSampleCount: audioInfo.SampleCount, audioBlockSamples: audioInfo.BlockSamples, audioBlockBytes: audioInfo.BlockBytes, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: raw, storedVideo: stored, duration: duration}, nil
 }
 
 func appendFile(rom []byte, path string) ([]byte, int, error) {
@@ -1244,6 +1318,12 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 	if c.paletteCount > 1 {
 		flags |= 8
 	}
+	if c.audioCodec == audioCodecADPCM {
+		flags |= 16
+	}
+	if opt.AdaptiveKeyframes {
+		flags |= 32
+	}
 	seekFrames := int(math.Round(float64(opt.SeekSeconds) * gbaRefresh / float64(opt.VBlanks)))
 	if seekFrames < 1 {
 		seekFrames = 1
@@ -1265,10 +1345,25 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 	binary.LittleEndian.PutUint16(dst[50:52], flags)
 	binary.LittleEndian.PutUint16(dst[52:54], uint16(opt.SeekSeconds))
 	binary.LittleEndian.PutUint16(dst[54:56], uint16(c.paletteCount))
-	binary.LittleEndian.PutUint16(dst[56:58], uint16(opt.KeyInterval))
+	keyInterval := opt.KeyInterval
+	if opt.AdaptiveKeyframes {
+		keyInterval = 0
+	}
+	binary.LittleEndian.PutUint16(dst[56:58], uint16(keyInterval))
 	copy(dst[60:72], safeRomTitle(c.input.Title))
 	binary.LittleEndian.PutUint32(dst[72:76], uint32(c.rawVideo))
 	binary.LittleEndian.PutUint32(dst[76:80], uint32(c.storedVideo))
+	audioCodecID := uint32(0)
+	if c.hasAudio {
+		audioCodecID = 1
+		if c.audioCodec == audioCodecADPCM {
+			audioCodecID = 2
+		}
+	}
+	binary.LittleEndian.PutUint32(dst[80:84], audioCodecID)
+	binary.LittleEndian.PutUint32(dst[84:88], uint32(c.audioSampleCount))
+	binary.LittleEndian.PutUint32(dst[88:92], uint32(c.audioBlockSamples))
+	binary.LittleEndian.PutUint32(dst[92:96], uint32(c.audioBlockBytes))
 }
 
 func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progress ProgressFunc) (ConvertResult, error) {
@@ -1324,11 +1419,18 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 			offsets["seek"] = len(rom)
 			seek := make([]byte, c.frameCount*4)
 			for frame := 0; frame < c.frameCount; frame++ {
-				off := int64(math.Floor(float64(frame*c.options.VBlanks)*audioRate/gbaRefresh)) &^ 3
-				if len(audioData) >= 4 && off > int64(len(audioData)-4) {
-					off = int64(len(audioData)-4) &^ 3
+				sample := int64(math.Floor(float64(frame*c.options.VBlanks) * audioRate / gbaRefresh))
+				if c.audioSampleCount > 0 && sample >= int64(c.audioSampleCount) {
+					sample = int64(c.audioSampleCount - 1)
 				}
-				binary.LittleEndian.PutUint32(seek[frame*4:frame*4+4], uint32(off))
+				value := sample
+				if c.audioCodec != audioCodecADPCM {
+					value &= ^int64(3)
+					if len(audioData) >= 4 && value > int64(len(audioData)-4) {
+						value = int64(len(audioData)-4) &^ 3
+					}
+				}
+				binary.LittleEndian.PutUint32(seek[frame*4:frame*4+4], uint32(value))
 			}
 			rom = appendAligned(rom, seek)
 			offsets["audio"] = len(rom)
@@ -1504,6 +1606,9 @@ func estimateLongSplitParts(opt ProjectOptions, info MediaInfo, budget int64) in
 	audioBytes := 0.0
 	if opt.AudioMode != "none" && info.AudioStreams > 0 {
 		audioBytes = displayDuration*audioRate + frames*4
+		if opt.ExtremeOptimization && (opt.AudioCodec == audioCodecADPCM || opt.AudioCodec == audioCodecAuto) {
+			audioBytes = float64(adpcmHeaderBytes) + math.Ceil(displayDuration*audioRate/defaultADPCMBlockSamples)*float64(4+(defaultADPCMBlockSamples-1+1)/2) + frames*4
+		}
 	}
 	perPartOverhead := int64(assetOffset + clipDescriptorSize + 512)
 	if opt.TitleCards != nil && opt.TitleCards.Enabled {
@@ -2182,7 +2287,12 @@ func projectNeedsAutomaticSplit(opt ProjectOptions, budget int64) (bool, error) 
 	frameCount := int64(math.Ceil(displaySeconds * fps))
 	minimum := int64(assetOffset + clipDescriptorSize + 512)
 	if effective.AudioMode != "none" && info.AudioStreams > 0 {
-		minimum += int64(math.Ceil(displaySeconds*audioRate)) + frameCount*4
+		audioBytes := int64(math.Ceil(displaySeconds * audioRate))
+		if effective.ExtremeOptimization && (effective.AudioCodec == audioCodecADPCM || effective.AudioCodec == audioCodecAuto) {
+			blocks := int64(math.Ceil(float64(audioBytes) / defaultADPCMBlockSamples))
+			audioBytes = adpcmHeaderBytes + blocks*int64(4+(defaultADPCMBlockSamples-1+1)/2)
+		}
+		minimum += audioBytes + frameCount*4
 	}
 	return minimum >= budget, nil
 }
@@ -2250,6 +2360,10 @@ func convertVideo(opt ConvertOptions, progress ProgressFunc) (ConvertResult, err
 		ChapterAware: opt.ChapterAware, PartTitleScreens: opt.PartTitleScreens,
 		ResumeLongSplit: opt.ResumeLongSplit, TitleScreenPart: opt.TitleScreenPart,
 		TitleScreenName: opt.TitleScreenName, TitleCards: opt.TitleCards,
+		Preset: opt.Preset, AudioCodec: opt.AudioCodec,
+		ExtremeOptimization: opt.ExtremeOptimization, AdaptiveKeyframes: opt.AdaptiveKeyframes,
+		EnhancedSceneDetection: opt.EnhancedSceneDetection, SmartTargetMiB: opt.SmartTargetMiB,
+		SmartPriority: opt.SmartPriority,
 	}, progress)
 }
 
@@ -2277,21 +2391,62 @@ func generatePreview(ffmpegPath, input string, timeSec float64, fitMode, outPath
 	return generatePreviewContext(context.Background(), ffmpegPath, input, timeSec, fitMode, outPath)
 }
 
+func writePCM16WAVFromS8(path string, pcm []byte, sampleRate int) error {
+	const channels = 1
+	const bitsPerSample = 16
+	dataBytes := len(pcm) * 2
+	buf := bytes.NewBuffer(make([]byte, 0, 44+dataBytes))
+	buf.WriteString("RIFF")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(36+dataBytes))
+	buf.WriteString("WAVEfmt ")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(channels))
+	_ = binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
+	_ = binary.Write(buf, binary.LittleEndian, uint32(sampleRate*channels*bitsPerSample/8))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(channels*bitsPerSample/8))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample))
+	buf.WriteString("data")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(dataBytes))
+	for _, sample := range pcm {
+		value := int16(int8(sample)) << 8
+		_ = binary.Write(buf, binary.LittleEndian, value)
+	}
+	return os.WriteFile(path, buf.Bytes(), 0644)
+}
+
 func generateAudioPreview(opt ProjectOptions, info MediaInfo, input, outPath string) error {
 	if info.AudioStreams == 0 || opt.AudioMode == "none" {
 		return errors.New("this video has no selected audio")
 	}
+	rawPath := outPath + ".s8"
+	defer os.Remove(rawPath)
 	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", "8", "-map", "0:a:0", "-vn"}
 	filters := audioFilters(opt, info)
 	if len(filters) > 0 {
 		args = append(args, "-af", strings.Join(filters, ","))
 	}
-	args = append(args, "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", outPath)
+	args = append(args, "-ac", "1", "-ar", strconv.Itoa(audioRate), "-f", "s8", rawPath)
 	output, err := runCommand(opt.FFmpegPath, args...)
 	if err != nil {
 		return fmt.Errorf("audio preview failed: %s", strings.TrimSpace(string(output)))
 	}
-	return nil
+	pcm, err := os.ReadFile(rawPath)
+	if err != nil {
+		return err
+	}
+	codec := resolveAudioCodec(opt.AudioCodec, opt.ExtremeOptimization, int64(len(pcm)), int64(max(1, opt.SmartTargetMiB))*1024*1024)
+	if codec == audioCodecADPCM {
+		encoded, _, err := encodeIMAADPCM(pcm, defaultADPCMBlockSamples)
+		if err != nil {
+			return err
+		}
+		pcm, _, err = decodeIMAADPCM(encoded)
+		if err != nil {
+			return err
+		}
+	}
+	return writePCM16WAVFromS8(outPath, pcm, audioRate)
 }
 
 func commandExists(name string) string { p, _ := exec.LookPath(name); return p }

@@ -5,7 +5,7 @@
 
 **Turn ordinary videos into playable Game Boy Advance ROMs — in the browser or with the portable Windows app.**
 
-[![Version](https://img.shields.io/badge/version-0.11.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.1-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
 [![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
 [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
@@ -32,15 +32,41 @@ The browser edition uses WebAssembly and may consume considerably more memory th
 - Separate `.gba` files packaged into a ZIP
 - Single-video conversions automatically switch to numbered ROM parts inside one ZIP when one cartridge is not enough
 
-The generated player keeps the proven v0.9 playback path:
+The stable presets keep the proven playback path, while the new experimental preset opts into a versioned extension:
 
 - Fixed **120×80** indexed video, expanded cleanly to the GBA's 240×160 display
-- Signed 8-bit mono PCM audio at **16,384 Hz**
+- Standard signed 8-bit mono PCM audio at **16,384 Hz** for every legacy preset
+- Optional block-based 4-bit IMA ADPCM only under **Extreme optimization (Experimental)**
 - Hardware DMA audio playback and hardware playback clock
 - Keyframe/delta compression with raw-frame fallback
-- No newer ADPCM decoder, multi-resolution renderer, or aggressive frame-skipping scheduler
+- Optional scene-aware adaptive keyframes with explicit seek metadata under the experimental preset
 
 ## Highlights
+
+### v0.12.1 — Independent title-card typography
+
+- The split-video title-card editor now uses a compact two-row typography table.
+- Title and subtitle each have independent **Large / Medium / Small** size, alignment, text colour, and outline colour controls.
+- Title-card previews and generated native 240×160 screens use the exact per-row typography settings.
+- Existing v0.12.0 project files migrate their shared typography automatically when opened.
+- Desktop and web editions use the same responsive layout and the same custom GBA colour picker.
+
+### v0.12 — Extreme optimization (Experimental)
+
+Version 0.12 adds an isolated smart-encoding path without changing the output of Best quality, Balanced, Long video, Smallest ROM, or Custom projects unless the experimental preset is explicitly selected.
+
+- **Representative analysis:** scans a bounded low-resolution set of frames and selects typical, fast-motion, high-detail, dark, colourful, transition, and low-motion samples
+- **Candidate recommendations:** compares frame rate, palette mode, dithering, adaptive keyframes, and audio storage against a requested 8–32 MiB target
+- **Quality and size trade-offs:** reports visual, motion, temporal-stability, and audio scores with estimated minimum/maximum ROM size and confidence
+- **Recommendation application:** applies a chosen candidate while leaving the normal manual controls editable
+- **Enhanced scene detection:** combines changed-pixel, motion, brightness, fade, flash-rejection, and minimum-scene-length signals
+- **Adaptive keyframes:** forces keyframes at confirmed scene boundaries and uses content-aware maximum intervals while preserving arbitrary seeking
+- **Experimental compact audio:** block-based 4-bit IMA ADPCM at 16,384 Hz uses roughly half the audio storage, with a real codec preview before conversion
+- **Backward-safe preset isolation:** every non-Extreme preset forces standard PCM, fixed keyframes, and the established v0.11 conversion path
+- **Desktop/web parity:** both editions expose the same preset, target, priority, audio choices, analyzer results, and ROM metadata
+
+> [!WARNING]
+> Compact ADPCM and adaptive encoding are experimental. They are covered by encoder/decoder and ROM-structure tests, but this development build has not been qualified on every flash cartridge or long-duration real-hardware playback setup. Use Standard PCM when reliability matters more than capacity.
 
 ### Video and ROM controls
 
@@ -84,6 +110,8 @@ Version 0.11 adds native per-part title cards for automatically split single-vid
 - Optional loudness normalization
 - Optional limiter
 - Selected-channel audio preview in both the desktop and web editors
+- Audio-quality dropdown: Standard PCM, Compact ADPCM (Experimental), or Auto for ROM target under Extreme optimization
+- Codec previews use the same 16,384 Hz PCM/ADPCM implementation written into the ROM
 
 ### Menu design and multi-clip menu
 
@@ -278,7 +306,7 @@ PowerShell helpers:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.11.0
+./scripts/package-release.ps1 -Version 0.12.1
 ```
 
 ## Project layout

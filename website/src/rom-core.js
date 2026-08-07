@@ -1,3 +1,5 @@
+import { encodeIMAADPCM, DEFAULT_ADPCM_BLOCK_SAMPLES } from "./adpcm.js";
+
 export const ROM_LIMIT = 32 * 1024 * 1024;
 export const ROM_MIN_SIZE = 1 * 1024 * 1024;
 export const METADATA_OFFSET = 0x7f00;
@@ -443,6 +445,67 @@ function detectSceneStarts(framesRGB, frameCount) {
   return starts;
 }
 
+function frameMetrics(frame, previous) {
+  let motion = 0, detail = 0, brightness = 0, changed = 0;
+  for (let y = 0; y < FRAME_HEIGHT; y += 1) {
+    for (let x = 0; x < FRAME_WIDTH; x += 1) {
+      const i = (y * FRAME_WIDTH + x) * 3;
+      const luma = (77 * frame[i] + 150 * frame[i + 1] + 29 * frame[i + 2]) / 256;
+      brightness += luma;
+      if (x > 0) {
+        const j = i - 3;
+        const other = (77 * frame[j] + 150 * frame[j + 1] + 29 * frame[j + 2]) / 256;
+        detail += Math.abs(luma - other);
+      }
+      if (y > 0) {
+        const j = i - FRAME_WIDTH * 3;
+        const other = (77 * frame[j] + 150 * frame[j + 1] + 29 * frame[j + 2]) / 256;
+        detail += Math.abs(luma - other);
+      }
+      if (previous) {
+        const other = (77 * previous[i] + 150 * previous[i + 1] + 29 * previous[i + 2]) / 256;
+        const difference = Math.abs(luma - other);
+        motion += difference;
+        if (difference > 48) changed += 1;
+      }
+    }
+  }
+  const pixels = FRAME_BYTES;
+  return {
+    motion: Math.min(1, motion / pixels / 64),
+    detail: Math.min(1, detail / pixels / 2 / 64),
+    brightness: brightness / pixels / 255,
+    scene: changed / pixels,
+  };
+}
+
+function detectSceneStartsEnhanced(framesRGB, frameCount) {
+  if (frameCount <= 1) return [0];
+  const metrics = [];
+  let previous = null;
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const start = frame * RGB_FRAME_BYTES;
+    const current = framesRGB.subarray(start, start + RGB_FRAME_BYTES);
+    metrics.push(frameMetrics(current, previous));
+    previous = current;
+  }
+  const starts = [0];
+  let lastStart = 0;
+  for (let frame = 1; frame < frameCount; frame += 1) {
+    const current = metrics[frame], prior = metrics[frame - 1], next = metrics[frame + 1];
+    const brightnessJump = Math.abs(current.brightness - prior.brightness);
+    let hardCut = current.scene >= 0.34 && current.motion >= 0.42 && ((next?.scene || 0) >= 0.08 || brightnessJump < 0.55);
+    const fadeBoundary = (current.brightness < 0.07 && prior.brightness >= 0.16) || (prior.brightness < 0.07 && current.brightness >= 0.16);
+    if (brightnessJump > 0.58 && (next?.scene || 0) < 0.08) hardCut = false;
+    const gap = frame - lastStart;
+    if (gap >= 10 && (hardCut || fadeBoundary || gap >= 180)) {
+      starts.push(frame);
+      lastStart = frame;
+    }
+  }
+  return starts;
+}
+
 function alignAudio(audioInput, frameCount, vblanks) {
   const displaySeconds = (frameCount * vblanks) / GBA_REFRESH;
   const required = Math.ceil(displaySeconds * AUDIO_RATE);
@@ -461,6 +524,9 @@ export function convertRawClip({
   ditherMode = "ordered",
   compression = "delta",
   keyInterval = 30,
+  adaptiveKeyframes = false,
+  enhancedSceneDetection = false,
+  audioCodec = "pcm",
   seekSeconds = 5,
   loop = false,
   report,
@@ -473,7 +539,7 @@ export function convertRawClip({
   if (compression !== "delta" && compression !== "none") throw new Error("Invalid compression mode.");
 
   report?.(0.02, paletteMode === "scene" ? "Detecting scene changes…" : "Building the shared video palette…");
-  const sceneStarts = paletteMode === "scene" ? detectSceneStarts(framesRGB, frameCount) : [0];
+  const sceneStarts = paletteMode === "scene" ? (enhancedSceneDetection ? detectSceneStartsEnhanced(framesRGB, frameCount) : detectSceneStarts(framesRGB, frameCount)) : [0];
   const paletteCount = sceneStarts.length;
   const frameScene = new Uint16Array(frameCount);
   const palettes = [];
@@ -509,6 +575,7 @@ export function convertRawClip({
   const current = new Uint8Array(FRAME_BYTES);
   const errorCurrent = new Int32Array((FRAME_WIDTH + 2) * 3);
   const errorNext = new Int32Array((FRAME_WIDTH + 2) * 3);
+  let lastKeyframe = 0;
 
   for (let frame = 0; frame < frameCount; frame += 1) {
     const sourceStart = frame * RGB_FRAME_BYTES;
@@ -527,12 +594,27 @@ export function convertRawClip({
       setU32(videoIndex, frame * 4, videoLength);
       let type = 0;
       let payload = current;
-      if (frame > 0 && frame % Math.max(1, keyInterval) !== 0) {
+      if (frame > 0) {
         const delta = encodeDelta(previous, current);
-        if (delta.length < current.length) {
+        const sceneBoundary = sceneStarts.includes(frame);
+        const fixedKey = frame % Math.max(1, keyInterval) === 0;
+        const maxAdaptive = Math.max(60, Math.min(150, Math.max(1, keyInterval) * 3));
+        const distance = frame - lastKeyframe;
+        let changed = 0;
+        if (adaptiveKeyframes) {
+          for (let i = 0; i < current.length; i += 1) if (current[i] !== previous[i]) changed += 1;
+        }
+        const forceKey = adaptiveKeyframes
+          ? sceneBoundary || distance >= maxAdaptive || (distance >= 8 && delta.length > FRAME_BYTES * 0.82) || (distance >= keyInterval && changed > FRAME_BYTES * 0.72)
+          : fixedKey;
+        if (!forceKey && delta.length < current.length) {
           type = 1;
           payload = delta;
+        } else {
+          lastKeyframe = frame;
         }
+      } else {
+        lastKeyframe = 0;
       }
       const record = makeRecord(type, payload);
       videoParts.push(record);
@@ -550,23 +632,38 @@ export function convertRawClip({
   }
 
   const hasAudio = audio.length > 0;
-  const alignedAudio = hasAudio ? alignAudio(audio, frameCount, vblanks) : new Uint8Array();
+  const alignedPCM = hasAudio ? alignAudio(audio, frameCount, vblanks) : new Uint8Array();
+  let storedAudio = alignedPCM;
+  let resolvedAudioCodec = hasAudio ? "pcm" : "none";
+  let audioBlockSamples = 0, audioBlockBytes = 0;
+  if (hasAudio && audioCodec === "adpcm") {
+    const encoded = encodeIMAADPCM(alignedPCM, DEFAULT_ADPCM_BLOCK_SAMPLES);
+    storedAudio = encoded.data;
+    resolvedAudioCodec = "adpcm";
+    audioBlockSamples = encoded.blockSamples;
+    audioBlockBytes = encoded.blockBytes;
+  }
   report?.(0.94, "Finalizing clip data…");
   return {
     title,
     frameCount,
     vblanks,
-    keyInterval,
+    keyInterval: adaptiveKeyframes ? 0 : keyInterval,
+    adaptiveKeyframes,
     seekSeconds,
     loop,
     hasAudio,
+    audioCodec: resolvedAudioCodec,
+    audioSampleCount: alignedPCM.length,
+    audioBlockSamples,
+    audioBlockBytes,
     compressed,
     palette: paletteBytes,
     paletteIndex,
     paletteCount,
     videoIndex,
     video: concatenate(videoParts, videoLength),
-    audio: alignedAudio,
+    audio: storedAudio,
     rawVideoSize: frameCount * FRAME_BYTES,
     storedVideoSize: videoLength,
   };
@@ -578,6 +675,8 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   if (clip.loop) flags |= 2;
   if (clip.compressed) flags |= 4;
   if (clip.paletteCount > 1) flags |= 8;
+  if (clip.audioCodec === "adpcm") flags |= 16;
+  if (clip.adaptiveKeyframes) flags |= 32;
   let seekFrames = Math.round((clip.seekSeconds * GBA_REFRESH) / clip.vblanks);
   if (seekFrames < 1) seekFrames = 1;
 
@@ -602,6 +701,10 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   rom.set(safeRomTitle(clip.title), descriptorOffset + 60);
   setU32(rom, descriptorOffset + 72, clip.rawVideoSize);
   setU32(rom, descriptorOffset + 76, clip.storedVideoSize);
+  setU32(rom, descriptorOffset + 80, clip.hasAudio ? (clip.audioCodec === "adpcm" ? 2 : 1) : 0);
+  setU32(rom, descriptorOffset + 84, clip.audioSampleCount || 0);
+  setU32(rom, descriptorOffset + 88, clip.audioBlockSamples || 0);
+  setU32(rom, descriptorOffset + 92, clip.audioBlockBytes || 0);
 }
 
 function decodeMenuBytes(value) {
@@ -667,9 +770,14 @@ function appendMenuTheme(writer, theme) {
 function buildSeekTable(clip) {
   const seek = new Uint8Array(clip.frameCount * 4);
   for (let frame = 0; frame < clip.frameCount; frame += 1) {
-    let offset = Math.floor((frame * clip.vblanks * AUDIO_RATE) / GBA_REFRESH) & ~3;
-    if (clip.audio.length >= 4 && offset > clip.audio.length - 4) offset = (clip.audio.length - 4) & ~3;
-    setU32(seek, frame * 4, offset);
+    let value = Math.floor((frame * clip.vblanks * AUDIO_RATE) / GBA_REFRESH);
+    if (clip.audioCodec === "adpcm") {
+      if (clip.audioSampleCount > 0 && value >= clip.audioSampleCount) value = clip.audioSampleCount - 1;
+    } else {
+      value &= ~3;
+      if (clip.audio.length >= 4 && value > clip.audio.length - 4) value = (clip.audio.length - 4) & ~3;
+    }
+    setU32(seek, frame * 4, value);
   }
   return seek;
 }

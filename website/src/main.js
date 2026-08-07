@@ -5,6 +5,8 @@ import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
 import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
 import { buildTitleCardAsset, createTitleCardProject, defaultTitleCardSettings, normalizeTitleCardSettings, renderTitleCardPreview, resolveTitleCardSettings, sanitizeTitleCardText, TITLE_CARD_BYTES } from "./title-cards.js";
+import { analyzeSmartScan } from "./smart-encoding.js";
+import { encodeIMAADPCM, decodeIMAADPCM } from "./adpcm.js";
 import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
@@ -18,6 +20,13 @@ const elements = {
   fileSummary: document.querySelector("#fileSummary"),
   clearButton: document.querySelector("#clearButton"),
   preset: document.querySelector("#preset"),
+  extremeSection: document.querySelector("#extremeSection"),
+  smartTarget: document.querySelector("#smartTarget"),
+  smartPriority: document.querySelector("#smartPriority"),
+  smartAnalyze: document.querySelector("#smartAnalyze"),
+  smartCancel: document.querySelector("#smartCancel"),
+  smartStatus: document.querySelector("#smartStatus"),
+  smartResults: document.querySelector("#smartResults"),
   outputMode: document.querySelector("#outputMode"),
   menuSettingsGroup: document.querySelector("#menuSettingsGroup"),
   menuPreview: document.querySelector("#menuPreview"),
@@ -39,6 +48,7 @@ const elements = {
   ditherMode: document.querySelector("#ditherMode"),
   compression: document.querySelector("#compression"),
   audioMode: document.querySelector("#audioMode"),
+  audioQuality: document.querySelector("#audioQuality"),
   seekSeconds: document.querySelector("#seekSeconds"),
   defaultStart: document.querySelector("#defaultStart"),
   defaultEnd: document.querySelector("#defaultEnd"),
@@ -122,9 +132,15 @@ const elements = {
   titleCardTextSize: document.querySelector("#titleCardTextSize"),
   titleCardTextColor: document.querySelector("#titleCardTextColor"),
   titleCardTextColorValue: document.querySelector("#titleCardTextColorValue"),
+  titleCardSubtitleAlignment: document.querySelector("#titleCardSubtitleAlignment"),
+  titleCardSubtitleTextSize: document.querySelector("#titleCardSubtitleTextSize"),
+  titleCardSubtitleTextColor: document.querySelector("#titleCardSubtitleTextColor"),
+  titleCardSubtitleTextColorValue: document.querySelector("#titleCardSubtitleTextColorValue"),
   titleCardOutline: document.querySelector("#titleCardOutline"),
   titleCardOutlineColor: document.querySelector("#titleCardOutlineColor"),
   titleCardOutlineColorValue: document.querySelector("#titleCardOutlineColorValue"),
+  titleCardSubtitleOutlineColor: document.querySelector("#titleCardSubtitleOutlineColor"),
+  titleCardSubtitleOutlineColorValue: document.querySelector("#titleCardSubtitleOutlineColorValue"),
   titleCardStartMode: document.querySelector("#titleCardStartMode"),
   titleCardDurationField: document.querySelector("#titleCardDurationField"),
   titleCardDuration: document.querySelector("#titleCardDuration"),
@@ -138,19 +154,23 @@ const elements = {
 const PRESETS = {
   best: {
     vblanks: "4", compression: "delta", normalize: true, limiter: true,
-    fitMode: "fit", audioMode: "mix", paletteMode: "scene", ditherMode: "error",
+    fitMode: "fit", audioMode: "mix", paletteMode: "scene", ditherMode: "error", audioQuality: "pcm",
   },
   balanced: {
     vblanks: "5", compression: "delta", normalize: false, limiter: true,
-    fitMode: "fit", audioMode: "mix", paletteMode: "shared", ditherMode: "ordered",
+    fitMode: "fit", audioMode: "mix", paletteMode: "shared", ditherMode: "ordered", audioQuality: "pcm",
   },
   long: {
     vblanks: "8", compression: "delta", normalize: false, limiter: true,
-    fitMode: "fit", audioMode: "mix", paletteMode: "shared", ditherMode: "ordered",
+    fitMode: "fit", audioMode: "mix", paletteMode: "shared", ditherMode: "ordered", audioQuality: "pcm",
   },
   small: {
     vblanks: "8", compression: "delta", normalize: false, limiter: false,
-    fitMode: "fit", audioMode: "none", paletteMode: "shared", ditherMode: "off",
+    fitMode: "fit", audioMode: "none", paletteMode: "shared", ditherMode: "off", audioQuality: "pcm",
+  },
+  extreme: {
+    vblanks: "5", compression: "delta", normalize: false, limiter: true,
+    fitMode: "fit", audioMode: "mix", paletteMode: "scene", ditherMode: "ordered", audioQuality: "auto",
   },
 };
 
@@ -178,6 +198,9 @@ let customMenuTheme = null;
 let activeMenuTheme = null;
 let stopMenuPreview = null;
 let titleCardProject = null;
+let smartAnalysis = null;
+let smartAnalysisRunning = false;
+let smartAnalysisCancelled = false;
 let titleCardProjectSource = "";
 let titleCardPart = 1;
 let titleCardEstimatedParts = 1;
@@ -278,6 +301,8 @@ function titleCardReadout(input, output, fallback) {
 function updateTitleCardReadouts() {
   titleCardReadout(elements.titleCardTextColor, elements.titleCardTextColorValue, "#FFFFFF");
   titleCardReadout(elements.titleCardOutlineColor, elements.titleCardOutlineColorValue, "#000000");
+  titleCardReadout(elements.titleCardSubtitleTextColor, elements.titleCardSubtitleTextColorValue, "#FFFFFF");
+  titleCardReadout(elements.titleCardSubtitleOutlineColor, elements.titleCardSubtitleOutlineColorValue, "#000000");
   titleCardReadout(elements.titleCardSolidColor, elements.titleCardSolidColorValue, "#000000");
 }
 function titleCardFormSettings() {
@@ -288,11 +313,15 @@ function titleCardFormSettings() {
     frameOffsetSeconds: Number(elements.titleCardFrameOffset.value) || 0,
     darkness: Number(elements.titleCardDarkness.value) || 0,
     solidColor: elements.titleCardSolidColor.value,
-    textColor: elements.titleCardTextColor.value,
-    outlineColor: elements.titleCardOutlineColor.value,
+    titleTextColor: elements.titleCardTextColor.value,
+    titleOutlineColor: elements.titleCardOutlineColor.value,
+    titleAlignment: elements.titleCardAlignment.value,
+    titleTextSize: elements.titleCardTextSize.value,
+    subtitleTextColor: elements.titleCardSubtitleTextColor.value,
+    subtitleOutlineColor: elements.titleCardSubtitleOutlineColor.value,
+    subtitleAlignment: elements.titleCardSubtitleAlignment.value,
+    subtitleTextSize: elements.titleCardSubtitleTextSize.value,
     drawOutline: elements.titleCardOutline.checked,
-    alignment: elements.titleCardAlignment.value,
-    textSize: elements.titleCardTextSize.value,
     startMode: elements.titleCardStartMode.value,
     durationSeconds: Number(elements.titleCardDuration.value) || 3,
     allowSkip: elements.titleCardAllowSkip.checked,
@@ -307,7 +336,9 @@ function updateTitleCardConditionalFields() {
   const enabled = elements.partTitleScreens.checked && !conversionRunning;
   elements.titleCardAllowSkip.disabled = !enabled || elements.titleCardStartMode.value !== "timer";
   elements.titleCardOutlineColor.disabled = !enabled || !elements.titleCardOutline.checked;
+  elements.titleCardSubtitleOutlineColor.disabled = !enabled || !elements.titleCardOutline.checked;
   elements.titleCardOutlineColor._gbaColorPickerController?.sync();
+  elements.titleCardSubtitleOutlineColor._gbaColorPickerController?.sync();
 }
 function saveTitleCardFields() {
   const target = titleCardPartRecord(titleCardPart, true);
@@ -328,11 +359,15 @@ function loadTitleCardFields() {
   elements.titleCardDarkness.value = Number.isFinite(Number(settings.darkness)) ? Number(settings.darkness) : 50;
   elements.titleCardDarknessValue.textContent = `${elements.titleCardDarkness.value}%`;
   elements.titleCardSolidColor.value = settings.solidColor || "#000000";
-  elements.titleCardTextColor.value = settings.textColor || "#FFFFFF";
-  elements.titleCardOutlineColor.value = settings.outlineColor || "#000000";
+  elements.titleCardTextColor.value = settings.titleTextColor || settings.textColor || "#FFFFFF";
+  elements.titleCardOutlineColor.value = settings.titleOutlineColor || settings.outlineColor || "#000000";
+  elements.titleCardSubtitleTextColor.value = settings.subtitleTextColor || settings.textColor || "#FFFFFF";
+  elements.titleCardSubtitleOutlineColor.value = settings.subtitleOutlineColor || settings.outlineColor || "#000000";
   elements.titleCardOutline.checked = settings.drawOutline !== false;
-  elements.titleCardAlignment.value = settings.alignment || "center";
-  elements.titleCardTextSize.value = ["medium", "small"].includes(settings.textSize) ? settings.textSize : "large";
+  elements.titleCardAlignment.value = settings.titleAlignment || settings.alignment || "center";
+  elements.titleCardTextSize.value = ["large", "medium", "small"].includes(settings.titleTextSize) ? settings.titleTextSize : (["medium", "small"].includes(settings.textSize) ? settings.textSize : "large");
+  elements.titleCardSubtitleAlignment.value = settings.subtitleAlignment || settings.alignment || "center";
+  elements.titleCardSubtitleTextSize.value = ["large", "medium", "small"].includes(settings.subtitleTextSize) ? settings.subtitleTextSize : (settings.textSize === "large" ? "medium" : "small");
   elements.titleCardStartMode.value = settings.startMode === "timer" ? "timer" : "button";
   elements.titleCardDuration.value = Number(settings.durationSeconds) || 3;
   elements.titleCardAllowSkip.checked = settings.allowSkip !== false;
@@ -417,7 +452,7 @@ function setTitleCardPart(part, force = false) {
 }
 function updateTitleCardVisibility(estimate = lastEstimate) {
   const wasVisible = !elements.titleCardGroup.hidden;
-  const visible = entries.length === 1 && elements.outputMode.value === "rom" && Number(estimate?.parts || 1) > 1;
+  const visible = entries.length === 1 && elements.outputMode.value === "rom" && (Number(estimate?.parts || 1) > 1 || elements.splitVideo.checked);
   elements.titleCardGroup.hidden = !visible;
   if (!visible) {
     titleCardVisibilitySignature = "";
@@ -579,6 +614,7 @@ function projectSettingsSnapshot() {
   return {
     ...project,
     preset: elements.preset.value,
+    smartAnalysis,
     splitVideo: elements.splitVideo.checked,
     splitBudgetMiB: Number(elements.splitBudget.value),
     maxPartDuration: elements.maxPartDuration.value,
@@ -642,6 +678,9 @@ function applySettings(settings = {}) {
   assign(elements.ditherMode, "ditherMode", "ordered");
   assign(elements.compression, "compression", "delta");
   assign(elements.audioMode, "audioMode", "mix");
+  assign(elements.audioQuality, "audioQuality", "pcm");
+  assign(elements.smartTarget, "smartTargetMiB", 32);
+  assign(elements.smartPriority, "smartPriority", "balanced");
   assign(elements.seekSeconds, "seekSeconds", 5);
   assign(elements.defaultStart, "defaultStart", 0);
   assign(elements.defaultEnd, "defaultEnd", "");
@@ -672,6 +711,13 @@ function applySettings(settings = {}) {
     rebuildMenuTheme();
   }
   if (settings.preset) elements.preset.value = settings.preset;
+  if (elements.preset.value !== "extreme") elements.audioQuality.value = "pcm";
+  smartAnalysis = settings.smartAnalysis || null;
+  updateExtremeVisibility();
+  if (smartAnalysis?.recommended) {
+    renderSmartResults(smartAnalysis);
+    elements.smartStatus.textContent = `Saved analysis restored · ${smartAnalysis.confidence || "unknown"} confidence`;
+  }
 }
 
 function applyPendingProjectMatches() {
@@ -732,8 +778,13 @@ function estimateProject(project = currentOptions(false)) {
     const raw = clipFrames * 120 * 80;
     const ratio = project.compression === "none" ? 1 : (clip.paletteMode === "scene" ? 0.43 : 0.34);
     frames += clipFrames;
-    videoBytes += raw * ratio + (project.compression === "delta" ? clipFrames * 12 : 0);
-    if (clip.audioMode !== "none" && entry.hasAudio !== false) audioBytes += duration * AUDIO_RATE;
+    const adaptiveFactor = project.extremeOptimization && project.adaptiveKeyframes ? 0.91 : 1;
+    videoBytes += (raw * ratio + (project.compression === "delta" ? clipFrames * 12 : 0)) * adaptiveFactor;
+    if (clip.audioMode !== "none" && entry.hasAudio !== false) {
+      const pcmBytes = duration * AUDIO_RATE;
+      const codec = project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality;
+      audioBytes += codec === "adpcm" ? pcmBytes * 0.505 + 20 : pcmBytes;
+    }
     paletteBytes += (clip.paletteMode === "scene" ? Math.max(1, Math.ceil(duration / 30)) : 1) * 512 + clipFrames * (clip.paletteMode === "scene" ? 2 : 0);
     totalDuration += duration;
   }
@@ -1224,6 +1275,13 @@ function appendLog(message) {
 
 function currentOptions(includeMenuTheme = true) {
   return {
+    preset: elements.preset.value,
+    extremeOptimization: elements.preset.value === "extreme",
+    audioQuality: elements.preset.value === "extreme" ? elements.audioQuality.value : "pcm",
+    adaptiveKeyframes: elements.preset.value === "extreme",
+    enhancedSceneDetection: elements.preset.value === "extreme",
+    smartTargetMiB: Number(elements.smartTarget?.value || 32),
+    smartPriority: elements.smartPriority?.value || "balanced",
     outputMode: elements.outputMode.value,
     vblanks: Number(elements.vblanks.value),
     fitMode: elements.fitMode.value,
@@ -1283,14 +1341,135 @@ function applyPreset(name) {
   elements.audioMode.value = preset.audioMode;
   elements.paletteMode.value = preset.paletteMode;
   elements.ditherMode.value = preset.ditherMode;
+  elements.audioQuality.value = preset.audioQuality || "pcm";
+  smartAnalysis = null;
+  updateExtremeVisibility();
   resetResult();
   updateEstimate();
   syncSelectedPreview();
 }
 
 function markPresetCustom() {
-  elements.preset.value = "custom";
+  if (elements.preset.value === "extreme") {
+    smartAnalysis = null;
+    elements.smartStatus.textContent = "Settings changed — analyze again";
+    elements.smartResults.hidden = true;
+  } else {
+    elements.preset.value = "custom";
+    updateExtremeVisibility();
+  }
   resetResult();
+}
+
+function updateExtremeVisibility() {
+  const extreme = elements.preset.value === "extreme";
+  elements.extremeSection.hidden = !extreme;
+  elements.audioQuality.disabled = !extreme || conversionRunning || smartAnalysisRunning;
+  if (!extreme) {
+    elements.audioQuality.value = "pcm";
+    smartAnalysis = null;
+    elements.smartResults.hidden = true;
+    elements.smartStatus.textContent = "Not analyzed";
+  }
+}
+
+function formatSmartBytes(bytes) {
+  return `${(Number(bytes || 0) / 1048576).toFixed(1)} MiB`;
+}
+
+function applySmartCandidate(candidate) {
+  if (!candidate) return;
+  elements.preset.value = "extreme";
+  elements.vblanks.value = String(candidate.vblanks);
+  elements.paletteMode.value = candidate.paletteMode;
+  elements.ditherMode.value = candidate.ditherMode;
+  elements.compression.value = "delta";
+  elements.audioQuality.value = candidate.audioCodec || "pcm";
+  smartAnalysis = { ...(smartAnalysis || {}), appliedCandidate: candidate };
+  elements.smartStatus.textContent = `${candidate.label} settings applied`;
+  updateExtremeVisibility();
+  resetResult();
+  updateEstimate();
+}
+
+function renderSmartResults(result) {
+  elements.smartResults.replaceChildren();
+  const candidates = [result.recommended, ...(result.alternatives || [])].filter(Boolean);
+  for (const [index, candidate] of candidates.entries()) {
+    const card = document.createElement("article");
+    card.className = `smart-result-card${index === 0 ? " recommended" : ""}`;
+    const title = document.createElement("h4");
+    title.textContent = index === 0 ? `Recommended — ${candidate.label}` : candidate.label;
+    const summary = document.createElement("p");
+    summary.textContent = candidate.summary || "Alternative encoding candidate.";
+    const metrics = document.createElement("div");
+    metrics.className = "smart-result-metrics";
+    metrics.textContent = `Estimated ${formatSmartBytes(candidate.estimatedMinBytes)}–${formatSmartBytes(candidate.estimatedMaxBytes)} · Visual ${candidate.visualQuality}/100 · Motion ${candidate.motionQuality}/100 · ${candidate.fps.toFixed(2)} FPS · ${candidate.audioCodec === "adpcm" ? "Compact ADPCM" : "Standard PCM"}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "Apply settings";
+    button.addEventListener("click", () => applySmartCandidate(candidate));
+    card.append(title, summary, metrics, button);
+    elements.smartResults.append(card);
+  }
+  elements.smartResults.hidden = false;
+}
+
+async function runSmartAnalysis() {
+  if (smartAnalysisRunning || conversionRunning) return;
+  if (elements.preset.value !== "extreme") return;
+  if (entries.length !== 1) { alert("Extreme analysis currently requires exactly one source video."); return; }
+  smartAnalysisRunning = true;
+  smartAnalysisCancelled = false;
+  elements.smartAnalyze.disabled = true;
+  elements.smartCancel.hidden = false;
+  elements.smartStatus.textContent = "Loading analysis engine…";
+  updateExtremeVisibility();
+  let inputName = "";
+  const scanName = "smart-scan.rgb";
+  try {
+    await ensureFFmpeg();
+    const entry = entries[0];
+    inputName = "smart-input" + (entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".mp4");
+    await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
+    const probe = await readProbe(inputName, 997, entry.file);
+    if (smartAnalysisCancelled) throw new Error("Analysis cancelled.");
+    const project = currentOptions(false);
+    const clip = effectiveClipOptions(entry, project);
+    const start = Math.max(0, clip.start || 0);
+    const sourceEnd = clip.end > start ? Math.min(clip.end, probe.duration) : probe.duration;
+    const duration = Math.max(0.25, (sourceEnd - start) / Math.max(0.5, clip.speed || 1));
+    const scanFrames = duration < 60 ? Math.max(18, Math.ceil(duration * 2)) : 120;
+    const scanFPS = Math.min(2, scanFrames / Math.max(0.25, sourceEnd - start));
+    elements.smartStatus.textContent = "Scanning motion, detail and scene changes…";
+    const args = ["-hide_banner", "-loglevel", "error", "-ss", start.toFixed(6), "-i", inputName, "-t", Math.max(0.25, sourceEnd - start).toFixed(6), "-vf", `fps=${scanFPS.toFixed(8)},scale=120:80:flags=area`, "-pix_fmt", "rgb24", "-f", "rawvideo", scanName];
+    const code = await ffmpeg.exec(args);
+    if (code !== 0) throw new Error("FFmpeg could not create the representative-scene scan.");
+    if (smartAnalysisCancelled) throw new Error("Analysis cancelled.");
+    const framesRGB = await ffmpeg.readFile(scanName);
+    elements.smartStatus.textContent = "Comparing encoding candidates…";
+    const result = analyzeSmartScan({
+      framesRGB, duration, hasAudio: probe.hasAudio && clip.audioMode !== "none",
+      targetBytes: Number(elements.smartTarget.value) * 1048576,
+      priority: elements.smartPriority.value, audioQuality: elements.audioQuality.value,
+    });
+    smartAnalysis = result;
+    renderSmartResults(result);
+    elements.smartStatus.textContent = `${result.samples.length} representative samples analyzed · ${result.confidence} confidence`;
+  } catch (error) {
+    elements.smartStatus.textContent = error instanceof Error ? error.message : String(error);
+    if (!smartAnalysisCancelled) alert(elements.smartStatus.textContent);
+  } finally {
+    if (ffmpeg) {
+      if (scanName) await ffmpeg.deleteFile(scanName).catch(() => {});
+      if (inputName) await ffmpeg.deleteFile(inputName).catch(() => {});
+    }
+    smartAnalysisRunning = false;
+    elements.smartAnalyze.disabled = false;
+    elements.smartCancel.hidden = true;
+    updateExtremeVisibility();
+  }
 }
 
 function updateConvertButton() {
@@ -1305,7 +1484,8 @@ function setBusy(busy) {
   elements.clearButton.disabled = busy;
   const settings = [
     elements.preset, elements.outputMode, elements.vblanks, elements.fitMode,
-    elements.paletteMode, elements.ditherMode, elements.compression, elements.audioMode,
+    elements.paletteMode, elements.ditherMode, elements.compression, elements.audioMode, elements.audioQuality,
+    elements.smartTarget, elements.smartPriority, elements.smartAnalyze, elements.smartCancel,
     elements.seekSeconds, elements.defaultStart, elements.defaultEnd, elements.defaultSpeed,
     elements.defaultVolume, elements.defaultLoop, elements.romTitle, elements.normalize,
     elements.limiter, elements.resume, elements.splitVideo, elements.splitBudget,
@@ -1324,6 +1504,7 @@ function setBusy(busy) {
   for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
   elements.optimizerButton.disabled = busy || !entries.length;
   if (!elements.titleCardGroup.hidden && lastEstimate) updateTitleCardVisibility(lastEstimate);
+  updateExtremeVisibility();
 }
 
 function downloadResult() {
@@ -1670,6 +1851,9 @@ async function encodeLoadedRange({ inputName, entry, probe, project, start, end,
     ditherMode: rangeOptions.ditherMode,
     compression: project.compression,
     keyInterval: 30,
+    adaptiveKeyframes: Boolean(project.extremeOptimization && project.adaptiveKeyframes),
+    enhancedSceneDetection: Boolean(project.extremeOptimization && project.enhancedSceneDetection),
+    audioCodec: project.extremeOptimization ? (project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality) : "pcm",
     seekSeconds: project.seekSeconds,
     loop: false,
   }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.54, `Part ${part}: ${message}`));
@@ -1946,6 +2130,9 @@ async function performConversion() {
           ditherMode: clipOptions.ditherMode,
           compression: project.compression,
           keyInterval: 30,
+          adaptiveKeyframes: Boolean(project.extremeOptimization && project.adaptiveKeyframes),
+          enhancedSceneDetection: Boolean(project.extremeOptimization && project.enhancedSceneDetection),
+          audioCodec: project.extremeOptimization ? (project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality) : "pcm",
           seekSeconds: project.seekSeconds,
           loop: Boolean(clipOptions.loop),
         }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.6, message));
@@ -2105,6 +2292,20 @@ function togglePreviewPlayback() {
   else elements.previewVideo.pause();
 }
 
+function wavFromSigned8(pcm, sampleRate = AUDIO_RATE) {
+  const dataBytes = pcm.length * 2;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const text = (offset, value) => { for (let i = 0; i < value.length; i += 1) bytes[offset + i] = value.charCodeAt(i); };
+  text(0, "RIFF"); view.setUint32(4, 36 + dataBytes, true); text(8, "WAVE"); text(12, "fmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, dataBytes, true);
+  for (let i = 0; i < pcm.length; i += 1) view.setInt16(44 + i * 2, ((pcm[i] << 24) >> 24) << 8, true);
+  return new Uint8Array(buffer);
+}
+
 async function createAudioPreview() {
   const entry = selectedEntry();
   if (!entry || conversionRunning) return;
@@ -2112,10 +2313,11 @@ async function createAudioPreview() {
   const clip = effectiveClipOptions(entry, project);
   if (clip.audioMode === "none") { alert("Audio is disabled for this clip."); return; }
   elements.audioPreviewButton.disabled = true;
+  let inputName = "";
+  const outputName = "audio-preview.s8";
   try {
     await ensureFFmpeg();
-    const inputName = "audio-preview-input" + (entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".mp4");
-    const outputName = "audio-preview.wav";
+    inputName = "audio-preview-input" + (entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".mp4");
     await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
     const probe = await readProbe(inputName, 999, entry.file);
     const position = clampNumber(elements.timelinePlay.value, 0, probe.duration);
@@ -2128,20 +2330,26 @@ async function createAudioPreview() {
     if (project.limiter) filters.push("alimiter=limit=0.95:attack=5:release=50");
     const args = ["-hide_banner", "-loglevel", "error", "-ss", position.toFixed(3), "-t", duration.toFixed(3), "-i", inputName, "-map", "0:a:0", "-vn"];
     if (filters.length) args.push("-af", filters.join(","));
-    args.push("-ac", "1", "-ar", "44100", "-f", "wav", outputName);
+    args.push("-ac", "1", "-ar", String(AUDIO_RATE), "-f", "s8", outputName);
     const code = await ffmpeg.exec(args);
     if (code !== 0) throw new Error("Could not create the selected-channel audio preview.");
-    const data = await ffmpeg.readFile(outputName);
+    let pcm = await ffmpeg.readFile(outputName);
+    if (!(pcm instanceof Uint8Array)) pcm = new Uint8Array(pcm);
+    const selected = project.extremeOptimization ? (project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality) : "pcm";
+    if (selected === "adpcm") pcm = decodeIMAADPCM(encodeIMAADPCM(pcm).data).pcm;
+    const data = wavFromSigned8(pcm);
     if (audioPreviewURL) URL.revokeObjectURL(audioPreviewURL);
     audioPreviewURL = URL.createObjectURL(new Blob([data], { type: "audio/wav" }));
     elements.audioPreviewPlayer.src = audioPreviewURL;
     elements.audioPreviewPlayer.hidden = false;
     await elements.audioPreviewPlayer.play().catch(() => {});
-    await ffmpeg.deleteFile(outputName).catch(() => {});
-    await ffmpeg.deleteFile(inputName).catch(() => {});
   } catch (error) {
     alert(error instanceof Error ? error.message : String(error));
   } finally {
+    if (ffmpeg) {
+      await ffmpeg.deleteFile(outputName).catch(() => {});
+      if (inputName) await ffmpeg.deleteFile(inputName).catch(() => {});
+    }
     elements.audioPreviewButton.disabled = false;
   }
 }
@@ -2183,14 +2391,18 @@ if (elements.menuBackground) {
 
 if (elements.titleCardPreview) {
   for (const [input, label] of [
-    [elements.titleCardTextColor, "Title-card text colour"],
-    [elements.titleCardOutlineColor, "Title-card outline colour"],
+    [elements.titleCardTextColor, "Title text colour"],
+    [elements.titleCardOutlineColor, "Title outline colour"],
+    [elements.titleCardSubtitleTextColor, "Subtitle text colour"],
+    [elements.titleCardSubtitleOutlineColor, "Subtitle outline colour"],
     [elements.titleCardSolidColor, "Title-card background colour"],
   ]) setupGBAColorPicker(input, { label });
 
   const colorFields = new Map([
     [elements.titleCardTextColor, "#FFFFFF"],
     [elements.titleCardOutlineColor, "#000000"],
+    [elements.titleCardSubtitleTextColor, "#FFFFFF"],
+    [elements.titleCardSubtitleOutlineColor, "#000000"],
     [elements.titleCardSolidColor, "#000000"],
   ]);
   for (const [input, fallback] of colorFields) {
@@ -2224,8 +2436,8 @@ if (elements.titleCardPreview) {
   for (const input of [
     elements.titleCardTitle, elements.titleCardSubtitle, elements.titleCardBackground,
     elements.titleCardFrameOffset, elements.titleCardDarkness, elements.titleCardOutline,
-    elements.titleCardAlignment, elements.titleCardTextSize, elements.titleCardStartMode, elements.titleCardDuration,
-    elements.titleCardAllowSkip, elements.titleCardFade,
+    elements.titleCardAlignment, elements.titleCardTextSize, elements.titleCardSubtitleAlignment, elements.titleCardSubtitleTextSize,
+    elements.titleCardStartMode, elements.titleCardDuration, elements.titleCardAllowSkip, elements.titleCardFade,
   ]) {
     input.addEventListener("input", saveTitleCardFields);
     input.addEventListener("change", saveTitleCardFields);
@@ -2237,6 +2449,24 @@ const presetFields = [elements.vblanks, elements.fitMode, elements.paletteMode, 
 for (const control of presetFields) control.addEventListener("change", () => { markPresetCustom(); updateEstimate(); syncSelectedPreview(); });
 
 elements.preset.addEventListener("change", () => applyPreset(elements.preset.value));
+elements.smartAnalyze.addEventListener("click", runSmartAnalysis);
+elements.smartCancel.addEventListener("click", () => {
+  smartAnalysisCancelled = true;
+  elements.smartStatus.textContent = "Cancelling analysis…";
+  try { ffmpeg?.terminate(); } catch { /* best effort */ }
+  ffmpeg = null;
+});
+for (const control of [elements.smartTarget, elements.smartPriority, elements.audioQuality]) {
+  control.addEventListener("change", () => {
+    if (elements.preset.value === "extreme") {
+      smartAnalysis = null;
+      elements.smartResults.hidden = true;
+      elements.smartStatus.textContent = "Options changed — analyze again";
+      resetResult();
+      updateEstimate();
+    }
+  });
+}
 elements.outputMode.addEventListener("change", () => { preferredOutputMode = elements.outputMode.value; updateOutputModes(); updateConvertButton(); resetResult(); updateEstimate(); });
 
 const ordinarySettings = [
@@ -2440,5 +2670,6 @@ window.addEventListener("beforeunload", () => {
 configureDesktopLink();
 configureCompatibilityMessage();
 updateConvertButton();
+updateExtremeVisibility();
 updateSplitVisibility();
 renderFiles();

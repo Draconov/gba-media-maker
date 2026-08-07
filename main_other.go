@@ -27,6 +27,12 @@ func main() {
 	palette := flag.String("palette", "shared", "shared or scene")
 	dither := flag.String("dither", "ordered", "off, ordered or error")
 	title := flag.String("title", "GBA VIDEO", "ROM title")
+	preset := flag.String("preset", "balanced", "best, balanced, long, small, extreme or custom")
+	audioCodec := flag.String("audio-codec", "pcm", "pcm, adpcm or auto (ADPCM requires -preset extreme)")
+	adaptiveKeyframes := flag.Bool("adaptive-keyframes", false, "use motion- and scene-aware keyframes (requires -preset extreme)")
+	enhancedScenes := flag.Bool("enhanced-scenes", false, "use enhanced scene-boundary detection (requires -preset extreme)")
+	smartTarget := flag.Int("smart-target", 32, "target ROM size in MiB for Extreme optimization")
+	smartPriority := flag.String("smart-priority", "balanced", "balanced, quality, duration, motion or detail")
 	flag.Parse()
 	if *in == "" {
 		fmt.Println("Linux test harness: use -input video -output out.gba")
@@ -40,7 +46,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ffmpeg not found")
 		os.Exit(1)
 	}
-	opt := ConvertOptions{InputPath: *in, OutputPath: *out, FFmpegPath: ff, Start: *start, End: *end, Speed: *speed, VBlanks: *vblanks, FitMode: *fit, AudioMode: *audio, Volume: 1, Loop: *loop, RomTitle: *title, SeekSeconds: *seek, Normalize: *normalize, Limiter: *limiter, Resume: *resume, Compression: *compression, PaletteMode: *palette, DitherMode: *dither, KeyInterval: 30}
+	extreme := *preset == "extreme"
+	opt := ConvertOptions{
+		InputPath: *in, OutputPath: *out, FFmpegPath: ff, Start: *start, End: *end,
+		Speed: *speed, VBlanks: *vblanks, FitMode: *fit, AudioMode: *audio, Volume: 1,
+		Loop: *loop, RomTitle: *title, SeekSeconds: *seek, Normalize: *normalize,
+		Limiter: *limiter, Resume: *resume, Compression: *compression, PaletteMode: *palette,
+		DitherMode: *dither, KeyInterval: 30, Preset: *preset, AudioCodec: *audioCodec,
+		ExtremeOptimization: extreme, AdaptiveKeyframes: extreme && *adaptiveKeyframes,
+		EnhancedSceneDetection: extreme && *enhancedScenes, SmartTargetMiB: *smartTarget,
+		SmartPriority: *smartPriority,
+	}
 	res, err := convertVideo(opt, func(p int, s string) { fmt.Printf("[%3d%%] %s\n", p, s) })
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

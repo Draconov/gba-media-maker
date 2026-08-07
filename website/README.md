@@ -20,7 +20,7 @@
 
 ## Overview
 
-Version 0.11 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
+Version 0.12.1 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
 
 ### Highlights
 
@@ -31,7 +31,7 @@ Version 0.11 follows the Windows application's conversion workflow and uses the 
 - Estimates ROM size and long-video part count before conversion
 - Recovers completed split parts through IndexedDB
 - Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF support as the Windows app
-- Provides native 240×160 split-part title cards with shared or individual settings, 50% default darkening, Large/Medium/Small text sizing, and a pixel-accurate preview
+- Provides native 240×160 split-part title cards with shared or individual part settings, 50% default darkening, and independent title/subtitle Large/Medium/Small sizing, alignment, text colour, and outline colour in a compact two-row typography table
 - Keeps the `Part N` selector, plain `of M` total, navigation buttons, and all title-card checkboxes in compact single rows while avoiding duplicate preview extraction
 
 ## Output modes
@@ -104,6 +104,13 @@ Single-ROM conversion automatically falls back to numbered ROM parts when the so
 - Interrupted-job recovery through IndexedDB
 - Partial output recovery when a later part fails
 
+
+## Extreme optimization in the browser
+
+Selecting **Extreme optimization (Experimental)** reveals the same target-size, priority, recommendation, and audio-quality controls as the desktop app. The browser performs a bounded 120×80 RGB scan through FFmpeg/WASM, selects representative content, ranks candidates, and applies adaptive-keyframe and ADPCM settings only for that preset. Analysis is sequential, cancellable, and does not hide manual split/title-card controls when metadata discovery is incomplete.
+
+The browser still has tighter memory limits than the desktop build. Long source files may analyze successfully but require automatic numbered-ROM splitting during full conversion.
+
 ## Run locally
 
 ### Requirements
@@ -147,7 +154,9 @@ website/
 ├── scripts/
 │   └── sync-player.mjs
 ├── src/
-│   ├── main.js               interface, conversion workflow, and downloads
+│   ├── main.js               interface, smart analysis, conversion workflow, and downloads
+│   ├── adpcm.js              block IMA ADPCM encoder/decoder used by preview and ROM output
+│   ├── smart-encoding.js      representative analysis, candidate scoring, and size ranges
 │   ├── menu-themes.js        built-in themes, custom image/GIF conversion, and preview
 │   ├── title-cards.js        native title-card state, preview, and TCD1 serialization
 │   ├── style.css             responsive light/dark interface

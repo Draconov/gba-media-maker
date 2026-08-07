@@ -44,9 +44,17 @@ export function defaultTitleCardSettings(sourceName = "GBA VIDEO") {
     solidColor: "#000000",
     textColor: "#FFFFFF",
     outlineColor: "#000000",
-    drawOutline: true,
     alignment: "center",
     textSize: "large",
+    titleTextColor: "#FFFFFF",
+    titleOutlineColor: "#000000",
+    titleAlignment: "center",
+    titleTextSize: "large",
+    subtitleTextColor: "#FFFFFF",
+    subtitleOutlineColor: "#000000",
+    subtitleAlignment: "center",
+    subtitleTextSize: "small",
+    drawOutline: true,
     startMode: "button",
     durationSeconds: 3,
     allowSkip: true,
@@ -65,7 +73,8 @@ function normalizeHex(value, fallback) {
 
 export function normalizeTitleCardSettings(value = {}, sourceName = "GBA VIDEO", part = 1) {
   const defaults = defaultTitleCardSettings(sourceName);
-  const settings = { ...defaults, ...value };
+  const raw = value && typeof value === "object" ? value : {};
+  const settings = { ...defaults, ...raw };
   settings.title = sanitizeTitleCardText(settings.title || defaults.title, 36) || defaults.title;
   settings.subtitle = sanitizeTitleCardText(String(settings.subtitle ?? defaults.subtitle).replaceAll("{part}", String(part)), 40);
   settings.backgroundMode = ["part-first-frame", "part-frame", "solid"].includes(settings.backgroundMode) ? settings.backgroundMode : defaults.backgroundMode;
@@ -74,9 +83,19 @@ export function normalizeTitleCardSettings(value = {}, sourceName = "GBA VIDEO",
   settings.solidColor = normalizeHex(settings.solidColor, defaults.solidColor);
   settings.textColor = normalizeHex(settings.textColor, defaults.textColor);
   settings.outlineColor = normalizeHex(settings.outlineColor, defaults.outlineColor);
-  settings.drawOutline = settings.drawOutline !== false;
   settings.alignment = ["left", "right"].includes(settings.alignment) ? settings.alignment : "center";
   settings.textSize = ["medium", "small"].includes(settings.textSize) ? settings.textSize : "large";
+  settings.titleTextColor = normalizeHex(raw.titleTextColor ?? raw.textColor ?? defaults.titleTextColor, defaults.titleTextColor);
+  settings.titleOutlineColor = normalizeHex(raw.titleOutlineColor ?? raw.outlineColor ?? defaults.titleOutlineColor, defaults.titleOutlineColor);
+  settings.subtitleTextColor = normalizeHex(raw.subtitleTextColor ?? raw.textColor ?? defaults.subtitleTextColor, defaults.subtitleTextColor);
+  settings.subtitleOutlineColor = normalizeHex(raw.subtitleOutlineColor ?? raw.outlineColor ?? defaults.subtitleOutlineColor, defaults.subtitleOutlineColor);
+  settings.titleAlignment = ["left", "right"].includes(raw.titleAlignment) ? raw.titleAlignment : (raw.titleAlignment === "center" ? "center" : settings.alignment);
+  settings.subtitleAlignment = ["left", "right"].includes(raw.subtitleAlignment) ? raw.subtitleAlignment : (raw.subtitleAlignment === "center" ? "center" : settings.alignment);
+  settings.titleTextSize = ["large", "medium", "small"].includes(raw.titleTextSize) ? raw.titleTextSize : settings.textSize;
+  settings.subtitleTextSize = ["large", "medium", "small"].includes(raw.subtitleTextSize)
+    ? raw.subtitleTextSize
+    : (settings.textSize === "large" ? "medium" : "small");
+  settings.drawOutline = settings.drawOutline !== false;
   settings.startMode = settings.startMode === "timer" ? "timer" : "button";
   settings.durationSeconds = Math.max(0.1, Math.min(60, Number(settings.durationSeconds) || defaults.durationSeconds));
   settings.allowSkip = settings.allowSkip !== false;
@@ -163,10 +182,15 @@ function drawLine(pixels, line, y, scale, alignment, colour, outlineColour, outl
   [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale, y, scale, GLYPHS[character] || 0, colour));
 }
 
-function typography(size) {
-  if (size === "medium") return { titleScale: 3, subtitleScale: 2, titleMax: 19, subtitleMax: 29, titleLineHeight: 18, subtitleLineHeight: 12, gap: 8 };
-  if (size === "small") return { titleScale: 2, subtitleScale: 1, titleMax: 29, subtitleMax: 59, titleLineHeight: 12, subtitleLineHeight: 6, gap: 6 };
-  return { titleScale: 4, subtitleScale: 3, titleMax: 14, subtitleMax: 19, titleLineHeight: 24, subtitleLineHeight: 18, gap: 10 };
+function textStyle(size) {
+  if (size === "medium") return { scale: 3, maxChars: 19, lineHeight: 18 };
+  if (size === "small") return { scale: 2, maxChars: 29, lineHeight: 12 };
+  return { scale: 4, maxChars: 14, lineHeight: 24 };
+}
+function typographyGap(titleSize, subtitleSize) {
+  if (titleSize === "large" || subtitleSize === "large") return 10;
+  if (titleSize === "medium" || subtitleSize === "medium") return 8;
+  return 6;
 }
 
 export function renderTitleCardPixels(backgroundRGB, rawSettings, part = 1, sourceName = "GBA VIDEO") {
@@ -181,19 +205,21 @@ export function renderTitleCardPixels(backgroundRGB, rawSettings, part = 1, sour
       Math.round(backgroundRGB[index * 3 + 2] * factor),
     );
   }
-  const text = hexRGB(settings.textColor, "#FFFFFF");
-  const outline = hexRGB(settings.outlineColor, "#000000");
-  const textColour = rgb555(...text);
-  const outlineColour = rgb555(...outline);
-  const type = typography(settings.textSize);
-  const titleLines = wrapText(settings.title, type.titleMax, 2);
-  const subtitleLines = wrapText(settings.subtitle, type.subtitleMax, 2);
-  const totalHeight = titleLines.length * type.titleLineHeight + (subtitleLines.length ? type.gap + subtitleLines.length * type.subtitleLineHeight : 0);
+  const titleColour = rgb555(...hexRGB(settings.titleTextColor, "#FFFFFF"));
+  const titleOutlineColour = rgb555(...hexRGB(settings.titleOutlineColor, "#000000"));
+  const subtitleColour = rgb555(...hexRGB(settings.subtitleTextColor, "#FFFFFF"));
+  const subtitleOutlineColour = rgb555(...hexRGB(settings.subtitleOutlineColor, "#000000"));
+  const titleType = textStyle(settings.titleTextSize);
+  const subtitleType = textStyle(settings.subtitleTextSize);
+  const gap = typographyGap(settings.titleTextSize, settings.subtitleTextSize);
+  const titleLines = wrapText(settings.title, titleType.maxChars, 2);
+  const subtitleLines = wrapText(settings.subtitle, subtitleType.maxChars, 2);
+  const totalHeight = titleLines.length * titleType.lineHeight + (subtitleLines.length ? gap + subtitleLines.length * subtitleType.lineHeight : 0);
   let y = Math.max(10, Math.floor((HEIGHT - totalHeight) / 2));
-  for (const line of titleLines) { drawLine(pixels, line, y, type.titleScale, settings.alignment, textColour, outlineColour, settings.drawOutline); y += type.titleLineHeight; }
+  for (const line of titleLines) { drawLine(pixels, line, y, titleType.scale, settings.titleAlignment, titleColour, titleOutlineColour, settings.drawOutline); y += titleType.lineHeight; }
   if (subtitleLines.length) {
-    y += type.gap;
-    for (const line of subtitleLines) { drawLine(pixels, line, y, type.subtitleScale, settings.alignment, textColour, outlineColour, settings.drawOutline); y += type.subtitleLineHeight; }
+    y += gap;
+    for (const line of subtitleLines) { drawLine(pixels, line, y, subtitleType.scale, settings.subtitleAlignment, subtitleColour, subtitleOutlineColour, settings.drawOutline); y += subtitleType.lineHeight; }
   }
   return { pixels, settings };
 }

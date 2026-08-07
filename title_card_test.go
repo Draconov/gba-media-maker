@@ -13,7 +13,7 @@ func TestDefaultTitleCardSettingsUseSourceNameAndPartToken(t *testing.T) {
 	if settings.Subtitle != "Part {part}" {
 		t.Fatalf("subtitle=%q", settings.Subtitle)
 	}
-	if settings.BackgroundMode != "part-first-frame" || settings.Darkness != 50 || settings.TextSize != "large" {
+	if settings.BackgroundMode != "part-first-frame" || settings.Darkness != 50 || settings.TitleTextSize != "large" || settings.SubtitleTextSize != "small" {
 		t.Fatalf("unexpected defaults: %+v", settings)
 	}
 }
@@ -90,17 +90,70 @@ func TestTitleCardTextSizeChangesRenderedTypography(t *testing.T) {
 	settings := defaultTitleCardSettings("A VERY LONG VIDEO TITLE.mp4")
 	settings.Subtitle = "PART 1"
 
-	settings.TextSize = "large"
+	settings.TitleTextSize = "large"
 	large, err := renderTitleCardPixels(background, normalizeTitleCardSettings(settings, "movie.mp4", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings.TextSize = "small"
+	settings.TitleTextSize = "small"
 	small, err := renderTitleCardPixels(background, normalizeTitleCardSettings(settings, "movie.mp4", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(large) == string(small) {
 		t.Fatal("large and small title-card text rendered identically")
+	}
+}
+
+func TestTitleCardTitleAndSubtitleStylesAreIndependent(t *testing.T) {
+	background := solidTitleCardBackground("#202020")
+	settings := defaultTitleCardSettings("movie.mp4")
+	settings.Title = "TITLE"
+	settings.Subtitle = "SUBTITLE"
+	settings.TitleTextColor = "#FF0000"
+	settings.TitleOutlineColor = "#000000"
+	settings.TitleAlignment = "left"
+	settings.TitleTextSize = "large"
+	settings.SubtitleTextColor = "#00FF00"
+	settings.SubtitleOutlineColor = "#0000FF"
+	settings.SubtitleAlignment = "right"
+	settings.SubtitleTextSize = "small"
+
+	independent, err := renderTitleCardPixels(background, normalizeTitleCardSettings(settings, "movie.mp4", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.SubtitleTextColor = settings.TitleTextColor
+	settings.SubtitleOutlineColor = settings.TitleOutlineColor
+	settings.SubtitleAlignment = settings.TitleAlignment
+	settings.SubtitleTextSize = settings.TitleTextSize
+	shared, err := renderTitleCardPixels(background, normalizeTitleCardSettings(settings, "movie.mp4", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(independent) == string(shared) {
+		t.Fatal("independent title/subtitle typography rendered identically to shared styling")
+	}
+}
+
+func TestTitleCardLegacyTypographyMigratesToIndependentStyles(t *testing.T) {
+	legacy := TitleCardSettings{
+		Title: "TITLE", Subtitle: "Part {part}", BackgroundMode: "solid",
+		SolidColor: "#000000", TextColor: "#FF0000", OutlineColor: "#00FF00",
+		DrawOutline: true, Alignment: "right", TextSize: "large", StartMode: "button",
+		DurationSeconds: 3, AllowSkip: true, Fade: true,
+	}
+	settings := normalizeTitleCardSettings(legacy, "movie.mp4", 2)
+	if settings.TitleTextColor != "#FF0000" || settings.SubtitleTextColor != "#FF0000" {
+		t.Fatalf("legacy text colour did not migrate: %+v", settings)
+	}
+	if settings.TitleOutlineColor != "#00FF00" || settings.SubtitleOutlineColor != "#00FF00" {
+		t.Fatalf("legacy outline colour did not migrate: %+v", settings)
+	}
+	if settings.TitleAlignment != "right" || settings.SubtitleAlignment != "right" {
+		t.Fatalf("legacy alignment did not migrate: %+v", settings)
+	}
+	if settings.TitleTextSize != "large" || settings.SubtitleTextSize != "medium" {
+		t.Fatalf("legacy size did not preserve the old title/subtitle hierarchy: %+v", settings)
 	}
 }

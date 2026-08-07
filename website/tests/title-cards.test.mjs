@@ -33,7 +33,8 @@ test("title-card defaults use the video filename and automatic part token", () =
   assert.equal(defaults.subtitle, "Part {part}");
   assert.equal(defaults.backgroundMode, "part-first-frame");
   assert.equal(defaults.darkness, 50);
-  assert.equal(defaults.textSize, "large");
+  assert.equal(defaults.titleTextSize, "large");
+  assert.equal(defaults.subtitleTextSize, "small");
 
   const project = createTitleCardProject("My holiday film.mp4");
   assert.equal(resolveTitleCardSettings(project, "My holiday film.mp4", 4).subtitle, "PART 4");
@@ -55,8 +56,8 @@ test("native title-card asset contains a 240 by 160 RGB555 screen and timing fla
 test("title-card text sizes render distinct native screens", () => {
   const background = solidRGB(0, 0, 0);
   const base = { ...defaultTitleCardSettings("A very long video title.mp4"), subtitle: "PART 1" };
-  const large = buildTitleCardAsset(background, { ...base, textSize: "large" }, 1, "movie.mp4");
-  const small = buildTitleCardAsset(background, { ...base, textSize: "small" }, 1, "movie.mp4");
+  const large = buildTitleCardAsset(background, { ...base, titleTextSize: "large" }, 1, "movie.mp4");
+  const small = buildTitleCardAsset(background, { ...base, titleTextSize: "small" }, 1, "movie.mp4");
   assert.notDeepEqual(large, small);
 });
 
@@ -75,4 +76,58 @@ test("browser ROM assembly stores the native title-card pointer in GBV5 metadata
   assert.ok(pointer > 0);
   assert.equal(u32(result.rom, pointer), 0x31444354);
   assert.notEqual(u16(result.rom, METADATA_OFFSET + 6) & 0x0004, 0);
+});
+
+
+test("title and subtitle typography can be styled independently", () => {
+  const background = solidRGB(20, 20, 20);
+  const base = {
+    ...defaultTitleCardSettings("movie.mp4"),
+    title: "TITLE",
+    subtitle: "SUBTITLE",
+    titleTextColor: "#FF0000",
+    titleOutlineColor: "#000000",
+    titleAlignment: "left",
+    titleTextSize: "large",
+    subtitleTextColor: "#00FF00",
+    subtitleOutlineColor: "#0000FF",
+    subtitleAlignment: "right",
+    subtitleTextSize: "small",
+  };
+  const independent = buildTitleCardAsset(background, base, 1, "movie.mp4");
+  const shared = buildTitleCardAsset(background, {
+    ...base,
+    subtitleTextColor: base.titleTextColor,
+    subtitleOutlineColor: base.titleOutlineColor,
+    subtitleAlignment: base.titleAlignment,
+    subtitleTextSize: base.titleTextSize,
+  }, 1, "movie.mp4");
+  assert.notDeepEqual(independent, shared);
+});
+
+test("legacy shared typography migrates into title and subtitle styles", () => {
+  const legacy = {
+    ...defaultTitleCardSettings("movie.mp4"),
+    titleTextColor: undefined,
+    titleOutlineColor: undefined,
+    titleAlignment: undefined,
+    titleTextSize: undefined,
+    subtitleTextColor: undefined,
+    subtitleOutlineColor: undefined,
+    subtitleAlignment: undefined,
+    subtitleTextSize: undefined,
+    textColor: "#FF0000",
+    outlineColor: "#00FF00",
+    alignment: "right",
+    textSize: "large",
+  };
+  const migrated = resolveTitleCardSettings({ enabled: true, useShared: true, shared: legacy, parts: [] }, "movie.mp4", 2);
+  assert.equal(migrated.titleTextColor, "#FF0000");
+  assert.equal(migrated.subtitleTextColor, "#FF0000");
+  assert.equal(migrated.titleOutlineColor, "#00FF00");
+  assert.equal(migrated.subtitleOutlineColor, "#00FF00");
+  assert.equal(migrated.titleAlignment, "right");
+  assert.equal(migrated.subtitleAlignment, "right");
+  assert.equal(migrated.titleTextSize, "large");
+  assert.equal(migrated.subtitleTextSize, "medium");
 });

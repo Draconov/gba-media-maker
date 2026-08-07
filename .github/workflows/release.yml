@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag, for example v0.11.0"
+        description: "Version tag, for example v0.12.1"
         required: true
         type: string
 
@@ -74,14 +74,14 @@ jobs:
           else
             base_version="$(tr -d '[:space:]' < VERSION)"
             if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::VERSION must contain a version such as 0.11.0"
+              echo "::error::VERSION must contain a version such as 0.12.1"
               exit 1
             fi
             tag="v${base_version}"
           fi
 
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Version must look like v0.11.0"
+            echo "::error::Version must look like v0.12.1"
             exit 1
           fi
 

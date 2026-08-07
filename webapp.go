@@ -113,6 +113,10 @@ type clipSettingsRequest struct {
 }
 
 type convertRequest struct {
+	Preset             string                    `json:"preset"`
+	AudioQuality       string                    `json:"audioQuality"`
+	SmartTargetMiB     int                       `json:"smartTargetMiB"`
+	SmartPriority      string                    `json:"smartPriority"`
 	Start              string                    `json:"start"`
 	End                string                    `json:"end"`
 	Speed              float64                   `json:"speed"`
@@ -543,7 +547,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.11.0", Settings: req}
+	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.12.1", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -871,6 +875,25 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	if req.Audio == "" {
 		req.Audio = "mix"
 	}
+	if req.Preset == "" {
+		req.Preset = "custom"
+	}
+	extreme := req.Preset == "extreme"
+	if req.AudioQuality == "" {
+		req.AudioQuality = audioCodecPCM
+	}
+	if !extreme {
+		req.AudioQuality = audioCodecPCM
+	}
+	if req.AudioQuality != audioCodecPCM && req.AudioQuality != audioCodecADPCM && req.AudioQuality != audioCodecAuto {
+		return ProjectOptions{}, nil, errors.New("invalid audio quality")
+	}
+	if req.SmartTargetMiB < 1 || req.SmartTargetMiB > 32 {
+		req.SmartTargetMiB = 32
+	}
+	if req.SmartPriority == "" {
+		req.SmartPriority = "balanced"
+	}
 	settingsByID := clipSettingsByID(req.Clips)
 	var inputs []ClipInput
 	var infos []MediaInfo
@@ -988,6 +1011,10 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		MaxPartMinutes: maxPartSeconds / 60, ChapterAware: req.ChapterAware,
 		PartTitleScreens: req.PartTitleScreens, ResumeLongSplit: req.ResumeLongSplit,
 		TitleCards: req.TitleCards, MenuTheme: req.MenuTheme,
+		Preset: req.Preset, AudioCodec: req.AudioQuality,
+		ExtremeOptimization: extreme, AdaptiveKeyframes: extreme,
+		EnhancedSceneDetection: extreme, SmartTargetMiB: req.SmartTargetMiB,
+		SmartPriority: req.SmartPriority,
 	}
 	return opt, infos, validateProject(opt)
 }
@@ -1374,6 +1401,44 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "private, max-age=3600")
 		_, _ = w.Write(data)
+	})
+	api.HandleFunc("/smart-analyze", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		var req convertRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			errorJSON(w, 400, fmt.Errorf("invalid settings: %w", err))
+			return
+		}
+		if req.Preset != "extreme" {
+			errorJSON(w, 400, errors.New("select Extreme optimization before analysis"))
+			return
+		}
+		opt, infos, err := s.buildOptions(req)
+		if err != nil {
+			errorJSON(w, 400, err)
+			return
+		}
+		if len(opt.Inputs) != 1 || len(infos) != 1 {
+			errorJSON(w, 400, errors.New("smart analysis currently requires exactly one source video"))
+			return
+		}
+		tempDir, err := os.MkdirTemp(s.sessionDir, "smart-analysis-")
+		if err != nil {
+			errorJSON(w, 500, err)
+			return
+		}
+		defer os.RemoveAll(tempDir)
+		result, err := AnalyzeExtremeEncodingContext(r.Context(), opt.FFmpegPath, opt.Inputs[0].InputPath, infos[0], opt, req.SmartTargetMiB, req.SmartPriority, req.AudioQuality, tempDir)
+		if err != nil {
+			errorJSON(w, 400, err)
+			return
+		}
+		jsonResponse(w, 200, result)
 	})
 	api.HandleFunc("/audio-preview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

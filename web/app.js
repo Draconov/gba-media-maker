@@ -26,6 +26,8 @@ let romTitleAuto = true;
 let pendingProject = null;
 let draggedID = '';
 let optimizerProposal = null;
+let smartAnalysis = null;
+let smartAbort = null;
 let scopeInitialized = false;
 let menuBackgroundID = 'ocean-wave-animated';
 let customMenuTheme = null;
@@ -167,6 +169,7 @@ function render() {
     if (pendingProject) applyPendingProject();
     renderClips();
     updateOutputModes();
+    updateExtremeUI();
     refreshScope(!scopeInitialized);
     scopeInitialized = true;
     syncTimeline(false);
@@ -192,9 +195,9 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardOutline','titleCardOutlineColor','titleCardAlignment','titleCardTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
-  ['convert','optimize','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
+  ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
 
 async function chooseNative(append) {
@@ -440,6 +443,8 @@ function titleCardColorReadout(inputID, outputID, fallback) {
 function updateTitleCardColorReadouts() {
   titleCardColorReadout('titleCardTextColor','titleCardTextColorValue','#FFFFFF');
   titleCardColorReadout('titleCardOutlineColor','titleCardOutlineColorValue','#000000');
+  titleCardColorReadout('titleCardSubtitleTextColor','titleCardSubtitleTextColorValue','#FFFFFF');
+  titleCardColorReadout('titleCardSubtitleOutlineColor','titleCardSubtitleOutlineColorValue','#000000');
   titleCardColorReadout('titleCardSolidColor','titleCardSolidColorValue','#000000');
 }
 function rawTitleCardSettings() {
@@ -450,11 +455,15 @@ function rawTitleCardSettings() {
     frameOffsetSeconds:Number($('titleCardFrameOffset').value)||0,
     darkness:Number($('titleCardDarkness').value)||0,
     solidColor:$('titleCardSolidColor').value,
-    textColor:$('titleCardTextColor').value,
-    outlineColor:$('titleCardOutlineColor').value,
+    titleTextColor:$('titleCardTextColor').value,
+    titleOutlineColor:$('titleCardOutlineColor').value,
+    titleAlignment:$('titleCardAlignment').value,
+    titleTextSize:$('titleCardTextSize').value,
+    subtitleTextColor:$('titleCardSubtitleTextColor').value,
+    subtitleOutlineColor:$('titleCardSubtitleOutlineColor').value,
+    subtitleAlignment:$('titleCardSubtitleAlignment').value,
+    subtitleTextSize:$('titleCardSubtitleTextSize').value,
     drawOutline:$('titleCardOutline').checked,
-    alignment:$('titleCardAlignment').value,
-    textSize:$('titleCardTextSize').value,
     startMode:$('titleCardStartMode').value,
     durationSeconds:Number($('titleCardDuration').value)||3,
     allowSkip:$('titleCardAllowSkip').checked,
@@ -481,11 +490,15 @@ function loadTitleCardFields() {
   $('titleCardDarkness').value = Number.isFinite(Number(settings.darkness)) ? Number(settings.darkness) : 50;
   $('titleCardDarknessValue').textContent = `${$('titleCardDarkness').value}%`;
   $('titleCardSolidColor').value = settings.solidColor || '#000000';
-  $('titleCardTextColor').value = settings.textColor || '#FFFFFF';
-  $('titleCardOutlineColor').value = settings.outlineColor || '#000000';
+  $('titleCardTextColor').value = settings.titleTextColor || settings.textColor || '#FFFFFF';
+  $('titleCardOutlineColor').value = settings.titleOutlineColor || settings.outlineColor || '#000000';
+  $('titleCardSubtitleTextColor').value = settings.subtitleTextColor || settings.textColor || '#FFFFFF';
+  $('titleCardSubtitleOutlineColor').value = settings.subtitleOutlineColor || settings.outlineColor || '#000000';
   $('titleCardOutline').checked = settings.drawOutline !== false;
-  $('titleCardAlignment').value = settings.alignment || 'center';
-  $('titleCardTextSize').value = ['medium','small'].includes(settings.textSize) ? settings.textSize : 'large';
+  $('titleCardAlignment').value = settings.titleAlignment || settings.alignment || 'center';
+  $('titleCardTextSize').value = ['large','medium','small'].includes(settings.titleTextSize) ? settings.titleTextSize : (['medium','small'].includes(settings.textSize) ? settings.textSize : 'large');
+  $('titleCardSubtitleAlignment').value = settings.subtitleAlignment || settings.alignment || 'center';
+  $('titleCardSubtitleTextSize').value = ['large','medium','small'].includes(settings.subtitleTextSize) ? settings.subtitleTextSize : (settings.textSize === 'large' ? 'medium' : 'small');
   $('titleCardStartMode').value = settings.startMode === 'timer' ? 'timer' : 'button';
   $('titleCardDuration').value = Number(settings.durationSeconds)||3;
   $('titleCardAllowSkip').checked = settings.allowSkip !== false;
@@ -503,7 +516,9 @@ function updateTitleCardConditionalFields() {
   const enabled = !!$('partTitleScreens').checked && !state?.converting;
   $('titleCardAllowSkip').disabled = !enabled || $('titleCardStartMode').value !== 'timer';
   $('titleCardOutlineColor').disabled = !enabled || !$('titleCardOutline').checked;
+  $('titleCardSubtitleOutlineColor').disabled = !enabled || !$('titleCardOutline').checked;
   $('titleCardOutlineColor')._gbaColorPickerController?.sync();
+  $('titleCardSubtitleOutlineColor')._gbaColorPickerController?.sync();
 }
 function estimatedTitleCardSourceTime(part) {
   const video=state?.videos?.[0];
@@ -842,21 +857,36 @@ $('jumpBegin').onclick = () => updatePreview(0);
 $('jumpEnd').onclick = () => updatePreview(selectedVideo()?.info?.duration || 0);
 
 const PRESETS = {
-  best:{fps:'smooth',compression:'delta',normalize:true,limiter:true,defaults:{fit:'fit',audio:'mix',paletteMode:'scene',ditherMode:'error'}},
-  balanced:{fps:'balanced',compression:'delta',normalize:false,limiter:true,defaults:{fit:'fit',audio:'mix',paletteMode:'shared',ditherMode:'ordered'}},
-  long:{fps:'compact',compression:'delta',normalize:false,limiter:true,defaults:{fit:'fit',audio:'mix',paletteMode:'shared',ditherMode:'ordered'}},
-  small:{fps:'compact',compression:'delta',normalize:false,limiter:false,defaults:{fit:'fit',audio:'none',paletteMode:'shared',ditherMode:'off'}}
+  best:{fps:'smooth',compression:'delta',normalize:true,limiter:true,audioQuality:'pcm',defaults:{fit:'fit',audio:'mix',paletteMode:'scene',ditherMode:'error'}},
+  balanced:{fps:'balanced',compression:'delta',normalize:false,limiter:true,audioQuality:'pcm',defaults:{fit:'fit',audio:'mix',paletteMode:'shared',ditherMode:'ordered'}},
+  long:{fps:'compact',compression:'delta',normalize:false,limiter:true,audioQuality:'pcm',defaults:{fit:'fit',audio:'mix',paletteMode:'shared',ditherMode:'ordered'}},
+  small:{fps:'compact',compression:'delta',normalize:false,limiter:false,audioQuality:'pcm',defaults:{fit:'fit',audio:'none',paletteMode:'shared',ditherMode:'off'}},
+  extreme:{fps:'balanced',compression:'delta',normalize:false,limiter:true,audioQuality:'auto',defaults:{fit:'fit',audio:'mix',paletteMode:'scene',ditherMode:'ordered'}}
 };
+function updateExtremeUI() {
+  const extreme = $('preset').value === 'extreme';
+  $('extremeSection')?.classList.toggle('hidden', !extreme);
+  $('audioQuality').disabled = !extreme || !!state?.converting;
+  if (!extreme) {
+    $('audioQuality').value = 'pcm';
+    smartAnalysis = null;
+    $('smartResults')?.classList.add('hidden');
+    if ($('smartStatus')) $('smartStatus').textContent = 'Not analyzed';
+  }
+}
 $('preset').onchange = () => {
   const preset = PRESETS[$('preset').value];
+  updateExtremeUI();
   if (!preset) return;
   $('fps').value = preset.fps; $('compression').value = preset.compression; $('normalize').checked = preset.normalize; $('limiter').checked = preset.limiter;
+  $('audioQuality').value = preset.audioQuality || 'pcm';
   Object.assign(projectDefaults, preset.defaults);
   refreshScope(true); estimate();
 };
 
 function globalValues(includeMenuTheme = true) {
   return {
+    preset:$('preset').value, audioQuality:$('audioQuality').value, smartTargetMiB:Number($('smartTarget').value), smartPriority:$('smartPriority').value,
     fps:$('fps').value, seekSeconds:Number($('seekSeconds').value), compression:$('compression').value,
     normalize:$('normalize').checked, limiter:$('limiter').checked, resume:$('resume').checked,
     romTitle:$('romTitle').value, outputMode:$('outputMode').value,
@@ -908,12 +938,16 @@ function estimateModel(model) {
     const displayDuration = sourceClipDuration / Number(clip.speed);
     const frameCount = Math.max(1, Math.ceil(displayDuration * fps));
     frames += frameCount;
-    const compressionFactor = model.global.compression === 'delta' ? 0.68 : 1;
+    const compressionFactor = model.global.compression === 'delta' ? (model.global.preset === 'extreme' ? 0.61 : 0.68) : 1;
     videoBytes += frameCount * 9600 * compressionFactor;
     if (model.global.compression === 'delta') indexBytes += frameCount * 8;
     const palettes = clip.paletteMode === 'scene' ? Math.max(1, Math.ceil(frameCount / 60)) : 1;
     paletteBytes += palettes * 512 + (palettes > 1 ? frameCount * 2 : 0);
-    if (clip.audio !== 'none' && video.info.audioStreams) audioBytes += displayDuration * 16384 + frameCount * 4;
+    if (clip.audio !== 'none' && video.info.audioStreams) {
+      const requested = model.global.preset === 'extreme' ? model.global.audioQuality : 'pcm';
+      const codec = requested === 'auto' ? (smartAnalysis?.recommended?.audioCodec || 'pcm') : requested;
+      audioBytes += displayDuration * 16384 * (codec === 'adpcm' ? 0.505 : 1) + frameCount * 4;
+    }
   }
   const bytes = Math.ceil(player + videoBytes + audioBytes + paletteBytes + indexBytes);
   let cartridge = 1 << 20;
@@ -1046,11 +1080,70 @@ $('optimizerApply').onclick = () => {
   refreshScope(true); renderClips(); estimate();
 };
 
+
+function formatSmartBytes(bytes) { return (Number(bytes || 0) / MIB).toFixed(2) + ' MiB'; }
+function renderSmartAnalysis(result) {
+  smartAnalysis = result;
+  const cards = [result.recommended, ...(result.alternatives || [])].map((candidate, index) => {
+    const cls = index === 0 ? 'smart-result-card recommended' : 'smart-result-card';
+    const fit = candidate.fitsTarget ? '<span class="pill">Fits target</span>' : '<span class="estimate-over">Exceeds target</span>';
+    return `<article class="${cls}"><h4>${escapeHTML(candidate.label)}</h4><p><b>${formatSmartBytes(candidate.estimatedMinBytes)}–${formatSmartBytes(candidate.estimatedMaxBytes)}</b> ${fit}</p><p>Visual ${candidate.visualQuality}/100 · Motion ${candidate.motionQuality}/100 · Stability ${candidate.temporalStability}/100</p><p>${candidate.fps.toFixed(2)} FPS · ${escapeHTML(candidate.paletteMode)} palette · ${escapeHTML(candidate.ditherMode)} dithering · ${candidate.audioCodec === 'adpcm' ? 'Compact ADPCM' : 'Standard PCM'}</p><p class="tiny">${escapeHTML(candidate.summary || '')}</p><div class="smart-result-actions"><button class="btn compact smart-apply" type="button" data-id="${escapeHTML(candidate.id)}">Apply</button></div></article>`;
+  }).join('');
+  $('smartResults').innerHTML = `<p class="tiny">Confidence: <b>${escapeHTML(result.confidence)}</b>. Samples: ${(result.samples || []).map(sample => `${escapeHTML(sample.kind)} ${fmt(sample.time)}`).join(' · ')}</p>${cards}`;
+  $('smartResults').classList.remove('hidden');
+  $('smartStatus').textContent = `Recommended ${result.recommended.label} · ${formatSmartBytes(result.recommended.estimatedBytes)}`;
+  for (const button of $('smartResults').querySelectorAll('.smart-apply')) button.onclick = () => applySmartCandidate(button.dataset.id);
+}
+function applySmartCandidate(id) {
+  const candidate = smartAnalysis?.candidates?.find(item => item.id === id) || smartAnalysis?.recommended;
+  if (!candidate) return;
+  const fpsName = ({4:'smooth',5:'balanced',6:'classic',8:'compact'})[candidate.vblanks] || 'balanced';
+  $('preset').value = 'extreme';
+  $('fps').value = fpsName;
+  $('compression').value = 'delta';
+  $('audioQuality').value = candidate.audioCodec || 'pcm';
+  projectDefaults.paletteMode = candidate.paletteMode || 'scene';
+  projectDefaults.ditherMode = candidate.ditherMode || 'ordered';
+  updateExtremeUI();
+  refreshScope(true);
+  estimate();
+  $('smartStatus').textContent = `${candidate.label} settings applied`;
+}
+async function runSmartAnalysis() {
+  if ($('preset').value !== 'extreme') return;
+  smartAbort?.abort();
+  smartAbort = new AbortController();
+  $('smartAnalyze').disabled = true;
+  $('smartCancel').classList.remove('hidden');
+  $('smartStatus').textContent = 'Scanning representative scenes…';
+  try {
+    const response = await fetch(BASE + '/smart-analyze', {method:'POST',headers:headers({'Content-Type':'application/json'}),body:JSON.stringify(values()),signal:smartAbort.signal});
+    if (!response.ok) { const body = await response.json(); throw new Error(body.error || 'Analysis failed'); }
+    renderSmartAnalysis(await response.json());
+  } catch (error) {
+    if (error.name !== 'AbortError') { $('smartStatus').textContent = error.message; alert(error.message); }
+  } finally {
+    $('smartAnalyze').disabled = false;
+    $('smartCancel').classList.add('hidden');
+    smartAbort = null;
+  }
+}
+$('smartAnalyze').onclick = runSmartAnalysis;
+$('smartCancel').onclick = () => smartAbort?.abort();
+$('smartTarget').addEventListener('change', () => { smartAnalysis = null; $('smartStatus').textContent='Settings changed — analyze again'; });
+$('smartPriority').addEventListener('change', () => { smartAnalysis = null; $('smartStatus').textContent='Settings changed — analyze again'; });
+$('audioQuality').addEventListener('change', () => { smartAnalysis = null; if ($('preset').value === 'extreme') $('smartStatus').textContent='Audio choice changed — analyze again'; estimate(); });
+
 function applyPendingProject() {
   const settings = pendingProject;
   pendingProject = null;
   projectDefaults = cloneClip({start:settings.start,end:settings.end,speed:settings.speed,fit:settings.fit || 'fit',audio:settings.audio,volume:settings.volume,loop:settings.loop,paletteMode:settings.paletteMode,ditherMode:settings.ditherMode});
   for (const key of ['fps','compression','outputMode']) if (settings[key]) $(key).value = settings[key];
+  $('preset').value = settings.preset || 'custom';
+  $('audioQuality').value = settings.audioQuality || 'pcm';
+  $('smartTarget').value = String(settings.smartTargetMiB || 32);
+  $('smartPriority').value = settings.smartPriority || 'balanced';
+  updateExtremeUI();
   $('seekSeconds').value = settings.seekSeconds || 5;
   $('normalize').checked = !!settings.normalize; $('limiter').checked = !!settings.limiter; $('resume').checked = !!settings.resume;
   $('splitVideo').checked = !!settings.splitVideo;
@@ -1112,7 +1205,7 @@ if ($('menuBackground')) {
 
 
 if (window.TitleCardTools && $('titleCardPreview')) {
-  for (const [inputID,label] of [['titleCardTextColor','Title-card text colour'],['titleCardOutlineColor','Title-card outline colour'],['titleCardSolidColor','Title-card background colour']]) {
+  for (const [inputID,label] of [['titleCardTextColor','Title text colour'],['titleCardOutlineColor','Title outline colour'],['titleCardSubtitleTextColor','Subtitle text colour'],['titleCardSubtitleOutlineColor','Subtitle outline colour'],['titleCardSolidColor','Title-card background colour']]) {
     MenuThemeTools.setupGBAColorPicker($(inputID),{label});
   }
   updateTitleCardColorReadouts();
@@ -1130,10 +1223,13 @@ if (window.TitleCardTools && $('titleCardPreview')) {
     loadTitleCardFields(); estimate();
   };
   $('partTitleScreens').addEventListener('change',()=>{ ensureTitleCardProject(); titleCardProject.enabled=$('partTitleScreens').checked; estimate(); });
-  for (const id of ['titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardOutline','titleCardOutlineColor','titleCardAlignment','titleCardTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade']) {
+  for (const id of ['titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade']) {
     $(id).addEventListener('input',saveTitleCardFields);
     $(id).addEventListener('change',()=>{
-      if (['titleCardSolidColor','titleCardTextColor','titleCardOutlineColor'].includes(id)) $(id).value=MenuThemeTools.quantizeHexColor($(id).value,id==='titleCardTextColor'?'#FFFFFF':'#000000');
+      if (['titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutlineColor','titleCardSubtitleOutlineColor'].includes(id)) {
+        const fallback = ['titleCardTextColor','titleCardSubtitleTextColor'].includes(id) ? '#FFFFFF' : '#000000';
+        $(id).value=MenuThemeTools.quantizeHexColor($(id).value,fallback);
+      }
       saveTitleCardFields();
     });
   }
@@ -1154,7 +1250,7 @@ $('convert').onclick = async () => {
 $('download').onclick = () => { const link = document.createElement('a'); link.href = BASE + '/download'; link.download = state.downloadName || 'GBA_Video_Maker_output'; link.click(); };
 $('retryEngine').onclick = () => api('/engine/retry', {method:'POST'});
 $('resetTop').onclick = async () => {
-  await api('/reset', {method:'POST'}); resetTitleCardPreviewCache(); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; titleCardProject=null; titleCardProjectSource=''; titleCardPart=1; titleCardSectionSignature=''; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; romTitleAuto=true; $('romTitle').value=''; show('welcome');
+  await api('/reset', {method:'POST'}); resetTitleCardPreviewCache(); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; titleCardProject=null; titleCardProjectSource=''; titleCardPart=1; titleCardSectionSignature=''; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; romTitleAuto=true; smartAnalysis=null; $('romTitle').value=''; show('welcome');
 };
 setInterval(() => fetch(BASE + '/heartbeat', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}), 5000);
 window.addEventListener('pagehide', () => fetch(BASE + '/close-intent', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}));

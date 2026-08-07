@@ -187,3 +187,39 @@ test("browser core embeds a configurable animated menu theme", async () => {
   assert.equal(u16(result.rom, themeOffset + 18), 12);
   assert.equal(u16(result.rom, themeOffset + 20), 1);
 });
+
+test("Extreme encoding writes adaptive-keyframe and ADPCM metadata", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const frameCount = 20;
+  const frames = new Uint8Array(RGB_FRAME_BYTES * frameCount);
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const base = frame * RGB_FRAME_BYTES;
+    for (let pixel = 0; pixel < FRAME_BYTES; pixel += 1) {
+      frames[base + pixel * 3] = (frame * 19 + pixel) & 255;
+      frames[base + pixel * 3 + 1] = (frame * 11) & 255;
+      frames[base + pixel * 3 + 2] = 180;
+    }
+  }
+  const audio = new Uint8Array(16384);
+  for (let index = 0; index < audio.length; index += 1) audio[index] = Math.round(Math.sin(index / 19) * 80) & 255;
+  const clip = convertRawClip({
+    framesRGB: frames, audio, title: "EXTREME", vblanks: 5,
+    paletteMode: "scene", ditherMode: "ordered", compression: "delta",
+    adaptiveKeyframes: true, enhancedSceneDetection: true, audioCodec: "adpcm",
+  });
+  assert.equal(clip.audioCodec, "adpcm");
+  assert.equal(clip.adaptiveKeyframes, true);
+  assert.ok(clip.audio.length < clip.audioSampleCount * 0.55);
+  const result = assembleROM(playerStub, [clip], { romTitle: "EXTREME", outputMode: "rom" });
+  const flags = u16(result.rom, ASSET_OFFSET + 50);
+  assert.ok(flags & 0x0010, "ADPCM flag missing");
+  assert.ok(flags & 0x0020, "adaptive-keyframe flag missing");
+  assert.equal(u16(result.rom, ASSET_OFFSET + 56), 0);
+  assert.equal(u32(result.rom, ASSET_OFFSET + 80), 2);
+  assert.equal(u32(result.rom, ASSET_OFFSET + 84), clip.audioSampleCount);
+  assert.equal(u32(result.rom, ASSET_OFFSET + 88), 2048);
+  assert.ok(u32(result.rom, ASSET_OFFSET + 92) > 4);
+  const seekOffset = u32(result.rom, ASSET_OFFSET + 32);
+  assert.ok(seekOffset > 0);
+  assert.ok(u32(result.rom, seekOffset + 4) > 0, "ADPCM seek table should store sample positions");
+});

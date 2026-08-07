@@ -126,9 +126,23 @@
               <option value="balanced" selected>Balanced</option>
               <option value="long">Long video</option>
               <option value="small">Smallest ROM</option>
+              <option value="extreme">Extreme optimization (Experimental)</option>
               <option value="custom">Custom</option>
             </select>
           </label>
+
+          <div id="extremeSection" class="experimental-section wide-field" hidden>
+            <div class="experimental-heading">
+              <div><strong>Extreme optimization</strong><span class="experimental-badge">Experimental</span></div>
+              <p>Analyze representative scenes and recommend frame rate, palette, dithering, adaptive keyframes and audio storage for a target ROM size.</p>
+            </div>
+            <div class="experimental-grid">
+              <label><span>Target ROM size</span><select id="smartTarget"><option value="32" selected>32 MiB</option><option value="31">31 MiB</option><option value="30">30 MiB</option><option value="24">24 MiB</option><option value="16">16 MiB</option><option value="8">8 MiB</option></select></label>
+              <label><span>Priority</span><select id="smartPriority"><option value="balanced" selected>Balanced quality and duration</option><option value="detail">Preserve image detail</option><option value="motion">Preserve smooth motion</option><option value="longest">Longest possible video</option></select></label>
+              <div class="smart-actions"><button id="smartAnalyze" type="button" class="secondary">Analyze and optimize video</button><button id="smartCancel" type="button" class="secondary" hidden>Cancel analysis</button><span id="smartStatus" class="muted-note">Not analyzed</span></div>
+            </div>
+            <div id="smartResults" class="smart-results" hidden></div>
+          </div>
 
           <label>
             <span>Output</span>
@@ -192,6 +206,16 @@
               <option value="right">Right channel</option>
               <option value="none">No audio</option>
             </select>
+          </label>
+
+          <label>
+            <span>Audio quality</span>
+            <select id="audioQuality" disabled>
+              <option value="pcm" selected>Standard PCM</option>
+              <option value="adpcm">Compact ADPCM (Experimental)</option>
+              <option value="auto">Auto for ROM target</option>
+            </select>
+            <small>Compressed audio is enabled only by Extreme optimization.</small>
           </label>
 
           <label>
@@ -302,12 +326,27 @@
                   <label><span>Darkening: <strong id="titleCardDarknessValue">50%</strong></span><input id="titleCardDarkness" type="range" min="0" max="90" step="5" value="50"></label>
                   <label id="titleCardFrameOffsetField"><span>Frame position in part (seconds)</span><input id="titleCardFrameOffset" type="number" min="0" step="0.1" value="0"></label>
                   <div id="titleCardSolidColorField" class="color-picker-field" hidden><label for="titleCardSolidColor">Background colour</label><span class="gba-color-control"><input id="titleCardSolidColor" type="color" value="#000000"><output id="titleCardSolidColorValue" class="gba-color-value">#000000 · RGB555 0,0,0</output></span></div>
-                  <label class="wide-field"><span>Title</span><input id="titleCardTitle" maxlength="36"></label>
-                  <label class="wide-field"><span>Subtitle</span><input id="titleCardSubtitle" maxlength="40"></label>
-                  <label><span>Text alignment</span><select id="titleCardAlignment"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></label>
-                  <label><span>Text size</span><select id="titleCardTextSize"><option value="large" selected>Large</option><option value="medium">Medium</option><option value="small">Small</option></select></label>
-                  <div class="color-picker-field"><label for="titleCardTextColor">Text colour</label><span class="gba-color-control"><input id="titleCardTextColor" type="color" value="#ffffff"><output id="titleCardTextColorValue" class="gba-color-value">#FFFFFF · RGB555 31,31,31</output></span></div>
-                  <div class="color-picker-field"><label for="titleCardOutlineColor">Outline colour</label><span class="gba-color-control"><input id="titleCardOutlineColor" type="color" value="#000000"><output id="titleCardOutlineColorValue" class="gba-color-value">#000000 · RGB555 0,0,0</output></span></div>
+                  <div class="title-card-typography wide-field" role="group" aria-label="Title and subtitle typography">
+                    <div class="title-card-type-header" aria-hidden="true">
+                      <span></span><span>Text</span><span>Size</span><span>Alignment</span><span>Text colour</span><span>Outline</span>
+                    </div>
+                    <div class="title-card-type-row">
+                      <strong class="typography-role">Title</strong>
+                      <label class="typography-text"><span class="typography-mobile-label">Text</span><input id="titleCardTitle" maxlength="36" aria-label="Title text"></label>
+                      <label><span class="typography-mobile-label">Size</span><select id="titleCardTextSize" aria-label="Title text size"><option value="large" selected>Large</option><option value="medium">Medium</option><option value="small">Small</option></select></label>
+                      <label><span class="typography-mobile-label">Alignment</span><select id="titleCardAlignment" aria-label="Title alignment"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></label>
+                      <div class="typography-color color-picker-field"><span class="typography-mobile-label">Text colour</span><span class="gba-color-control"><input id="titleCardTextColor" type="color" value="#ffffff" aria-label="Title text colour"><output id="titleCardTextColorValue" class="gba-color-value typography-color-value">#FFFFFF · RGB555 31,31,31</output></span></div>
+                      <div class="typography-color color-picker-field"><span class="typography-mobile-label">Outline</span><span class="gba-color-control"><input id="titleCardOutlineColor" type="color" value="#000000" aria-label="Title outline colour"><output id="titleCardOutlineColorValue" class="gba-color-value typography-color-value">#000000 · RGB555 0,0,0</output></span></div>
+                    </div>
+                    <div class="title-card-type-row">
+                      <strong class="typography-role">Subtitle</strong>
+                      <label class="typography-text"><span class="typography-mobile-label">Text</span><input id="titleCardSubtitle" maxlength="40" aria-label="Subtitle text"></label>
+                      <label><span class="typography-mobile-label">Size</span><select id="titleCardSubtitleTextSize" aria-label="Subtitle text size"><option value="large">Large</option><option value="medium">Medium</option><option value="small" selected>Small</option></select></label>
+                      <label><span class="typography-mobile-label">Alignment</span><select id="titleCardSubtitleAlignment" aria-label="Subtitle alignment"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></label>
+                      <div class="typography-color color-picker-field"><span class="typography-mobile-label">Text colour</span><span class="gba-color-control"><input id="titleCardSubtitleTextColor" type="color" value="#ffffff" aria-label="Subtitle text colour"><output id="titleCardSubtitleTextColorValue" class="gba-color-value typography-color-value">#FFFFFF · RGB555 31,31,31</output></span></div>
+                      <div class="typography-color color-picker-field"><span class="typography-mobile-label">Outline</span><span class="gba-color-control"><input id="titleCardSubtitleOutlineColor" type="color" value="#000000" aria-label="Subtitle outline colour"><output id="titleCardSubtitleOutlineColorValue" class="gba-color-value typography-color-value">#000000 · RGB555 0,0,0</output></span></div>
+                    </div>
+                  </div>
                   <label><span>Start behaviour</span><select id="titleCardStartMode"><option value="button" selected>Wait for A</option><option value="timer">Start automatically</option></select></label>
                   <label id="titleCardDurationField" hidden><span>Automatic delay (seconds)</span><input id="titleCardDuration" type="number" min="0.1" max="60" step="0.1" value="3"></label>
                 </div>

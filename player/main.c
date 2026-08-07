@@ -1,6 +1,7 @@
 typedef unsigned char  u8;
 typedef unsigned short u16;
 typedef unsigned int   u32;
+typedef signed short   s16;
 
 #define REG16(addr) (*(volatile u16 *)(addr))
 #define REG32(addr) (*(volatile u32 *)(addr))
@@ -68,6 +69,11 @@ typedef unsigned int   u32;
 #define CLIP_FLAG_LOOP       0x0002u
 #define CLIP_FLAG_COMPRESSED 0x0004u
 #define CLIP_FLAG_SCENE_PAL  0x0008u
+#define CLIP_FLAG_ADPCM      0x0010u
+#define CLIP_FLAG_ADAPTIVE   0x0020u
+#define AUDIO_CODEC_NONE     0u
+#define AUDIO_CODEC_PCM      1u
+#define AUDIO_CODEC_ADPCM    2u
 #define GBV5_MAGIC           0x35564247u
 #define MENU_THEME_MAGIC     0x3148544Du
 #define TITLE_CARD_MAGIC      0x31444354u
@@ -204,7 +210,10 @@ struct ClipDescriptor {
     char title[12];
     u32 uncompressed_video_size;
     u32 compressed_video_size;
-    u32 reserved[4];
+    u32 audio_codec;
+    u32 audio_sample_count;
+    u32 audio_block_samples;
+    u32 audio_block_bytes;
 };
 
 struct PlayerUI {
@@ -235,6 +244,14 @@ extern const struct GlobalMetadata gba_video_metadata;
 
 static u8 frame_a[FRAME_BYTES];
 static u8 frame_b[FRAME_BYTES];
+#define ADPCM_PCM_HALF 4096u
+static u8 adpcm_pcm_buffer[ADPCM_PCM_HALF * 2u] __attribute__((aligned(4)));
+static const u8 *adpcm_stream;
+static u32 adpcm_stream_start_sample;
+static u32 adpcm_next_switch;
+static u32 adpcm_active_half;
+static u32 adpcm_sample_count;
+static int adpcm_active;
 static const struct MenuThemeHeader *active_menu_theme;
 static int title_card_video_fade_in = 0;
 static int active_menu_outline;
@@ -661,9 +678,87 @@ static u16 sound_control(const struct PlayerUI *ui, int reset)
     return v;
 }
 
+static const signed char ima_index_table[16] = {-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8};
+static const u16 ima_step_table[89] = {
+    7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,
+    34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,
+    157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,
+    724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,
+    3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,
+    15289,16818,18500,20350,22385,24623,27086,29794,32767
+};
+
+static int clamp_int(int value, int low, int high)
+{
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
+
+static int ima_decode_nibble(u8 code, int *predictor, int *index)
+{
+    int step = ima_step_table[*index];
+    int delta = step >> 3;
+    if (code & 4u) delta += step;
+    if (code & 2u) delta += step >> 1;
+    if (code & 1u) delta += step >> 2;
+    if (code & 8u) *predictor -= delta; else *predictor += delta;
+    *predictor = clamp_int(*predictor, -32768, 32767);
+    *index = clamp_int(*index + ima_index_table[code & 15u], 0, 88);
+    return *predictor;
+}
+
+static void decode_adpcm_range(const u8 *audio, u32 start_sample, u32 count, u8 *dst)
+{
+    u32 block_samples, sample_count, block_bytes, block_count, written = 0u;
+    if (read32(audio) != 0x31444149u || read16(audio + 4u) != 1u) {
+        while (written < count) dst[written++] = 0u;
+        return;
+    }
+    block_samples = read16(audio + 6u);
+    sample_count = read32(audio + 8u);
+    block_bytes = read32(audio + 12u);
+    block_count = read32(audio + 16u);
+    if (block_samples != 2048u || block_bytes < 4u || start_sample >= sample_count) {
+        while (written < count) dst[written++] = 0u;
+        return;
+    }
+    while (written < count && start_sample < sample_count) {
+        u32 block = start_sample >> 11;
+        u32 within = start_sample & 2047u;
+        const u8 *data;
+        int predictor, index;
+        u32 i;
+        if (block >= block_count) break;
+        data = audio + 20u + block * block_bytes;
+        predictor = (int)(s16)read16(data);
+        index = clamp_int((int)data[2], 0, 88);
+        if (within == 0u && written < count) {
+            dst[written++] = (u8)((predictor >> 8) & 0xFF);
+            ++start_sample;
+            within = 1u;
+        }
+        for (i = 1u; i < block_samples && written < count && start_sample < sample_count; ++i) {
+            u32 nibble_pos = i - 1u;
+            u8 packed = data[4u + (nibble_pos >> 1)];
+            u8 code = (nibble_pos & 1u) ? (u8)(packed >> 4) : (u8)(packed & 15u);
+            int value = ima_decode_nibble(code, &predictor, &index);
+            if (i >= within) {
+                dst[written++] = (u8)((value >> 8) & 0xFF);
+                ++start_sample;
+            }
+        }
+        if (within >= block_samples) start_sample = (block + 1u) * block_samples;
+    }
+    while (written < count) dst[written++] = 0u;
+}
+
+static u32 playback_timer_read(void);
+
 static void audio_stop(void)
 {
     REG_TM0CNT_H = 0; REG_DMA1CNT_H = 0; REG_SOUNDCNT_H = 0x0800;
+    adpcm_active = 0;
 }
 
 static void audio_apply_state(const struct PlayerUI *ui)
@@ -671,28 +766,75 @@ static void audio_apply_state(const struct PlayerUI *ui)
     REG_SOUNDCNT_H = sound_control(ui, 0);
 }
 
-static void audio_start_at(const u8 *audio, u32 byte_offset, int paused, const struct PlayerUI *ui)
+static void audio_dma_begin(const u8 *source, int paused, const struct PlayerUI *ui)
 {
-    audio_stop();
     REG_SOUNDCNT_X = 0x0080; REG_SOUNDCNT_L = 0; REG_SOUNDBIAS = 0x0200;
     REG_SOUNDCNT_H = sound_control(ui, 1);
-    REG_DMA1SAD = (u32)(audio + (byte_offset & ~3u)); REG_DMA1DAD = (u32)&REG_FIFO_A;
+    REG_DMA1SAD = (u32)source; REG_DMA1DAD = (u32)&REG_FIFO_A;
     REG_DMA1CNT_L = 4; REG_DMA1CNT_H = 0xB640;
     if (!paused) { REG_TM0CNT_L = 0xFC00; REG_TM0CNT_H = 0x0080; }
 }
 
+static u32 audio_seek_value_for_frame(const struct ClipDescriptor *clip, u32 frame)
+{
+    u32 value;
+    if (clip->seek_table_offset == 0u || frame >= clip->frame_count) return 0u;
+    value = read32(rom_ptr(clip->seek_table_offset + frame * 4u));
+    if (clip->audio_codec == AUDIO_CODEC_ADPCM || (clip->flags & CLIP_FLAG_ADPCM)) {
+        if (clip->audio_sample_count && value >= clip->audio_sample_count) value = clip->audio_sample_count - 1u;
+        return value;
+    }
+    value &= ~3u;
+    if (clip->audio_size < 4u) return 0u;
+    if (value > clip->audio_size - 4u) value = (clip->audio_size - 4u) & ~3u;
+    return value;
+}
+
+static void audio_start_for_frame(const struct ClipDescriptor *clip, u32 frame, int paused, const struct PlayerUI *ui)
+{
+    const u8 *audio = rom_ptr(clip->audio_offset);
+    u32 value = audio_seek_value_for_frame(clip, frame);
+    audio_stop();
+    if (clip->audio_codec == AUDIO_CODEC_ADPCM || (clip->flags & CLIP_FLAG_ADPCM)) {
+        adpcm_stream = audio;
+        adpcm_stream_start_sample = value;
+        adpcm_sample_count = clip->audio_sample_count;
+        adpcm_active_half = 0u;
+        adpcm_next_switch = ADPCM_PCM_HALF;
+        decode_adpcm_range(audio, value, ADPCM_PCM_HALF, adpcm_pcm_buffer);
+        decode_adpcm_range(audio, value + ADPCM_PCM_HALF, ADPCM_PCM_HALF, adpcm_pcm_buffer + ADPCM_PCM_HALF);
+        adpcm_active = 1;
+        audio_dma_begin(adpcm_pcm_buffer, paused, ui);
+    } else {
+        audio_dma_begin(audio + (value & ~3u), paused, ui);
+    }
+}
+
+static void audio_service(void)
+{
+    u32 elapsed, next_half, refill_half, refill_sample;
+    if (!adpcm_active) return;
+    elapsed = playback_timer_read();
+    while (elapsed >= adpcm_next_switch) {
+        next_half = adpcm_active_half ^ 1u;
+        REG_DMA1CNT_H = 0u;
+        REG_DMA1SAD = (u32)(adpcm_pcm_buffer + next_half * ADPCM_PCM_HALF);
+        REG_DMA1DAD = (u32)&REG_FIFO_A;
+        REG_DMA1CNT_L = 4u;
+        REG_DMA1CNT_H = 0xB640u;
+        adpcm_active_half = next_half;
+        refill_half = next_half ^ 1u;
+        refill_sample = adpcm_stream_start_sample + adpcm_next_switch + ADPCM_PCM_HALF;
+        if (refill_sample < adpcm_sample_count) decode_adpcm_range(adpcm_stream, refill_sample, ADPCM_PCM_HALF, adpcm_pcm_buffer + refill_half * ADPCM_PCM_HALF);
+        else {
+            u32 i; for (i = 0u; i < ADPCM_PCM_HALF; ++i) adpcm_pcm_buffer[refill_half * ADPCM_PCM_HALF + i] = 0u;
+        }
+        adpcm_next_switch += ADPCM_PCM_HALF;
+    }
+}
+
 static void audio_pause(void) { REG_TM0CNT_H = 0; }
 static void audio_resume(void) { REG_TM0CNT_L = 0xFC00; REG_TM0CNT_H = 0x0080; }
-
-static u32 audio_offset_for_frame(const struct ClipDescriptor *clip, u32 frame)
-{
-    u32 offset;
-    if (clip->seek_table_offset == 0u || frame >= clip->frame_count) return 0u;
-    offset = read32(rom_ptr(clip->seek_table_offset + frame * 4u)) & ~3u;
-    if (clip->audio_size < 4u) return 0u;
-    if (offset > clip->audio_size - 4u) offset = (clip->audio_size - 4u) & ~3u;
-    return offset;
-}
 
 /* Timer 2 runs at 16,384 Hz; Timer 3 cascades for a 32-bit playback clock. */
 static void playback_timer_stop(void)
@@ -865,6 +1007,7 @@ static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, in
     for (;;) {
         int changed, action;
         wait_vblank();
+        if (has_audio) audio_service();
         changed = tick_ui_timers(ui);
         action = poll_action(previous_keys, *paused, has_audio, playlist_mode, ui);
         if (action == ACTION_TOGGLE_PAUSE) {
@@ -1572,8 +1715,7 @@ static u32 select_clip_menu(const struct GlobalMetadata *meta, const struct Clip
 static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescriptor *clip, u32 clip_index,
                      u32 initial_frame, struct PlayerUI *ui)
 {
-    const u8 *audio = rom_ptr(clip->audio_offset);
-    int has_audio = (clip->flags & CLIP_FLAG_AUDIO) && clip->audio_size && clip->seek_table_offset;
+    int has_audio = (clip->flags & CLIP_FLAG_AUDIO) && clip->audio_size && clip->seek_table_offset && clip->audio_codec != AUDIO_CODEC_NONE;
     u32 frame = initial_frame < clip->frame_count ? initial_frame : 0u;
     struct PlaybackClock clock;
     u16 displayed_page = 0u;
@@ -1603,7 +1745,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     playback_clock_init(&clock, clip->vblanks_per_frame);
     playback_timer_reset();
     playback_clock_advance(&clock);
-    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
+    if (has_audio) audio_start_for_frame(clip,frame,0,ui);
     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
 
     for (;;) {
@@ -1627,7 +1769,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1); load_frame_pixels(clip,target,current); frame=target; at_end=0; paused=0;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
-                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),0,ui);
+                    if (has_audio) audio_start_for_frame(clip,frame,0,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;
@@ -1649,7 +1791,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                 show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                 playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
                 if (paused) playback_timer_pause();
-                if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
+                if (has_audio) audio_start_for_frame(clip,frame,paused,ui);
                 continue;
             }
             if (action==ACTION_UI_REFRESH) { render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down(); continue; }
@@ -1661,7 +1803,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     load_frame_pixels(clip,target,current); frame=target; ui->hud_timer=HUD_HOLD_VBLANKS;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); playback_timer_pause();
-                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),1,ui);
+                    if (has_audio) audio_start_for_frame(clip,frame,1,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;
@@ -1673,7 +1815,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     load_frame_pixels(clip,target,current); frame=target;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); if (paused) playback_timer_pause();
-                    if (has_audio) audio_start_at(audio,audio_offset_for_frame(clip,frame),paused,ui);
+                    if (has_audio) audio_start_for_frame(clip,frame,paused,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;

@@ -40,12 +40,14 @@ test("web edition exposes desktop parity controls", async () => {
     "saveProjectButton", "openProjectInput", "previewVideo", "timelineStart", "timelineEnd",
     "inlineTimeline", "timelineTrack", "timelineStartHandle", "timelinePlayHandle", "timelineEndHandle",
     "timelineStartTimeInput", "timelineEndTimeInput",
-    "titleEditor", "titlePreviewInput", "audioPreviewButton",
+    "titleEditor", "titlePreviewInput", "audioPreviewButton", "audioQuality",
+    "extremeSection", "smartTarget", "smartPriority", "smartAnalyze", "smartCancel", "smartResults",
     "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
     "titleCardGroup", "titleCardPreview", "titleCardPartSelect", "titleCardUseShared",
     "titleCardTitle", "titleCardSubtitle", "titleCardBackground", "titleCardDarkness", "titleCardTextSize",
-    "titleCardTextColor", "titleCardOutlineColor", "titleCardStartMode", "titleCardFade",
+    "titleCardTextColor", "titleCardOutlineColor", "titleCardSubtitleTextSize", "titleCardSubtitleAlignment",
+    "titleCardSubtitleTextColor", "titleCardSubtitleOutlineColor", "titleCardStartMode", "titleCardFade",
     "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground",
     "menuUIColor", "menuSelectionColor", "menuOutline", "menuOutlineColor",
   ]) assert.match(html, new RegExp(`id="${id}"`));
@@ -57,6 +59,10 @@ test("web edition exposes desktop parity controls", async () => {
   assert.match(script, /serializeTheme/);
   assert.match(script, /buildTitleCardAsset/);
   assert.match(script, /renderTitleCardPreview/);
+  assert.match(script, /analyzeSmartScan/);
+  assert.match(script, /encodeIMAADPCM/);
+  assert.match(html, /Extreme optimization \(Experimental\)/);
+  assert.match(html, /Compact ADPCM \(Experimental\)/);
 });
 
 
@@ -75,6 +81,9 @@ test("title-card navigation stays in one row and avoids redundant reloads", asyn
   assert.match(html, /Show title card at start/);
   assert.match(html, /Use same settings for each part/);
   assert.match(html, /id="titleCardPartLabel"[^>]*>of 2</);
+  assert.match(html, /class="title-card-type-header"/);
+  assert.match(html, /id="titleCardSubtitleTextSize"/);
+  assert.match(style, /\.title-card-type-row\{[^}]*grid-template-columns:/);
 });
 
 

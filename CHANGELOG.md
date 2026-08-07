@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.12.1] - 2026-08-07
+
+### Added
+- Added a compact two-row typography table to split-video title cards.
+- Added independent title and subtitle size, alignment, text colour, and outline colour settings.
+- Added matching desktop/web custom colour pickers for both title-card text rows.
+- Added migration tests so v0.12.0 projects with shared typography continue to render with the previous title/subtitle hierarchy.
+
+### Changed
+- Title cards now render title and subtitle typography independently in the native 240×160 preview and generated ROM asset.
+- Default new-project typography is **Large** title and **Small** subtitle, both centred with white text and black outlines.
+- Updated desktop/web responsive styling so the two typography rows remain compact at normal widths and reflow cleanly on narrow screens.
+
+## [0.12.0] - 2026-08-06
+
+### Added
+- Added **Extreme optimization (Experimental)** as an isolated quality preset; all existing presets keep the v0.11 encoding path and standard PCM audio.
+- Added bounded scene/motion/detail analysis, representative sample selection, candidate generation, quality metrics, sample-informed size ranges, confidence reporting, and recommendation application.
+- Added enhanced scene-boundary detection with fade handling and flash rejection.
+- Added adaptive keyframe placement with explicit keyframe records and frame-indexed seeking.
+- Added block-based 4-bit IMA ADPCM at 16,384 Hz, independent block state, frame-to-sample seek tables, GBA-side decoding, double-buffered DMA feeding, and pause/resume/seek support.
+- Added Standard PCM, Compact ADPCM (Experimental), and Auto for ROM target audio choices plus exact codec audio previews.
+- Added equivalent Extreme controls and conversion metadata to the browser edition.
+- Added Go and JavaScript ADPCM golden/round-trip tests, smart-analysis tests, adaptive/ADPCM ROM descriptor tests, and website parity assertions.
+
+### Changed
+- Smart-analysis FFmpeg work is bounded, cancellable, and uses one scan stream instead of starting concurrent preview jobs.
+- The browser title-card editor remains available when manual splitting is enabled even while browser metadata is still unknown.
+- Project files now preserve the selected experimental preset, audio mode, target, priority, and optional analysis result.
+- README, website documentation, player documentation, architecture notes, release scripts, and visible version labels now identify v0.12.0.
+
+### Compatibility
+- Legacy presets write PCM and fixed-keyframe GBV5 clips exactly through the established path.
+- ADPCM and adaptive flags use previously reserved descriptor fields; the bundled v0.12 player understands both legacy and experimental clips.
+
 ## [0.11.0] - 2026-08-06
 
 ### Added

@@ -111,10 +111,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.11.0")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.12.1")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Text size"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Title and subtitle typography", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -133,6 +133,11 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	}
 	if !bytes.Contains(appCSS, []byte("flex-wrap:nowrap")) || !bytes.Contains(appCSS, []byte(".title-card-nav select")) || !bytes.Contains(appCSS, []byte(".title-card-checkbox-row")) {
 		t.Fatal("compact one-row title-card navigation is missing")
+	}
+	for _, want := range []string{"titleCardSubtitleTextSize", "titleCardSubtitleAlignment", "titleCardSubtitleTextColor", "titleCardSubtitleOutlineColor", ".title-card-type-row"} {
+		if !bytes.Contains(page, []byte(want)) && !bytes.Contains(appCSS, []byte(want)) {
+			t.Fatalf("independent title/subtitle typography UI is missing %q", want)
+		}
 	}
 }
 
@@ -827,5 +832,41 @@ func TestSplitRecoveryStateRoundTrip(t *testing.T) {
 	got, ok := loadSplitRecovery(path, "abc")
 	if !ok || got.NextPart != 2 || len(got.Parts) != 1 || got.Parts[0].End != 25 {
 		t.Fatalf("recovery state did not round-trip: ok=%v state=%+v", ok, got)
+	}
+}
+
+func TestExtremePresetIsIsolatedFromLegacyPresets(t *testing.T) {
+	state := &appState{
+		sessionDir: t.TempDir(), ffmpegPath: "ffmpeg",
+		videos: []uploadedVideo{{
+			ID: "one", Path: "movie.mp4", Name: "movie.mp4", Status: "ready",
+			Info: &MediaInfo{Duration: 120, Width: 640, Height: 360, FPS: 30, AudioStreams: 1},
+		}},
+	}
+	base := convertRequest{
+		Start: "0", Speed: 1, FPS: "balanced", Fit: "fit", Audio: "mix", Volume: 100,
+		RomTitle: "MOVIE", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared",
+		DitherMode: "ordered", OutputMode: "rom", SmartTargetMiB: 32, SmartPriority: "balanced",
+	}
+	legacy := base
+	legacy.Preset = "balanced"
+	legacy.AudioQuality = audioCodecADPCM
+	legacyOpt, _, err := state.buildOptions(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyOpt.ExtremeOptimization || legacyOpt.AdaptiveKeyframes || legacyOpt.EnhancedSceneDetection || legacyOpt.AudioCodec != audioCodecPCM {
+		t.Fatalf("experimental settings leaked into Balanced: %+v", legacyOpt)
+	}
+
+	extreme := base
+	extreme.Preset = "extreme"
+	extreme.AudioQuality = audioCodecADPCM
+	extremeOpt, _, err := state.buildOptions(extreme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !extremeOpt.ExtremeOptimization || !extremeOpt.AdaptiveKeyframes || !extremeOpt.EnhancedSceneDetection || extremeOpt.AudioCodec != audioCodecADPCM {
+		t.Fatalf("Extreme settings were not enabled: %+v", extremeOpt)
 	}
 }

@@ -29,21 +29,29 @@ const (
 // TitleCardSettings describes one native 240×160 title card. Background frames
 // are extracted relative to the beginning of the generated ROM part.
 type TitleCardSettings struct {
-	Title              string  `json:"title"`
-	Subtitle           string  `json:"subtitle"`
-	BackgroundMode     string  `json:"backgroundMode"` // part-first-frame, part-frame, solid
-	FrameOffsetSeconds float64 `json:"frameOffsetSeconds"`
-	Darkness           int     `json:"darkness"` // 0..90 percent
-	SolidColor         string  `json:"solidColor"`
-	TextColor          string  `json:"textColor"`
-	OutlineColor       string  `json:"outlineColor"`
-	DrawOutline        bool    `json:"drawOutline"`
-	Alignment          string  `json:"alignment"` // left, center, right
-	TextSize           string  `json:"textSize"`  // large, medium, small
-	StartMode          string  `json:"startMode"` // button, timer
-	DurationSeconds    float64 `json:"durationSeconds"`
-	AllowSkip          bool    `json:"allowSkip"`
-	Fade               bool    `json:"fade"`
+	Title                string  `json:"title"`
+	Subtitle             string  `json:"subtitle"`
+	BackgroundMode       string  `json:"backgroundMode"` // part-first-frame, part-frame, solid
+	FrameOffsetSeconds   float64 `json:"frameOffsetSeconds"`
+	Darkness             int     `json:"darkness"` // 0..90 percent
+	SolidColor           string  `json:"solidColor"`
+	TextColor            string  `json:"textColor,omitempty"`    // legacy shared text colour
+	OutlineColor         string  `json:"outlineColor,omitempty"` // legacy shared outline colour
+	Alignment            string  `json:"alignment,omitempty"`    // legacy shared alignment
+	TextSize             string  `json:"textSize,omitempty"`     // legacy shared size
+	TitleTextColor       string  `json:"titleTextColor"`
+	TitleOutlineColor    string  `json:"titleOutlineColor"`
+	TitleAlignment       string  `json:"titleAlignment"` // left, center, right
+	TitleTextSize        string  `json:"titleTextSize"`  // large, medium, small
+	SubtitleTextColor    string  `json:"subtitleTextColor"`
+	SubtitleOutlineColor string  `json:"subtitleOutlineColor"`
+	SubtitleAlignment    string  `json:"subtitleAlignment"` // left, center, right
+	SubtitleTextSize     string  `json:"subtitleTextSize"`  // large, medium, small
+	DrawOutline          bool    `json:"drawOutline"`
+	StartMode            string  `json:"startMode"` // button, timer
+	DurationSeconds      float64 `json:"durationSeconds"`
+	AllowSkip            bool    `json:"allowSkip"`
+	Fade                 bool    `json:"fade"`
 }
 
 type TitleCardPartSettings struct {
@@ -61,21 +69,29 @@ type TitleCardProjectSettings struct {
 func defaultTitleCardSettings(sourceName string) TitleCardSettings {
 	base := strings.TrimSuffix(filepath.Base(sourceName), filepath.Ext(sourceName))
 	return TitleCardSettings{
-		Title:              sanitizeTitleCardText(base, 36),
-		Subtitle:           "Part {part}",
-		BackgroundMode:     "part-first-frame",
-		FrameOffsetSeconds: 0,
-		Darkness:           50,
-		SolidColor:         "#000000",
-		TextColor:          "#FFFFFF",
-		OutlineColor:       "#000000",
-		DrawOutline:        true,
-		Alignment:          "center",
-		TextSize:           "large",
-		StartMode:          "button",
-		DurationSeconds:    3,
-		AllowSkip:          true,
-		Fade:               true,
+		Title:                sanitizeTitleCardText(base, 36),
+		Subtitle:             "Part {part}",
+		BackgroundMode:       "part-first-frame",
+		FrameOffsetSeconds:   0,
+		Darkness:             50,
+		SolidColor:           "#000000",
+		TextColor:            "#FFFFFF",
+		OutlineColor:         "#000000",
+		Alignment:            "center",
+		TextSize:             "large",
+		TitleTextColor:       "#FFFFFF",
+		TitleOutlineColor:    "#000000",
+		TitleAlignment:       "center",
+		TitleTextSize:        "large",
+		SubtitleTextColor:    "#FFFFFF",
+		SubtitleOutlineColor: "#000000",
+		SubtitleAlignment:    "center",
+		SubtitleTextSize:     "small",
+		DrawOutline:          true,
+		StartMode:            "button",
+		DurationSeconds:      3,
+		AllowSkip:            true,
+		Fade:                 true,
 	}
 }
 
@@ -115,6 +131,37 @@ func normalizeTitleCardSettings(value TitleCardSettings, sourceName string, part
 	}
 	if value.TextSize != "medium" && value.TextSize != "small" {
 		value.TextSize = "large"
+	}
+	// v0.12.1 adds independent title/subtitle typography while preserving
+	// v0.12.0 project files that only stored the shared legacy fields above.
+	if strings.TrimSpace(value.TitleTextColor) == "" {
+		value.TitleTextColor = value.TextColor
+	}
+	if strings.TrimSpace(value.TitleOutlineColor) == "" {
+		value.TitleOutlineColor = value.OutlineColor
+	}
+	if strings.TrimSpace(value.SubtitleTextColor) == "" {
+		value.SubtitleTextColor = value.TextColor
+	}
+	if strings.TrimSpace(value.SubtitleOutlineColor) == "" {
+		value.SubtitleOutlineColor = value.OutlineColor
+	}
+	if value.TitleAlignment != "left" && value.TitleAlignment != "right" {
+		value.TitleAlignment = value.Alignment
+	}
+	if value.SubtitleAlignment != "left" && value.SubtitleAlignment != "right" {
+		value.SubtitleAlignment = value.Alignment
+	}
+	if value.TitleTextSize != "medium" && value.TitleTextSize != "small" && value.TitleTextSize != "large" {
+		value.TitleTextSize = value.TextSize
+	}
+	if value.SubtitleTextSize != "medium" && value.SubtitleTextSize != "small" && value.SubtitleTextSize != "large" {
+		switch value.TextSize {
+		case "large":
+			value.SubtitleTextSize = "medium"
+		default:
+			value.SubtitleTextSize = "small"
+		}
 	}
 	if value.StartMode != "timer" {
 		value.StartMode = "button"
@@ -297,15 +344,25 @@ func titleCardDrawLine(pixels []uint16, line string, y, scale int, alignment str
 	}
 }
 
-func titleCardTypography(size string) (titleScale, subtitleScale, titleMaxChars, subtitleMaxChars, titleLineHeight, subtitleLineHeight, gap int) {
+func titleCardTextStyle(size string) (scale, maxChars, lineHeight int) {
 	switch size {
 	case "medium":
-		return 3, 2, 19, 29, 18, 12, 8
+		return 3, 19, 18
 	case "small":
-		return 2, 1, 29, 59, 12, 6, 6
+		return 2, 29, 12
 	default:
-		return 4, 3, 14, 19, 24, 18, 10
+		return 4, 14, 24
 	}
+}
+
+func titleCardTypographyGap(titleSize, subtitleSize string) int {
+	if titleSize == "large" || subtitleSize == "large" {
+		return 10
+	}
+	if titleSize == "medium" || subtitleSize == "medium" {
+		return 8
+	}
+	return 6
 }
 
 func renderTitleCardPixels(backgroundRGB []byte, settings TitleCardSettings) ([]byte, error) {
@@ -320,11 +377,17 @@ func renderTitleCardPixels(backgroundRGB []byte, settings TitleCardSettings) ([]
 		b := uint8(math.Round(float64(backgroundRGB[index*3+2]) * factor))
 		pixels[index] = titleCardRGB555(r, g, b)
 	}
-	tr, tg, tb := titleCardHexRGB(settings.TextColor, "#FFFFFF")
-	or, og, ob := titleCardHexRGB(settings.OutlineColor, "#000000")
-	textColour := titleCardRGB555(tr, tg, tb)
-	outlineColour := titleCardRGB555(or, og, ob)
-	titleScale, subtitleScale, titleMaxChars, subtitleMaxChars, titleLineHeight, subtitleLineHeight, gap := titleCardTypography(settings.TextSize)
+	titleR, titleG, titleB := titleCardHexRGB(settings.TitleTextColor, "#FFFFFF")
+	titleOutlineR, titleOutlineG, titleOutlineB := titleCardHexRGB(settings.TitleOutlineColor, "#000000")
+	subtitleR, subtitleG, subtitleB := titleCardHexRGB(settings.SubtitleTextColor, "#FFFFFF")
+	subtitleOutlineR, subtitleOutlineG, subtitleOutlineB := titleCardHexRGB(settings.SubtitleOutlineColor, "#000000")
+	titleColour := titleCardRGB555(titleR, titleG, titleB)
+	titleOutlineColour := titleCardRGB555(titleOutlineR, titleOutlineG, titleOutlineB)
+	subtitleColour := titleCardRGB555(subtitleR, subtitleG, subtitleB)
+	subtitleOutlineColour := titleCardRGB555(subtitleOutlineR, subtitleOutlineG, subtitleOutlineB)
+	titleScale, titleMaxChars, titleLineHeight := titleCardTextStyle(settings.TitleTextSize)
+	subtitleScale, subtitleMaxChars, subtitleLineHeight := titleCardTextStyle(settings.SubtitleTextSize)
+	gap := titleCardTypographyGap(settings.TitleTextSize, settings.SubtitleTextSize)
 	titleLines := titleCardWrap(settings.Title, titleMaxChars, 2)
 	subtitleLines := titleCardWrap(settings.Subtitle, subtitleMaxChars, 2)
 	totalHeight := len(titleLines) * titleLineHeight
@@ -337,13 +400,13 @@ func renderTitleCardPixels(backgroundRGB []byte, settings TitleCardSettings) ([]
 	}
 	y := startY
 	for _, line := range titleLines {
-		titleCardDrawLine(pixels, line, y, titleScale, settings.Alignment, textColour, outlineColour, settings.DrawOutline)
+		titleCardDrawLine(pixels, line, y, titleScale, settings.TitleAlignment, titleColour, titleOutlineColour, settings.DrawOutline)
 		y += titleLineHeight
 	}
 	if len(subtitleLines) > 0 {
 		y += gap
 		for _, line := range subtitleLines {
-			titleCardDrawLine(pixels, line, y, subtitleScale, settings.Alignment, textColour, outlineColour, settings.DrawOutline)
+			titleCardDrawLine(pixels, line, y, subtitleScale, settings.SubtitleAlignment, subtitleColour, subtitleOutlineColour, settings.DrawOutline)
 			y += subtitleLineHeight
 		}
 	}
