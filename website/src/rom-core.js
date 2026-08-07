@@ -1,8 +1,9 @@
 import { encodeIMAADPCM, DEFAULT_ADPCM_BLOCK_SAMPLES } from "./adpcm.js";
+import { encodeGBATextFixed, safeGBAHeaderTitle } from "./gba-text.js";
 
 export const ROM_LIMIT = 32 * 1024 * 1024;
 export const ROM_MIN_SIZE = 1 * 1024 * 1024;
-export const METADATA_OFFSET = 0x7f00;
+export const METADATA_OFFSET = 0x7fc0;
 export const ASSET_OFFSET = 0x8000;
 export const CLIP_DESCRIPTOR_SIZE = 96;
 export const FRAME_WIDTH = 120;
@@ -101,27 +102,11 @@ function asciiBytes(value) {
 }
 
 export function safeRomTitle(value) {
-  const clean = String(value ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 _-]/g, "")
-    .trim() || "GBA VIDEO";
-  const raw = asciiBytes(clean.slice(0, 12));
-  const out = new Uint8Array(12);
-  out.fill(0x20);
-  out.set(raw.subarray(0, 12));
-  return out;
+  return safeGBAHeaderTitle(value);
 }
 
 function safeTitleScreenName(value) {
-  const clean = String(value || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 :/+.<>%-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 24);
-  const out = new Uint8Array(24);
-  out.set(asciiBytes(clean).subarray(0, 24));
-  return out;
+  return encodeGBATextFixed(value, 24);
 }
 
 
@@ -698,7 +683,7 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   setU16(rom, descriptorOffset + 52, clip.seekSeconds);
   setU16(rom, descriptorOffset + 54, clip.paletteCount);
   setU16(rom, descriptorOffset + 56, clip.keyInterval);
-  rom.set(safeRomTitle(clip.title), descriptorOffset + 60);
+  rom.set(encodeGBATextFixed(clip.title, 12), descriptorOffset + 60);
   setU32(rom, descriptorOffset + 72, clip.rawVideoSize);
   setU32(rom, descriptorOffset + 76, clip.storedVideoSize);
   setU32(rom, descriptorOffset + 80, clip.hasAudio ? (clip.audioCodec === "adpcm" ? 2 : 1) : 0);

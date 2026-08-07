@@ -43,6 +43,14 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Install LLVM player build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+
+      - name: Build GBA player
+        run: bash player/build.sh
+
       - name: Check formatting
         shell: bash
         run: |

@@ -28,7 +28,7 @@ import (
 const (
 	romLimit               = 32 * 1024 * 1024
 	romMinSize             = 1 * 1024 * 1024
-	metadataOffset         = 0x7F00
+	metadataOffset         = 0x7FC0
 	assetOffset            = 0x8000
 	clipDescriptorSize     = 96
 	frameWidth             = 120
@@ -1078,47 +1078,11 @@ func extractAudio(opt ProjectOptions, info MediaInfo, input string, duration flo
 }
 
 func safeRomTitle(value string) []byte {
-	value = strings.ToUpper(value)
-	var b strings.Builder
-	for _, r := range value {
-		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' || r == '_' || r == '-' {
-			b.WriteRune(r)
-		}
-	}
-	s := strings.TrimSpace(b.String())
-	if s == "" {
-		s = "GBA VIDEO"
-	}
-	raw := []byte(s)
-	if len(raw) > 12 {
-		raw = raw[:12]
-	}
-	out := bytes.Repeat([]byte{' '}, 12)
-	copy(out, raw)
-	return out
+	return safeGBAHeaderTitle(value)
 }
 
 func safeTitleScreenName(value string) []byte {
-	value = strings.ToUpper(value)
-	var clean strings.Builder
-	for _, r := range value {
-		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' || r == '_' || r == '-' {
-			clean.WriteRune(r)
-		} else {
-			clean.WriteByte(' ')
-		}
-	}
-	text := strings.Join(strings.Fields(clean.String()), " ")
-	if text == "" {
-		text = "GBA VIDEO"
-	}
-	raw := []byte(text)
-	if len(raw) > 24 {
-		raw = raw[:24]
-	}
-	out := make([]byte, 24)
-	copy(out, raw)
-	return out
+	return encodeGBATextFixed(value, 24)
 }
 
 func patchGBAHeader(rom []byte, title string) {
@@ -1350,7 +1314,7 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 		keyInterval = 0
 	}
 	binary.LittleEndian.PutUint16(dst[56:58], uint16(keyInterval))
-	copy(dst[60:72], safeRomTitle(c.input.Title))
+	copy(dst[60:72], encodeGBATextFixed(c.input.Title, 12))
 	binary.LittleEndian.PutUint32(dst[72:76], uint32(c.rawVideo))
 	binary.LittleEndian.PutUint32(dst[76:80], uint32(c.storedVideo))
 	audioCodecID := uint32(0)

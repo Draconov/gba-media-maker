@@ -1,4 +1,4 @@
-(function(){
+(function(global){
 'use strict';
 const WIDTH = 240;
 const HEIGHT = 160;
@@ -9,12 +9,7 @@ const GBA_REFRESH = 59.727500569606;
 const FLAG_WAIT_A = 1;
 const FLAG_SKIP = 2;
 const FLAG_FADE = 4;
-
-const GLYPHS = {
-  "0":0x7B6F,"1":0x2C97,"2":0x73E7,"3":0x73CF,"4":0x5BC9,"5":0x79CF,"6":0x79EF,"7":0x7292,"8":0x7BEF,"9":0x7BCF,
-  A:0x2BED,B:0x6BAE,C:0x7927,D:0x6B6E,E:0x79E7,F:0x79E4,G:0x79AF,H:0x5BED,I:0x7497,J:0x124E,K:0x5D6D,L:0x4927,M:0x5FE9,N:0x5F6D,O:0x7B6F,P:0x7BE4,Q:0x7B7B,R:0x7BED,S:0x79CF,T:0x7492,U:0x5B6F,V:0x5B6A,W:0x5BFD,X:0x5AAD,Y:0x5A92,Z:0x72A7,
-  " ":0,"-":0x01C0,"_":0x0007,".":0x0002,":":0x0410,"!":0x2492,"?":0x72C2,"/":0x1248,"+":0x05D0,"(":0x2488,")":0x1112,"&":0x2AAE,
-};
+const { glyphBits, glyphLength, sanitizeGBAText } = global.GBAText;
 
 function setU16(data, offset, value) {
   data[offset] = value & 0xff;
@@ -28,8 +23,7 @@ function setU32(data, offset, value) {
 }
 
 function sanitizeTitleCardText(value, maximum = 40) {
-  const clean = String(value || "").toUpperCase().replace(/[^A-Z0-9 _\-.:!?/&()+]/g, " ").replace(/\s+/g, " ").trim();
-  return maximum > 0 ? clean.slice(0, maximum).trim() : clean;
+  return sanitizeGBAText(value, maximum).text;
 }
 
 function sourceBaseName(sourceName) {
@@ -135,23 +129,19 @@ function rgb555ToRGBA(value, rgba, offset) {
 }
 
 function wrapText(text, maxChars, maxLines) {
-  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = "";
+  const words = String(text || "").trim().split(/\s+/u).filter(Boolean);
+  const lines = []; let current = "";
   for (let word of words) {
-    while (word.length > maxChars) {
+    let chars = Array.from(word);
+    while (chars.length > maxChars) {
       if (current) { lines.push(current); current = ""; if (lines.length >= maxLines) return lines; }
-      lines.push(word.slice(0, maxChars));
-      word = word.slice(maxChars);
+      lines.push(chars.slice(0, maxChars).join("")); chars = chars.slice(maxChars);
       if (lines.length >= maxLines) return lines;
     }
+    word = chars.join("");
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= maxChars) current = candidate;
-    else {
-      if (current) lines.push(current);
-      if (lines.length >= maxLines) return lines;
-      current = word;
-    }
+    if (glyphLength(candidate) <= maxChars) current = candidate;
+    else { if (current) lines.push(current); if (lines.length >= maxLines) return lines; current = word; }
   }
   if (current && lines.length < maxLines) lines.push(current);
   return lines;
@@ -168,7 +158,8 @@ function drawGlyph(pixels, x, y, scale, glyph, colour) {
   }
 }
 function lineX(line, scale, alignment) {
-  const width = line.length ? line.length * 4 * scale - scale : 0;
+  const length = glyphLength(line);
+  const width = length ? length * 4 * scale - scale : 0;
   if (alignment === "left") return 12;
   if (alignment === "right") return WIDTH - 12 - width;
   return Math.floor((WIDTH - width) / 2);
@@ -178,10 +169,10 @@ function drawLine(pixels, line, y, scale, alignment, colour, outlineColour, outl
   if (outline) {
     const radius = scale >= 3 ? 2 : 1;
     for (const [ox, oy] of [[-radius,0],[radius,0],[0,-radius],[0,radius],[-1,-1],[1,-1],[-1,1],[1,1]]) {
-      [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale + ox, y + oy, scale, GLYPHS[character] || 0, outlineColour));
+      [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale + ox, y + oy, scale, glyphBits(character), outlineColour));
     }
   }
-  [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale, y, scale, GLYPHS[character] || 0, colour));
+  [...line].forEach((character, index) => drawGlyph(pixels, x + index * 4 * scale, y, scale, glyphBits(character), colour));
 }
 
 function textStyle(size) {
@@ -293,4 +284,4 @@ const TITLE_CARD_WIDTH = WIDTH;
 const TITLE_CARD_HEIGHT = HEIGHT;
 
 window.TitleCardTools = {sanitizeTitleCardText,defaultTitleCardSettings,createTitleCardProject,normalizeTitleCardSettings,resolveTitleCardSettings,renderTitleCardPixels,buildTitleCardAsset,renderTitleCardPreview,TITLE_CARD_BYTES,TITLE_CARD_WIDTH,TITLE_CARD_HEIGHT};
-})();
+})(window);

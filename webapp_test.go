@@ -111,10 +111,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.12.1")) {
+	if !bytes.Contains(page, []byte("GBA Video Maker 0.12.2")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Title and subtitle typography", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Title and subtitle typography", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -127,6 +127,11 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	}
 	if !bytes.Contains(appJS, []byte("gbavm-session-token")) {
 		t.Fatal("external application script missing")
+	}
+	for _, want := range []string{"Ґ", "Є", "І", "Ї", "Ё", "Ъ", "Ы", "Э", "GBA_RUNTIME_CODES"} {
+		if !bytes.Contains(gbaTextJS, []byte(want)) {
+			t.Fatalf("unified GBA text asset is missing %q", want)
+		}
 	}
 	if !bytes.Contains(appJS, []byte("titleCardPreviewPendingKey")) || !bytes.Contains(appJS, []byte("AbortController")) {
 		t.Fatal("title-card preview request coalescing is missing")
@@ -196,7 +201,7 @@ func TestLocalServerSecurityGuards(t *testing.T) {
 }
 
 func TestNormalizeTitle(t *testing.T) {
-	tests := map[string]string{"hello-world.mp4": "HELLO WORLD", "": "GBA VIDEO", "123456789012345": "123456789012", "кіт": "GBA VIDEO"}
+	tests := map[string]string{"hello-world.mp4": "HELLO-WORLD.", "": "GBA VIDEO", "123456789012345": "123456789012", "кіт": "КІТ", "їжак": "ЇЖАК", "ёжик": "ЁЖИК"}
 	for in, want := range tests {
 		if got := normalizeTitle(in); got != want {
 			t.Fatalf("%q => %q want %q", in, got, want)

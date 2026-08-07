@@ -547,7 +547,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.12.1", Settings: req}
+	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.12.2", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -742,20 +742,7 @@ func (s *appState) startInspection() {
 }
 
 func normalizeTitle(base string) string {
-	title := strings.ToUpper(base)
-	var clean strings.Builder
-	for _, r := range title {
-		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' {
-			clean.WriteRune(r)
-		} else {
-			clean.WriteRune(' ')
-		}
-	}
-	title = strings.Join(strings.Fields(clean.String()), " ")
-	if len(title) > 12 {
-		title = title[:12]
-	}
-	title = strings.TrimSpace(title)
+	title := sanitizeGBAText(base, 12)
 	if title == "" {
 		title = "GBA VIDEO"
 	}
@@ -1175,6 +1162,11 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(appCSS)
+	})
+	mux.HandleFunc(prefix+"/gba-text.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(gbaTextJS)
 	})
 	mux.HandleFunc(prefix+"/menu-themes.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")

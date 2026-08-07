@@ -1,6 +1,7 @@
 const TOKEN = document.querySelector('meta[name="gbavm-session-token"]').content;
 const BASE = '/' + TOKEN + '/api';
 const $ = id => document.getElementById(id);
+const GBAText = window.GBAText;
 
 const DEFAULT_CLIP = Object.freeze({
   start: '0:00', end: '', speed: 1, fit: 'fit', audio: 'mix', volume: 100,
@@ -103,10 +104,8 @@ function titleFromFilename(name) {
   return sanitizeMenuTitle(name.replace(/\.[^.]+$/, '')).value || 'GBA VIDEO';
 }
 function sanitizeMenuTitle(value) {
-  const upper = String(value || '').toUpperCase();
-  const invalid = /[^A-Z0-9 ]/.test(upper);
-  const cleaned = upper.replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').slice(0, 12);
-  return {value: cleaned, invalid};
+  const result = GBAText.sanitizeGBAText(value, 12);
+  return {value: result.text, invalid: result.unsupported.length > 0, unsupported: result.unsupported};
 }
 function selectedIndex() { return state?.videos?.findIndex(v => v.id === selectedID) ?? -1; }
 function selectedVideo() { return state?.videos?.find(v => v.id === selectedID) || state?.videos?.[0]; }
@@ -410,7 +409,7 @@ function ensureTitleCardProject(force = false) {
   if (force || !titleCardProject || titleCardProjectSource !== source) {
     resetTitleCardPreviewCache();
     titleCardSectionSignature = "";
-    titleCardProject = TitleCardTools.createTitleCardProject(source);
+    titleCardProject = window.TitleCardTools.createTitleCardProject(source);
     titleCardProjectSource = source;
     titleCardPart = 1;
   }
@@ -427,8 +426,9 @@ function titleCardPartRecord(part, create = false) {
   return record?.settings || titleCardProject.shared;
 }
 function serializeTitleCards() {
+  if (!window.TitleCardTools) return null;
   ensureTitleCardProject();
-  const copy = JSON.parse(JSON.stringify(titleCardProject || TitleCardTools.createTitleCardProject(titleCardSourceName())));
+  const copy = JSON.parse(JSON.stringify(titleCardProject || window.TitleCardTools.createTitleCardProject(titleCardSourceName())));
   copy.enabled = !!$('partTitleScreens')?.checked;
   copy.useShared = !!$('titleCardUseShared')?.checked;
   return copy;
@@ -446,6 +446,14 @@ function updateTitleCardColorReadouts() {
   titleCardColorReadout('titleCardSubtitleTextColor','titleCardSubtitleTextColorValue','#FFFFFF');
   titleCardColorReadout('titleCardSubtitleOutlineColor','titleCardSubtitleOutlineColorValue','#000000');
   titleCardColorReadout('titleCardSolidColor','titleCardSolidColorValue','#000000');
+}
+function updateTitleCardTextWarning() {
+  const warning=$('titleCardTextWarning');
+  if (!warning) return;
+  const subtitleForCheck=$('titleCardSubtitle').value.replaceAll('{part}','1');
+  const unsupported=[...new Set([...GBAText.unsupportedGBARunes($('titleCardTitle').value), ...GBAText.unsupportedGBARunes(subtitleForCheck)])];
+  warning.textContent=unsupported.length ? `Unsupported GBA characters: ${unsupported.join(' ')}. They will be replaced in the ROM.` : '';
+  warning.classList.toggle('hidden', unsupported.length === 0);
 }
 function rawTitleCardSettings() {
   return {
@@ -478,11 +486,12 @@ function saveTitleCardFields() {
   $('titleCardDarknessValue').textContent = `${target.darkness}%`;
   updateTitleCardConditionalFields();
   updateTitleCardColorReadouts();
+  updateTitleCardTextWarning();
   renderTitleCardPreview();
 }
 function loadTitleCardFields() {
   ensureTitleCardProject();
-  const settings = titleCardPartRecord(titleCardPart, false) || TitleCardTools.defaultTitleCardSettings(titleCardSourceName());
+  const settings = titleCardPartRecord(titleCardPart, false) || window.TitleCardTools.defaultTitleCardSettings(titleCardSourceName());
   $('titleCardTitle').value = settings.title ?? '';
   $('titleCardSubtitle').value = settings.subtitle ?? '';
   $('titleCardBackground').value = settings.backgroundMode || 'part-first-frame';
@@ -505,6 +514,7 @@ function loadTitleCardFields() {
   $('titleCardFade').checked = settings.fade !== false;
   updateTitleCardConditionalFields();
   updateTitleCardColorReadouts();
+  updateTitleCardTextWarning();
   renderTitleCardPreview();
 }
 function updateTitleCardConditionalFields() {
@@ -542,7 +552,7 @@ function drawCurrentTitleCardPreview(source) {
   if (!$('titleCardPreview') || !$('titleCardSection') || $('titleCardSection').classList.contains('hidden')) return;
   const settings = titleCardPartRecord(titleCardPart, false);
   const fit = effectiveClip(state.videos[0].id).fit || 'fit';
-  TitleCardTools.renderTitleCardPreview($('titleCardPreview'), source, fit, settings, titleCardPart, titleCardSourceName());
+  window.TitleCardTools.renderTitleCardPreview($('titleCardPreview'), source, fit, settings, titleCardPart, titleCardSourceName());
 }
 function rememberTitleCardPreview(key, image) {
   titleCardPreviewCache.delete(key);
@@ -604,7 +614,7 @@ function renderTitleCardPreview() {
       if (error?.name !== 'AbortError' && titleCardPreviewDesiredKey === key) {
         const fallback = {...titleCardPartRecord(titleCardPart, false), backgroundMode:'solid', solidColor:'#000000'};
         const fitNow = effectiveClip(state.videos[0].id).fit || 'fit';
-        TitleCardTools.renderTitleCardPreview($('titleCardPreview'), $('titleCardPreview'), fitNow, fallback, titleCardPart, titleCardSourceName());
+        window.TitleCardTools.renderTitleCardPreview($('titleCardPreview'), $('titleCardPreview'), fitNow, fallback, titleCardPart, titleCardSourceName());
       }
     } finally {
       if (titleCardPreviewPendingKey === key) titleCardPreviewPendingKey = '';
@@ -737,12 +747,7 @@ for (const button of document.querySelectorAll('.split-preset')) button.onclick 
 updateSplitBudgetLabel();
 $('romTitle').addEventListener('input', () => { romTitleAuto = false; });
 
-const GLYPHS = {
-  '0':0x7B6F,'1':0x2C97,'2':0x73E7,'3':0x73CF,'4':0x5BC9,'5':0x79CF,'6':0x79EF,'7':0x7292,'8':0x7BEF,'9':0x7BCF,
-  A:0x2BED,B:0x6BAE,C:0x7927,D:0x6B6E,E:0x79E7,F:0x79E4,G:0x79AF,H:0x5BED,I:0x7497,J:0x124E,K:0x5D6D,L:0x4927,M:0x5FE9,N:0x5F6D,O:0x7B6F,P:0x7BE4,Q:0x7B7B,R:0x7BED,S:0x79CF,T:0x7492,U:0x5B6F,V:0x5B6A,W:0x5BFD,X:0x5AAD,Y:0x5A92,Z:0x72A7,
-  ' ':0
-};
-function updateTitlePreview(invalid = false) {
+function updateTitlePreview(invalid = false, unsupported = []) {
   const config = clipConfigs[selectedID];
   if (!config) return;
   const canvas = $('titlePreview'), context = canvas.getContext('2d');
@@ -751,15 +756,15 @@ function updateTitlePreview(invalid = false) {
   context.fillStyle = '#ffdd00';
   const scale = 4, startX = 8, startY = 6;
   [...config.title.padEnd(12, ' ')].slice(0,12).forEach((char,index) => {
-    const bits = GLYPHS[char] || 0;
+    const bits = GBAText.glyphBits(char);
     for (let row=0; row<5; row++) for (let col=0; col<3; col++) {
       const bit = 14 - (row*3+col);
       if (bits & (1<<bit)) context.fillRect(startX + index*16 + col*scale, startY + row*scale, scale, scale);
     }
   });
-  $('titleCount').textContent = config.title.length + '/12';
+  $('titleCount').textContent = GBAText.glyphLength(config.title) + '/12';
   const duplicates = Object.entries(clipConfigs).filter(([id,c]) => id !== selectedID && c.title === config.title && config.title).length;
-  const warning = invalid ? 'Unsupported characters were replaced.' : duplicates ? 'Another clip uses the same menu title.' : '';
+  const warning = invalid ? `Unsupported GBA characters: ${unsupported.join(' ') || '?'}. They were replaced.` : duplicates ? 'Another clip uses the same menu title.' : '';
   $('titleWarning').textContent = warning;
   $('titleWarning').className = 'field full validation ' + (warning ? 'warning' : '');
 }
@@ -767,7 +772,7 @@ $('menuTitle').oninput = () => {
   const result = sanitizeMenuTitle($('menuTitle').value);
   $('menuTitle').value = result.value;
   clipConfigs[selectedID].title = result.value || 'GBA VIDEO';
-  updateTitlePreview(result.invalid);
+  updateTitlePreview(result.invalid, result.unsupported);
   renderClips();
 };
 $('resetMenuTitle').onclick = () => {
@@ -972,10 +977,10 @@ function estimate() {
   let automaticSplit = single && estimatedParts > 1;
   if (automaticSplit && $('partTitleScreens')?.checked && window.TitleCardTools) {
     for (let pass=0; pass<2; pass++) {
-      const withCards=payload + TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
+      const withCards=payload + window.TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
       estimatedParts=Math.max(estimatedParts,Math.ceil(withCards/usable));
     }
-    result.bytes += TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
+    result.bytes += window.TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
   }
   automaticSplit = single && estimatedParts > 1;
   $('optimize').classList.toggle('hidden', automaticSplit);

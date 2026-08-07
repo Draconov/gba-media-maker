@@ -5,7 +5,7 @@
 
 **Turn ordinary videos into playable Game Boy Advance ROMs — in the browser or with the portable Windows app.**
 
-[![Version](https://img.shields.io/badge/version-0.12.1-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.2-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
 [![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
 [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
@@ -42,6 +42,21 @@ The stable presets keep the proven playback path, while the new experimental pre
 - Optional scene-aware adaptive keyframes with explicit seek metadata under the experimental preset
 
 ## Highlights
+
+### v0.12.2 — Ukrainian and Russian GBA text
+
+Version 0.12.2 expands the existing 3×5 GBA pixel font into one shared Latin + Cyrillic font. There is no language selector: English, Ukrainian, and Russian text can be mixed in the same project and is converted automatically when the ROM is built.
+
+- **One Cyrillic union, not duplicate fonts:** shared letters are stored once; Ukrainian-only `Ґ Є І Ї` and Russian-only `Ё Ъ Ы Э` extend the common alphabet.
+- **UTF-8 project text:** menu titles and title-card text stay readable Unicode in `.gbavideo` projects; only the generated ROM converts them to compact one-byte GBA glyph IDs.
+- **Menu titles:** 12-character clip-menu fields now accept Ukrainian/Russian text and count visible glyphs rather than UTF-8 bytes.
+- **Split title cards:** title and subtitle text support Cyrillic, including `{part}` substitution such as `Частина {part}` or `Часть {part}`.
+- **Common punctuation normalization:** typographic apostrophes, quotes, en/em dashes, and ellipses are normalized to matching GBA glyphs.
+- **Unsupported-character warnings:** desktop and web editors list unsupported characters instead of silently eating them.
+- **ASCII-safe cartridge header:** the internal 12-byte GBA header title remains ASCII and transliterates Cyrillic automatically; visible in-ROM text keeps Cyrillic.
+- **Desktop/web parity:** Go, JavaScript, previews, browser ROM assembly, and the ARM7TDMI player use matching glyph data and runtime codes.
+
+The shared Cyrillic set is: common `А Б В Г Д Е Ж З И Й К Л М Н О П Р С Т У Ф Х Ц Ч Ш Щ Ь Ю Я`, plus Ukrainian `Ґ Є І Ї` and Russian `Ё Ъ Ы Э`. Lowercase input is accepted and rendered in the same uppercase 3×5 pixel style used by the existing GBA font.
 
 ### v0.12 — Extreme optimization (Experimental)
 
@@ -298,7 +313,7 @@ PowerShell helpers:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.12.1
+./scripts/package-release.ps1 -Version 0.12.2
 ```
 
 ## Project layout

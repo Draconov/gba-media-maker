@@ -153,6 +153,11 @@ In multi-video menu ROMs, the selected clip uses a clear pixel-art arrow. Finish
 Timer 2 runs at 16,384 Hz and Timer 3 cascades to form a 32-bit clock. Frame deadlines are derived from the selected frame rate, so decoding and rendering time is included rather than accumulating as drift. Audio timestamps are normalized during conversion with FFmpeg asynchronous resampling.
 
 
+
+### Unified GBA text encoding (v0.12.2)
+
+User-facing project strings remain UTF-8. A shared glyph mapper accepts Latin plus the union of Ukrainian and Russian Cyrillic, normalizes common typographic punctuation, and measures limits by Unicode glyph count rather than encoded byte length. Runtime menu/title-fallback fields remain fixed-size single-byte records: ASCII keeps its normal value, Cyrillic is mapped to `0x80`–`0xA4`, and `№` uses `0xA5`. The ARM player maps those codes to the same 3×5 bitmaps used by Go and JavaScript previews. The cartridge header is a separate ASCII-only field and transliterates Cyrillic rather than storing custom glyph bytes.
+
 ### Independent title/subtitle typography
 
 Title-card settings keep legacy shared typography fields for v0.12.0 project compatibility, but v0.12.1 stores explicit title and subtitle size, alignment, text colour, and outline colour fields. The converter resolves old shared fields into the new per-row settings before pre-rendering the native 240×160 RGB555 title card, so the GBA player format itself does not change.

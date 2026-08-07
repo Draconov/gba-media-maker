@@ -21,7 +21,7 @@ SECTIONS
         *(.rodata*)
     } > ROM
 
-    .metadata 0x08007F00 : ALIGN(4)
+    .metadata 0x08007FC0 : ALIGN(4)
     {
         KEEP(*(.metadata))
     } > ROM

@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
+    & (Join-Path $root "player\build.ps1")
     go test ./...
     go vet ./...
 

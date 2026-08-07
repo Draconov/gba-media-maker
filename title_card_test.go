@@ -157,3 +157,30 @@ func TestTitleCardLegacyTypographyMigratesToIndependentStyles(t *testing.T) {
 		t.Fatalf("legacy size did not preserve the old title/subtitle hierarchy: %+v", settings)
 	}
 }
+
+func TestTitleCardRendersUkrainianAndRussianText(t *testing.T) {
+	background := solidTitleCardBackground("#000000")
+	settings := defaultTitleCardSettings("відео.mp4")
+	settings.Title = "Моє відео"
+	settings.Subtitle = "Частина {part} / Часть {part} / Ёжик Ґанок"
+	normalized := normalizeTitleCardSettings(settings, "відео.mp4", 2)
+	if normalized.Title != "МОЄ ВІДЕО" {
+		t.Fatalf("title=%q", normalized.Title)
+	}
+	if normalized.Subtitle != "ЧАСТИНА 2 / ЧАСТЬ 2 / ЁЖИК ҐАНОК" {
+		t.Fatalf("subtitle=%q", normalized.Subtitle)
+	}
+	pixels, err := renderTitleCardPixels(background, normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lit int
+	for _, pixel := range pixels {
+		if pixel != 0 {
+			lit++
+		}
+	}
+	if lit == 0 {
+		t.Fatal("Cyrillic title card rendered no text pixels")
+	}
+}

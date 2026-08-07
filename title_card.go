@@ -192,23 +192,7 @@ func resolveTitleCardSettings(project *TitleCardProjectSettings, sourceName stri
 }
 
 func sanitizeTitleCardText(value string, maximum int) string {
-	value = strings.ToUpper(value)
-	var clean strings.Builder
-	for _, r := range value {
-		switch {
-		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			clean.WriteRune(r)
-		case r == ' ' || r == '-' || r == '_' || r == '.' || r == ':' || r == '!' || r == '?' || r == '/' || r == '&' || r == '(' || r == ')' || r == '+':
-			clean.WriteRune(r)
-		default:
-			clean.WriteByte(' ')
-		}
-	}
-	text := strings.Join(strings.Fields(clean.String()), " ")
-	if maximum > 0 && len(text) > maximum {
-		text = strings.TrimSpace(text[:maximum])
-	}
-	return text
+	return sanitizeGBAText(value, maximum)
 }
 
 func titleCardHexRGB(value, fallback string) (uint8, uint8, uint8) {
@@ -230,20 +214,6 @@ func titleCardRGB555(r, g, b uint8) uint16 {
 	return r5 | g5<<5 | b5<<10
 }
 
-var titleCardGlyphs = map[byte]uint16{
-	'0': 0x7B6F, '1': 0x2C97, '2': 0x73E7, '3': 0x73CF, '4': 0x5BC9,
-	'5': 0x79CF, '6': 0x79EF, '7': 0x7292, '8': 0x7BEF, '9': 0x7BCF,
-	'A': 0x2BED, 'B': 0x6BAE, 'C': 0x7927, 'D': 0x6B6E, 'E': 0x79E7,
-	'F': 0x79E4, 'G': 0x79AF, 'H': 0x5BED, 'I': 0x7497, 'J': 0x124E,
-	'K': 0x5D6D, 'L': 0x4927, 'M': 0x5FE9, 'N': 0x5F6D, 'O': 0x7B6F,
-	'P': 0x7BE4, 'Q': 0x7B7B, 'R': 0x7BED, 'S': 0x79CF, 'T': 0x7492,
-	'U': 0x5B6F, 'V': 0x5B6A, 'W': 0x5BFD, 'X': 0x5AAD, 'Y': 0x5A92,
-	'Z': 0x72A7, ' ': 0,
-	'-': 0x01C0, '_': 0x0007, '.': 0x0002, ':': 0x0410, '!': 0x2492,
-	'?': 0x72C2, '/': 0x1248, '+': 0x05D0, '(': 0x2488, ')': 0x1112,
-	'&': 0x2AAE,
-}
-
 func titleCardWrap(text string, maxChars, maxLines int) []string {
 	text = strings.TrimSpace(text)
 	if text == "" || maxLines <= 0 {
@@ -253,7 +223,8 @@ func titleCardWrap(text string, maxChars, maxLines int) []string {
 	lines := make([]string, 0, maxLines)
 	current := ""
 	for _, word := range words {
-		for len(word) > maxChars {
+		wordRunes := []rune(word)
+		for len(wordRunes) > maxChars {
 			if current != "" {
 				lines = append(lines, current)
 				current = ""
@@ -261,17 +232,18 @@ func titleCardWrap(text string, maxChars, maxLines int) []string {
 					return lines
 				}
 			}
-			lines = append(lines, word[:maxChars])
-			word = word[maxChars:]
+			lines = append(lines, string(wordRunes[:maxChars]))
+			wordRunes = wordRunes[maxChars:]
 			if len(lines) >= maxLines {
 				return lines
 			}
 		}
+		word = string(wordRunes)
 		candidate := word
 		if current != "" {
 			candidate = current + " " + word
 		}
-		if len(candidate) <= maxChars {
+		if gbaTextLength(candidate) <= maxChars {
 			current = candidate
 		} else {
 			lines = append(lines, current)
@@ -289,8 +261,9 @@ func titleCardWrap(text string, maxChars, maxLines int) []string {
 
 func titleCardTextX(line string, scale int, alignment string) int {
 	width := 0
-	if len(line) > 0 {
-		width = len(line)*4*scale - scale
+	length := gbaTextLength(line)
+	if length > 0 {
+		width = length*4*scale - scale
 	}
 	switch alignment {
 	case "left":
@@ -326,6 +299,7 @@ func titleCardDrawGlyph(pixels []uint16, x, y, scale int, glyph uint16, colour u
 }
 
 func titleCardDrawLine(pixels []uint16, line string, y, scale int, alignment string, colour, outline uint16, drawOutline bool) {
+	runes := []rune(line)
 	x := titleCardTextX(line, scale, alignment)
 	if drawOutline {
 		radius := 1
@@ -334,13 +308,13 @@ func titleCardDrawLine(pixels []uint16, line string, y, scale int, alignment str
 		}
 		offsets := [][2]int{{-radius, 0}, {radius, 0}, {0, -radius}, {0, radius}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
 		for _, offset := range offsets {
-			for index := 0; index < len(line); index++ {
-				titleCardDrawGlyph(pixels, x+index*4*scale+offset[0], y+offset[1], scale, titleCardGlyphs[line[index]], outline)
+			for index, r := range runes {
+				titleCardDrawGlyph(pixels, x+index*4*scale+offset[0], y+offset[1], scale, gbaGlyphBits(r), outline)
 			}
 		}
 	}
-	for index := 0; index < len(line); index++ {
-		titleCardDrawGlyph(pixels, x+index*4*scale, y, scale, titleCardGlyphs[line[index]], colour)
+	for index, r := range runes {
+		titleCardDrawGlyph(pixels, x+index*4*scale, y, scale, gbaGlyphBits(r), colour)
 	}
 }
 

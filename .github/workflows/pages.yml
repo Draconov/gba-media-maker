@@ -6,6 +6,7 @@ on:
     paths:
       - "website/**"
       - "assets/player_stub.bin"
+      - "player/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -29,6 +30,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Install LLVM player build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+
+      - name: Build and sync GBA player
+        run: |
+          bash player/build.sh
+          node website/scripts/sync-player.mjs
 
       - name: Install website dependencies
         working-directory: website

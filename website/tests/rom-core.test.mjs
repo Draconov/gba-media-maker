@@ -223,3 +223,17 @@ test("Extreme encoding writes adaptive-keyframe and ADPCM metadata", async () =>
   assert.ok(seekOffset > 0);
   assert.ok(u32(result.rom, seekOffset + 4) > 0, "ADPCM seek table should store sample positions");
 });
+
+test("browser ROM stores Cyrillic clip titles as compact one-byte GBA glyph codes", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const clip = convertRawClip({
+    framesRGB: new Uint8Array(RGB_FRAME_BYTES),
+    title: "ВІДЕО ҐЄЇЁ",
+    vblanks: 8,
+    ditherMode: "off",
+    compression: "none",
+  });
+  const result = assembleROM(playerStub, [clip], { romTitle: "Моє відео", outputMode: "menu" });
+  assert.deepEqual([...result.rom.subarray(ASSET_OFFSET + 60, ASSET_OFFSET + 72)], [0x82,0x8c,0x85,0x86,0x93,0x20,0x84,0x87,0x8d,0x88,0x00,0x00]);
+  assert.equal(new TextDecoder().decode(result.rom.subarray(0xa0, 0xac)), "MOYE VIDEO  ");
+});

@@ -14,6 +14,7 @@ _rom_header:
 _start:
     mov     r0, #0x03000000
     add     sp, r0, #0x7F00
+    add     sp, sp, #0xC0
     bl      main
 1:
     b       1b

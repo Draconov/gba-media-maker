@@ -6,6 +6,7 @@ import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
 import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
 import { buildTitleCardAsset, createTitleCardProject, defaultTitleCardSettings, normalizeTitleCardSettings, renderTitleCardPreview, resolveTitleCardSettings, sanitizeTitleCardText, TITLE_CARD_BYTES } from "./title-cards.js";
 import { analyzeSmartScan } from "./smart-encoding.js";
+import { glyphBits, glyphLength, sanitizeGBAText, unsupportedGBARunes } from "./gba-text.js";
 import { encodeIMAADPCM, decodeIMAADPCM } from "./adpcm.js";
 import "./style.css";
 
@@ -141,6 +142,7 @@ const elements = {
   titleCardOutlineColorValue: document.querySelector("#titleCardOutlineColorValue"),
   titleCardSubtitleOutlineColor: document.querySelector("#titleCardSubtitleOutlineColor"),
   titleCardSubtitleOutlineColorValue: document.querySelector("#titleCardSubtitleOutlineColorValue"),
+  titleCardTextWarning: document.querySelector("#titleCardTextWarning"),
   titleCardStartMode: document.querySelector("#titleCardStartMode"),
   titleCardDurationField: document.querySelector("#titleCardDurationField"),
   titleCardDuration: document.querySelector("#titleCardDuration"),
@@ -201,6 +203,8 @@ let titleCardProject = null;
 let smartAnalysis = null;
 let smartAnalysisRunning = false;
 let smartAnalysisCancelled = false;
+let menuTitleUnsupported = [];
+let menuTitleUnsupportedEntryId = "";
 let titleCardProjectSource = "";
 let titleCardPart = 1;
 let titleCardEstimatedParts = 1;
@@ -305,6 +309,13 @@ function updateTitleCardReadouts() {
   titleCardReadout(elements.titleCardSubtitleOutlineColor, elements.titleCardSubtitleOutlineColorValue, "#000000");
   titleCardReadout(elements.titleCardSolidColor, elements.titleCardSolidColorValue, "#000000");
 }
+function updateTitleCardTextWarning() {
+  if (!elements.titleCardTextWarning) return;
+  const subtitleForCheck=elements.titleCardSubtitle.value.replaceAll("{part}","1");
+  const unsupported=[...new Set([...unsupportedGBARunes(elements.titleCardTitle.value), ...unsupportedGBARunes(subtitleForCheck)])];
+  elements.titleCardTextWarning.textContent=unsupported.length ? `Unsupported GBA characters: ${unsupported.join(" ")}. They will be replaced in the ROM.` : "";
+  elements.titleCardTextWarning.hidden=unsupported.length === 0;
+}
 function titleCardFormSettings() {
   return {
     title: elements.titleCardTitle.value,
@@ -346,6 +357,7 @@ function saveTitleCardFields() {
   elements.titleCardDarknessValue.textContent = `${target.darkness}%`;
   updateTitleCardConditionalFields();
   updateTitleCardReadouts();
+  updateTitleCardTextWarning();
   renderCurrentTitleCardPreview();
   resetResult();
 }
@@ -374,6 +386,7 @@ function loadTitleCardFields() {
   elements.titleCardFade.checked = settings.fade !== false;
   updateTitleCardConditionalFields();
   updateTitleCardReadouts();
+  updateTitleCardTextWarning();
   renderCurrentTitleCardPreview();
 }
 function titleCardPartSourceTime(part) {
@@ -559,7 +572,7 @@ function addFiles(fileList) {
 
 
 function sanitizeMenuTitle(value) {
-  return String(value || "").toUpperCase().replace(/[^A-Z0-9 :/+.<>%-]/g, "").slice(0, 12);
+  return sanitizeGBAText(value, 12).text;
 }
 
 async function hydrateEntryMetadata(entry) {
@@ -867,14 +880,9 @@ function optimizeToFit() {
     : "Applied the smallest reviewed proposal; automatic splitting is still required.";
 }
 
-const GBA_GLYPHS = {
-  "0":0x7B6F,"1":0x2C97,"2":0x73E7,"3":0x73CF,"4":0x5BC9,"5":0x79CF,"6":0x79EF,"7":0x7292,"8":0x7BEF,"9":0x7BCF,
-  A:0x2BED,B:0x6BAE,C:0x7927,D:0x6B6E,E:0x79E7,F:0x79E4,G:0x79AF,H:0x5BED,I:0x7497,J:0x124E,K:0x5D6D,L:0x4927,M:0x5FE9,N:0x5F6D,O:0x7B6F,P:0x7BE4,Q:0x7B7B,R:0x7BED,S:0x79CF,T:0x7492,U:0x5B6F,V:0x5B6A,W:0x5BFD,X:0x5AAD,Y:0x5A92,Z:0x72A7,
-  ":":0x0410,"/":0x12A4,"-":0x01C0,"+":0x05D0,".":0x0002,">":0x22A2,"<":0x1144,"%":0x5295," ":0,
-};
-
 function updateTitlePreview() {
   const entry = selectedEntry();
+  if (entry?.id !== menuTitleUnsupportedEntryId) menuTitleUnsupported = [];
   const canvas = elements.titlePreview;
   const context = canvas.getContext("2d");
   context.imageSmoothingEnabled = false;
@@ -887,7 +895,7 @@ function updateTitlePreview() {
   const rawTitle = sanitizeMenuTitle(entry?.title || "");
   const title = rawTitle.padEnd(12, " ").slice(0, 12);
   [...title].forEach((character, index) => {
-    const bits = GBA_GLYPHS[character] || 0;
+    const bits = glyphBits(character);
     for (let row = 0; row < 5; row += 1) {
       for (let column = 0; column < 3; column += 1) {
         const bit = 14 - (row * 3 + column);
@@ -897,7 +905,7 @@ function updateTitlePreview() {
   });
 
   if (document.activeElement === elements.titlePreviewInput) {
-    const caretIndex = Math.min(elements.titlePreviewInput.selectionStart ?? rawTitle.length, 12);
+    const caretIndex = Math.min(elements.titlePreviewInput.selectionStart ?? glyphLength(rawTitle), 12);
     const caretX = Math.min(canvas.width - 4, startX + caretIndex * 16);
     context.fillRect(caretX, startY, 2, 20);
   }
@@ -906,7 +914,7 @@ function updateTitlePreview() {
     elements.titlePreviewInput.value = rawTitle;
   }
   const duplicates = entry ? entries.filter((candidate) => candidate.id !== entry.id && candidate.title === entry.title && entry.title).length : 0;
-  elements.titleWarning.textContent = duplicates ? "Another clip uses the same menu title." : "";
+  elements.titleWarning.textContent = menuTitleUnsupported.length ? `Unsupported GBA characters: ${menuTitleUnsupported.join(" ")}. They were replaced.` : (duplicates ? "Another clip uses the same menu title." : "");
 }
 
 function revokePreviewURLs() {
@@ -2526,6 +2534,8 @@ elements.convertButton.addEventListener("click", startConversion);
 elements.cancelButton.addEventListener("click", cancelConversion);
 elements.downloadButton.addEventListener("click", downloadResult);
 elements.resetClipTitleButton.addEventListener("click", () => {
+  menuTitleUnsupported = [];
+  menuTitleUnsupportedEntryId = "";
   const entry = selectedEntry();
   if (!entry) return;
   entry.title = titleFromFile(entry.file);
@@ -2535,7 +2545,10 @@ elements.resetClipTitleButton.addEventListener("click", () => {
 elements.titlePreviewInput.addEventListener("input", () => {
   const entry = selectedEntry();
   if (!entry) return;
-  const cleaned = sanitizeMenuTitle(elements.titlePreviewInput.value);
+  const raw = elements.titlePreviewInput.value;
+  menuTitleUnsupported = unsupportedGBARunes(raw);
+  menuTitleUnsupportedEntryId = entry.id;
+  const cleaned = sanitizeMenuTitle(raw);
   if (elements.titlePreviewInput.value !== cleaned) elements.titlePreviewInput.value = cleaned;
   entry.title = cleaned;
   resetResult();

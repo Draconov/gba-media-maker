@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.12.2] - 2026-08-07
+
+- Hardened rapid pause/unpause input with a dedicated A-button release latch: pause toggles only on a real up-to-down edge and cannot repeat while A remains held, even across resume/UI state transitions.
+- Preserved the already-rendered next video frame across ordinary pause/unpause cycles instead of leaving the frame wait loop and rebuilding it.
+- Added a dedicated `paused -> resume pending -> running` player path, bypassing the generic UI-refresh/redraw route during unpause.
+- Resume still prepares frame-aligned audio while stopped, flips the prepared frame on VBlank, then starts the playback/audio clocks together.
+- Fixed the bundled GBA player asset so generated ROMs use the compact five-step `/` glyph again, restoring the nicer slash in HUD time displays and menu clip counters.
+- Fixed rapid pause/unpause responsiveness: the player now prepares the resume audio stream while it is still paused, waits for the next VBlank, presents the already-prepared video frame, then starts the playback clock and audio on that same display boundary. This prevents audio from starting before the visual resume point is ready on heavy menu ROMs.
+- Moved the bundled GBV5 metadata block from `0x7F00` to `0x7FC0`, giving the player stub more headroom for runtime fixes while keeping the ROM payload start at `0x8000`.
+- Player changes are now rebuilt and checked by local build scripts and GitHub workflows so `player/main.c` cannot silently drift away from `assets/player_stub.bin`.
+- Fixed the desktop/local web title-card runtime so `TitleCardTools` is created correctly after the shared GBA text module loads.
+- Menu and other output modes no longer fail serialization if the optional title-card runtime is unavailable.
+
+### Added
+- Added one shared Latin + Ukrainian/Russian Cyrillic 3×5 GBA font instead of separate language fonts.
+- Added Ukrainian-specific `Ґ Є І Ї`, Russian-specific `Ё Ъ Ы Э`, and the shared Cyrillic alphabet to menu titles, title-card titles/subtitles, previews, and runtime menu rendering.
+- Added UTF-8-safe glyph counting, compact one-byte Cyrillic ROM codes, unsupported-character reporting, typographic punctuation normalization, and ASCII cartridge-header transliteration.
+- Added desktop/web/player parity tests for Ukrainian, Russian, mixed Cyrillic, title-card rendering, and browser ROM descriptor encoding.
+
+### Changed
+- Menu and title-card text limits now operate on visible characters rather than UTF-8 byte length.
+- Lowercase Cyrillic input is accepted and rendered in the existing uppercase-style pixel font.
+- The desktop and website editors now warn when text contains characters the GBA font cannot display.
+
 ## [0.12.1] - 2026-08-07
 
 ### Fixed

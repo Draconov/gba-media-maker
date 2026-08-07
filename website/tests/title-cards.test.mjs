@@ -131,3 +131,16 @@ test("legacy shared typography migrates into title and subtitle styles", () => {
   assert.equal(migrated.titleTextSize, "large");
   assert.equal(migrated.subtitleTextSize, "medium");
 });
+
+test("title cards render Ukrainian and Russian text with the shared font", () => {
+  const settings = {
+    ...defaultTitleCardSettings("відео.mp4"),
+    title: "Моє відео",
+    subtitle: "Частина {part} / Часть {part} / Ёжик Ґанок",
+  };
+  const asset = buildTitleCardAsset(solidRGB(0, 0, 0), settings, 2, "відео.mp4");
+  let nonzero = 0;
+  for (let i = 32; i < asset.length; i += 1) if (asset[i] !== 0) nonzero += 1;
+  assert.ok(nonzero > 0);
+  assert.equal(resolveTitleCardSettings({ enabled: true, useShared: true, shared: settings, parts: [] }, "відео.mp4", 2).title, "МОЄ ВІДЕО");
+});

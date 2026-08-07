@@ -20,7 +20,7 @@
 
 ## Overview
 
-Version 0.12.1 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
+Version 0.12.2 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
 
 ### Highlights
 
@@ -33,6 +33,11 @@ Version 0.12.1 follows the Windows application's conversion workflow and uses th
 - Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF support as the Windows app
 - Provides native 240×160 split-part title cards with shared or individual part settings, 50% default darkening, and independent title/subtitle Large/Medium/Small sizing, alignment, text colour, and outline colour in a compact two-row typography table
 - Keeps the `Part N` selector, plain `of M` total, navigation buttons, and all title-card checkboxes in compact single rows while avoiding duplicate preview extraction
+
+
+### Ukrainian and Russian text
+
+The browser edition uses the same combined Latin + Cyrillic 3×5 font as the desktop app and player. Menu titles and split-part title cards accept Ukrainian and Russian UTF-8 text directly, including Ukrainian-only `Ґ Є І Ї` and Russian-only `Ё Ъ Ы Э`. Text limits count glyphs rather than UTF-8 bytes, unsupported characters are reported, and the ROM builder converts supported Cyrillic to compact one-byte player glyph IDs.
 
 ## Output modes
 

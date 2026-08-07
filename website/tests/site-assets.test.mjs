@@ -113,7 +113,7 @@ test("selected clip editor uses a full-width player and an editable GBA title fi
   assert.match(html, /id="timelineEndTimeInput"/);
   assert.match(style, /\.inline-timeline[\s\S]*position:\s*relative;/);
   assert.match(style, /\.timeline-handle-start[\s\S]*--timeline-start/);
-  assert.match(script, /sanitizeMenuTitle\(elements\.titlePreviewInput\.value\)/);
+  assert.match(script, /const raw = elements\.titlePreviewInput\.value;[\s\S]*sanitizeMenuTitle\(raw\)/);
   assert.match(script, /document\.activeElement === elements\.titlePreviewInput/);
   assert.match(style, /#titlePreviewInput\s*\{[^}]*position:\s*absolute;[^}]*color:\s*transparent;[^}]*background:\s*transparent;/s);
   assert.match(style, /\.title-editor\s*\{[^}]*background:\s*#000;/s);
