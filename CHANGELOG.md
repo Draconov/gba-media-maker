@@ -2,6 +2,11 @@
 
 ## [0.12.1] - 2026-08-07
 
+### Fixed
+- Title-card editor layout keeps all controls inside the panel on narrower desktop and website widths.
+- The preview/controls split collapses earlier so the typography table does not overflow the right column.
+- Typography columns shrink more gracefully, and the title-card field grid can drop to one column when space is tight.
+
 ### Added
 - Added a compact two-row typography table to split-video title cards.
 - Added independent title and subtitle size, alignment, text colour, and outline colour settings.

@@ -43,14 +43,6 @@ The stable presets keep the proven playback path, while the new experimental pre
 
 ## Highlights
 
-### v0.12.1 — Independent title-card typography
-
-- The split-video title-card editor now uses a compact two-row typography table.
-- Title and subtitle each have independent **Large / Medium / Small** size, alignment, text colour, and outline colour controls.
-- Title-card previews and generated native 240×160 screens use the exact per-row typography settings.
-- Existing v0.12.0 project files migrate their shared typography automatically when opened.
-- Desktop and web editions use the same responsive layout and the same custom GBA colour picker.
-
 ### v0.12 — Extreme optimization (Experimental)
 
 Version 0.12 adds an isolated smart-encoding path without changing the output of Best quality, Balanced, Long video, Smallest ROM, or Custom projects unless the experimental preset is explicitly selected.

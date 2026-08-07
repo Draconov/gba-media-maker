@@ -1,7 +1,7 @@
 {
   "name": "gba-video-maker-web",
   "private": true,
-  "version": "0.12.1",
+  "version": "0.12.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,7 @@
     "pretest": "npm run sync-player"
   },
   "dependencies": {
-    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/ffmpeg": "0.12.25",
     "@ffmpeg/util": "0.12.2"
   },
   "devDependencies": {
