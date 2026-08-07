@@ -3,6 +3,7 @@
 ## [0.12.1] - 2026-08-07
 
 ### Fixed
+- Improved the split-video title/subtitle editor so the text fields receive more horizontal space in wide layouts, making longer titles visible without changing the project version.
 - Title-card editor layout now sizes against the actual title-card panel instead of the whole browser/window, preventing controls from escaping the card in the desktop two-pane layout.
 - The preview column shrinks responsively before the layout stacks, preserving the side-by-side editor whenever there is enough room.
 - Container-query fallbacks stack the preview/settings and typography controls only when the title-card panel itself is genuinely narrow.

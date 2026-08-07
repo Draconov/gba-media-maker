@@ -62,7 +62,7 @@
 .title-card-nav .mini-btn{flex:0 0 34px;width:34px;min-width:34px;padding-inline:0}
 .title-card-nav select{flex:0 0 128px;width:128px;min-width:0;max-width:128px}
 .title-card-part-total{flex:0 0 auto;min-width:34px;white-space:nowrap;font-weight:700;text-align:left}
-.title-card-layout{display:grid;grid-template-columns:clamp(320px,45%,480px) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+.title-card-layout{display:grid;grid-template-columns:clamp(300px,38%,400px) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
 .title-card-preview-wrap{min-width:0}
 .title-card-preview-wrap canvas{display:block;width:min(480px,100%);height:auto;aspect-ratio:3/2;background:#000;border:1px solid var(--line);border-radius:10px;image-rendering:pixelated}
 .title-card-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;min-width:0;align-content:start}
@@ -70,13 +70,14 @@
 .title-card-fields > *{min-width:0}
 .title-card-fields input[type="range"]{width:100%}
 .title-card-typography{grid-column:1/-1;display:grid;gap:7px;min-width:0;padding-top:2px}
-.title-card-type-header,.title-card-type-row{display:grid;grid-template-columns:58px minmax(0,1fr) 72px 80px 44px 44px;gap:6px;align-items:end;min-width:0;max-width:100%}
+.title-card-type-header,.title-card-type-row{display:grid;grid-template-columns:50px minmax(176px,1fr) 66px 72px 44px 44px;gap:5px;align-items:end;min-width:0;max-width:100%}
 .title-card-type-header{align-items:center;color:var(--label);font-size:11px;font-weight:700}
 .title-card-type-header span:nth-last-child(-n+2){text-align:center}
 .title-card-type-row{padding:7px 0;border-top:1px solid color-mix(in srgb,var(--line) 72%,transparent)}
 .typography-role{align-self:center;color:var(--label);font-size:12px}
 .title-card-type-row label{display:grid;gap:4px;min-width:0}
 .title-card-type-row input,.title-card-type-row select{min-width:0}
+.typography-text input{width:100%;min-width:0}
 .typography-color{display:grid;justify-items:center;align-items:end;min-width:0}
 .typography-color .gba-color-control{display:block}
 .typography-color .gba-color-trigger{width:42px;min-width:42px;height:42px;min-height:42px}
