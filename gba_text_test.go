@@ -82,4 +82,3 @@ func TestGBASlashGlyphRemainsDiagonal(t *testing.T) {
 		t.Fatalf("slash glyph must not match vertical bar")
 	}
 }
-

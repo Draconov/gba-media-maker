@@ -2,6 +2,9 @@
 
 ## [0.12.2] - 2026-08-07
 
+- Replaced the loose pause boolean with an explicit `RUNNING -> PAUSED -> RESUME_ARMED -> RUNNING` playback state machine so pause/resume work cannot leak into unrelated UI/decode paths.
+- Added explicit prepared-next-frame validity tracking. Ordinary pause keeps both the visible front page and rendered back page intact; help, HUD redraw, frame-step, and seek invalidate the prepared page deliberately.
+- Normal resume performs no video decode or current-frame redraw: it uses only the validated prepared back frame, positions audio while stopped, flips on VBlank, then starts the playback/audio clocks together.
 - Hardened rapid pause/unpause input with a dedicated A-button release latch: pause toggles only on a real up-to-down edge and cannot repeat while A remains held, even across resume/UI state transitions.
 - Preserved the already-rendered next video frame across ordinary pause/unpause cycles instead of leaving the frame wait loop and rebuilding it.
 - Added a dedicated `paused -> resume pending -> running` player path, bypassing the generic UI-refresh/redraw route during unpause.

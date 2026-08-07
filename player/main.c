@@ -141,6 +141,12 @@ typedef signed short   s16;
 #define PLAY_RESULT_RETURN_MENU     2
 #define PLAY_RESULT_PREV_CLIP       3
 
+enum PlaybackState {
+    PLAYBACK_RUNNING = 0,
+    PLAYBACK_PAUSED = 1,
+    PLAYBACK_RESUME_ARMED = 2
+};
+
 struct GlobalMetadata {
     u32 magic;
     u16 version;
@@ -942,11 +948,12 @@ static void toggle_hud_combo(struct PlayerUI *ui)
     ui->hud_timer = 0u;
 }
 
-static int poll_action(u16 *previous_keys, int paused, int has_audio, int playlist_mode, struct PlayerUI *ui)
+static int poll_action(u16 *previous_keys, enum PlaybackState state, int has_audio, int playlist_mode, struct PlayerUI *ui)
 {
     u16 now = keys_down();
     u16 pressed = (u16)(now & (u16)~(*previous_keys));
     int direction = 0;
+    int paused = state != PLAYBACK_RUNNING;
     *previous_keys = now;
     if ((now & KEY_A) == 0u) ui->pause_button_latched = 0;
 
@@ -1030,33 +1037,37 @@ static int poll_action(u16 *previous_keys, int paused, int has_audio, int playli
     return ACTION_NONE;
 }
 
-static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, int playlist_mode, int *paused,
-                             struct PlayerUI *ui)
+static int wait_frame_period(u16 *previous_keys, u32 deadline, int has_audio, int playlist_mode,
+                             enum PlaybackState *state, struct PlayerUI *ui)
 {
     for (;;) {
         int changed, action;
         wait_vblank();
-        if (has_audio) audio_service();
+        if (has_audio && *state == PLAYBACK_RUNNING) audio_service();
         changed = tick_ui_timers(ui);
-        action = poll_action(previous_keys, *paused, has_audio, playlist_mode, ui);
+        action = poll_action(previous_keys, *state, has_audio, playlist_mode, ui);
         if (action == ACTION_TOGGLE_PAUSE) {
-            *paused = !*paused; ui->hud_timer = HUD_HOLD_VBLANKS;
-            if (*paused) {
+            ui->hud_timer = HUD_HOLD_VBLANKS;
+            if (*state == PLAYBACK_RUNNING) {
                 playback_timer_pause();
                 if (has_audio) audio_pause();
-                /* Stay inside this wait loop: current remains the front buffer and
-                   the already-rendered next frame remains untouched in the back
-                   buffer for an instant resume. */
+                *state = PLAYBACK_PAUSED;
+                /* Do not leave the wait loop: front/current and the prepared
+                   next/back frame stay intact for a zero-decode resume. */
                 continue;
             }
-            return ACTION_RESUME_PENDING;
+            if (*state == PLAYBACK_PAUSED) {
+                *state = PLAYBACK_RESUME_ARMED;
+                return ACTION_RESUME_PENDING;
+            }
+            continue;
         }
         if (action != ACTION_NONE) return action;
-        /* Timer-only HUD changes are intentionally deferred while paused so they do
-           not overwrite the prepared back buffer. Explicit UI actions still return
-           ACTION_UI_REFRESH above and may rebuild it afterward. */
+        /* Timer-only HUD expiry is deferred while paused so it cannot repaint the
+           hidden page that holds the prepared next frame. Explicit UI actions are
+           still allowed to return and deliberately invalidate that prepared page. */
         (void)changed;
-        if (!*paused && playback_timer_read() >= deadline) return ACTION_NONE;
+        if (*state == PLAYBACK_RUNNING && playback_timer_read() >= deadline) return ACTION_NONE;
     }
 }
 
@@ -1753,7 +1764,9 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
     struct PlaybackClock clock;
     u16 displayed_page = 0u;
     u16 previous_keys;
-    int paused = 0, at_end = 0;
+    int at_end = 0;
+    int next_frame_valid = 0;
+    enum PlaybackState state = PLAYBACK_RUNNING;
     u8 *current = frame_a, *next = frame_b;
 
     load_frame_pixels(clip, frame, current);
@@ -1786,7 +1799,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
         if (at_end) {
             int redraw=0, action;
             wait_vblank(); if (tick_ui_timers(ui)) redraw=1;
-            action=poll_action(&previous_keys,0,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,ui);
+            action=poll_action(&previous_keys,PLAYBACK_RUNNING,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,ui);
             if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); if (is_menu_mode(meta)) { save_position(meta,clip_index,frame); return PLAY_RESULT_RETURN_MENU; } clear_position(meta,clip_index); return PLAY_RESULT_RESTART_CURRENT; }
             if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_PREV_CLIP; }
             if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_NEXT_CLIP; }
@@ -1800,7 +1813,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             if (action==ACTION_SEEK_BACK || action==ACTION_SEEK_FORWARD) {
                 u32 target=seek_target(frame,clip->frame_count,clip->seek_frame_step,action==ACTION_SEEK_FORWARD);
                 if (target!=frame) {
-                    start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1); load_frame_pixels(clip,target,current); frame=target; at_end=0; paused=0;
+                    start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1); load_frame_pixels(clip,target,current); frame=target; at_end=0; state=PLAYBACK_RUNNING;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
                     if (has_audio) audio_start_for_frame(clip,frame,0,ui);
@@ -1815,36 +1828,54 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
             int has_next = frame + 1u < clip->frame_count;
             volatile u16 *back = displayed_page ? VRAM_PAGE0 : VRAM_PAGE1;
             int action;
-            if (has_next) { load_next_pixels(clip,frame+1u,current,next); render_frame_with_ui(next,frame+1u,back,clip,ui); }
-            action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,&paused,ui);
+            if (has_next && !next_frame_valid) {
+                load_next_pixels(clip,frame+1u,current,next);
+                render_frame_with_ui(next,frame+1u,back,clip,ui);
+                next_frame_valid = 1;
+            }
+            action=wait_frame_period(&previous_keys,clock.next_deadline,has_audio,(meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u,&state,ui);
             if (action==ACTION_RESTART) { playback_timer_stop(); audio_stop(); if (is_menu_mode(meta)) { save_position(meta,clip_index,frame); return PLAY_RESULT_RETURN_MENU; } clear_position(meta,clip_index); return PLAY_RESULT_RESTART_CURRENT; }
             if (action==ACTION_PREV_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_PREV_CLIP; }
             if (action==ACTION_NEXT_CLIP) { playback_timer_stop(); audio_stop(); save_position(meta,clip_index,frame); return PLAY_RESULT_NEXT_CLIP; }
             if (action==ACTION_HELP) {
                 playback_timer_pause(); if (has_audio) audio_pause();
                 show_help_screen(&displayed_page, is_menu_mode(meta), (meta->flags & GLOBAL_FLAG_PLAYLIST) != 0u); render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                next_frame_valid = 0;
                 playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock);
-                if (paused) playback_timer_pause();
-                if (has_audio) audio_start_for_frame(clip,frame,paused,ui);
+                if (state != PLAYBACK_RUNNING) playback_timer_pause();
+                if (has_audio) audio_start_for_frame(clip,frame,state != PLAYBACK_RUNNING,ui);
                 continue;
             }
             if (action==ACTION_RESUME_PENDING) {
                 u32 resume_frame = has_next ? frame + 1u : frame;
+                if (state != PLAYBACK_RESUME_ARMED) continue;
+                /* A normal pause must preserve the already-rendered back page. If an
+                   explicit paused-mode action invalidated it, go back to PAUSED and
+                   let the normal predecode path rebuild it outside this resume branch. */
+                if (has_next && !next_frame_valid) { state = PLAYBACK_PAUSED; continue; }
                 playback_clock_init(&clock, clip->vblanks_per_frame);
                 playback_clock_advance(&clock);
-                /* Prepare audio while both playback clocks are still stopped. */
+                /* Audio is positioned while stopped; no DMA timer starts yet. */
                 if (has_audio) audio_start_for_frame(clip,resume_frame,1,ui);
-                /* The next frame was decoded and rendered before pause. Present that
-                   existing back buffer first, then start video/audio together at
-                   this VBlank boundary. No generic UI redraw or frame decode occurs. */
                 wait_vblank();
-                if (has_next) { show_rendered_page(&displayed_page,palette_for_frame(clip,resume_frame)); { u8 *tmp=current; current=next; next=tmp; } frame=resume_frame; }
+                if (has_next) {
+                    show_rendered_page(&displayed_page,palette_for_frame(clip,resume_frame));
+                    { u8 *tmp=current; current=next; next=tmp; }
+                    frame=resume_frame;
+                    next_frame_valid = 0;
+                }
                 playback_timer_reset();
                 if (has_audio) audio_resume();
+                state = PLAYBACK_RUNNING;
                 previous_keys=keys_down();
                 continue;
             }
-            if (action==ACTION_UI_REFRESH) { render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down(); continue; }
+            if (action==ACTION_UI_REFRESH) {
+                render_and_show(current,frame,&displayed_page,clip,ui);
+                next_frame_valid = 0;
+                previous_keys=keys_down();
+                continue;
+            }
             if (action==ACTION_FRAME_BACK || action==ACTION_FRAME_FORWARD) {
                 u32 target=frame;
                 if (action==ACTION_FRAME_BACK && frame>0u) target=frame-1u;
@@ -1852,6 +1883,7 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                 if (target!=frame) {
                     load_frame_pixels(clip,target,current); frame=target; ui->hud_timer=HUD_HOLD_VBLANKS;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
+                    next_frame_valid = 0; state = PLAYBACK_PAUSED;
                     playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); playback_timer_pause();
                     if (has_audio) audio_start_for_frame(clip,frame,1,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
@@ -1864,16 +1896,17 @@ static int play_clip(const struct GlobalMetadata *meta, const struct ClipDescrip
                     if (has_audio) audio_stop(); start_seek_feedback(ui,action==ACTION_SEEK_FORWARD?1:-1);
                     load_frame_pixels(clip,target,current); frame=target;
                     render_and_show(current,frame,&displayed_page,clip,ui); previous_keys=keys_down();
-                    playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); if (paused) playback_timer_pause();
-                    if (has_audio) audio_start_for_frame(clip,frame,paused,ui);
+                    next_frame_valid = 0;
+                    playback_clock_init(&clock, clip->vblanks_per_frame); playback_timer_reset(); playback_clock_advance(&clock); if (state != PLAYBACK_RUNNING) playback_timer_pause();
+                    if (has_audio) audio_start_for_frame(clip,frame,state != PLAYBACK_RUNNING,ui);
                     if (meta->flags & GLOBAL_FLAG_RESUME) save_position(meta,clip_index,frame);
                 }
                 continue;
             }
-            if (has_next) {
+            if (has_next && next_frame_valid) {
                 show_rendered_page(&displayed_page,palette_for_frame(clip,frame+1u));
                 { u8 *tmp=current; current=next; next=tmp; }
-                ++frame; playback_clock_advance(&clock);
+                ++frame; next_frame_valid = 0; playback_clock_advance(&clock);
                 if ((meta->flags & GLOBAL_FLAG_RESUME) && (frame % 10u == 0u)) save_position(meta,clip_index,frame);
             } else {
                 playback_timer_stop(); audio_stop();
