@@ -916,6 +916,27 @@ func TestParseMediaInfoFindsSelectableAudioTracks(t *testing.T) {
 	}
 }
 
+func TestParseMediaInfoFindsMP4AudioTrackWithStreamID(t *testing.T) {
+	text := `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'normal.mp4':
+  Duration: 00:00:18.99, start: 0.000000, bitrate: 749 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 720x1280, 619 kb/s, 30 fps (default)
+  Stream #0:1[0x2](und): Audio: aac (LC), 44100 Hz, stereo, fltp, 128 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandle
+`
+	info, err := parseMediaInfo(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AudioStreams != 1 || len(info.AudioTracks) != 1 {
+		t.Fatalf("audio streams=%d tracks=%d want 1", info.AudioStreams, len(info.AudioTracks))
+	}
+	track := info.AudioTracks[0]
+	if track.Index != 0 || track.StreamIndex != 1 || track.Language != "und" || track.Channels != 2 || !track.Default {
+		t.Fatalf("unexpected MP4 audio track: %#v", track)
+	}
+}
+
 func TestAudioTrackIsSourceSpecificEvenWithProjectSettings(t *testing.T) {
 	project := ProjectOptions{AudioTrack: 0, AudioMode: "mix", Speed: 1, FitMode: "fit", Volume: 1, PaletteMode: "shared", DitherMode: "ordered"}
 	clip := ClipInput{AudioTrack: 1, Custom: false}

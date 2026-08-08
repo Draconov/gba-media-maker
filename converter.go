@@ -202,7 +202,7 @@ var (
 	fpsPattern           = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s+fps`)
 	channelsPattern      = regexp.MustCompile(`\b(\d+)\.(\d+)\b`)
 	chapterPattern       = regexp.MustCompile(`Chapter #[^:]+:[^:]+: start ([0-9]+(?:\.[0-9]+)?), end ([0-9]+(?:\.[0-9]+)?)`)
-	streamAudioPattern   = regexp.MustCompile(`Stream #\d+:(\d+)(?:\(([^)]+)\))?: Audio:\s*([^,]+)(.*)$`)
+	streamAudioPattern   = regexp.MustCompile(`Stream #\d+:(\d+)(?:\[[^\]]+\])?(?:\(([^)]+)\))?: Audio:\s*([^,]+)(.*)$`)
 	streamAnyPattern     = regexp.MustCompile(`Stream #\d+:\d+`)
 	metadataTitlePattern = regexp.MustCompile(`^\s*title\s*:\s*(.+?)\s*$`)
 )
