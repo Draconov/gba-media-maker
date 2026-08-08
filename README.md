@@ -22,7 +22,7 @@
 | Platform | Modern desktop browsers | Windows x64 |
 | Open | **[Launch the web converter](https://draconov.github.io/gba-video-maker/)** | **[Open the latest release](../../releases/latest)** |
 
-The browser edition uses WebAssembly and may consume considerably more memory than the desktop app. For large conversions, the portable app is the safer choice.
+The browser edition uses WebAssembly and can use considerably more memory than the desktop app. For large conversions, the portable app is usually the safer choice.
 
 ## What it can create
 
@@ -30,85 +30,30 @@ The browser edition uses WebAssembly and may consume considerably more memory th
 - One ROM that plays several clips in sequence
 - One ROM with a startup clip-selection menu
 - Separate `.gba` files packaged into a ZIP
-- Single-video conversions automatically switch to numbered ROM parts inside one ZIP when one cartridge is not enough
+- Numbered ROM parts when a single video cannot safely fit on one cartridge
 
-The stable presets keep the proven playback path, while the new experimental preset opts into a versioned extension:
+Generated video uses fixed **120×80** indexed frames and expands them to the GBA's **240×160** display. Legacy presets use signed 8-bit mono PCM at **16,384 Hz**, hardware DMA audio playback, and keyframe/delta video compression with raw-frame fallback.
 
-- Fixed **120×80** indexed video, expanded cleanly to the GBA's 240×160 display
-- Standard signed 8-bit mono PCM audio at **16,384 Hz** for every legacy preset
-- Optional block-based 4-bit IMA ADPCM only under **Extreme optimization (Experimental)**
-- Hardware DMA audio playback and hardware playback clock
-- Keyframe/delta compression with raw-frame fallback
-- Optional scene-aware adaptive keyframes with explicit seek metadata under the experimental preset
+**Extreme optimization (Experimental)** can additionally use scene-aware adaptive keyframes and block-based 4-bit IMA ADPCM.
 
-## Highlights
+## Features
 
-### v0.12.2 — Ukrainian and Russian GBA text
-
-Version 0.12.2 expands the existing 3×5 GBA pixel font into one shared Latin + Cyrillic font. There is no language selector: English, Ukrainian, and Russian text can be mixed in the same project and is converted automatically when the ROM is built.
-
-- **One Cyrillic union, not duplicate fonts:** shared letters are stored once; Ukrainian-only `Ґ Є І Ї` and Russian-only `Ё Ъ Ы Э` extend the common alphabet.
-- **UTF-8 project text:** menu titles and title-card text stay readable Unicode in `.gbavideo` projects; only the generated ROM converts them to compact one-byte GBA glyph IDs.
-- **Menu titles:** 12-character clip-menu fields now accept Ukrainian/Russian text and count visible glyphs rather than UTF-8 bytes.
-- **Split title cards:** title and subtitle text support Cyrillic, including `{part}` substitution such as `Частина {part}` or `Часть {part}`.
-- **Common punctuation normalization:** typographic apostrophes, quotes, en/em dashes, and ellipses are normalized to matching GBA glyphs.
-- **Unsupported-character warnings:** desktop and web editors list unsupported characters instead of silently eating them.
-- **ASCII-safe cartridge header:** the internal 12-byte GBA header title remains ASCII and transliterates Cyrillic automatically; visible in-ROM text keeps Cyrillic.
-- **Desktop/web parity:** Go, JavaScript, previews, browser ROM assembly, and the ARM7TDMI player use matching glyph data and runtime codes.
-
-The shared Cyrillic set is: common `А Б В Г Д Е Ж З И Й К Л М Н О П Р С Т У Ф Х Ц Ч Ш Щ Ь Ю Я`, plus Ukrainian `Ґ Є І Ї` and Russian `Ё Ъ Ы Э`. Lowercase input is accepted and rendered in the same uppercase 3×5 pixel style used by the existing GBA font.
-
-### v0.12 — Extreme optimization (Experimental)
-
-Version 0.12 adds an isolated smart-encoding path without changing the output of Best quality, Balanced, Long video, Smallest ROM, or Custom projects unless the experimental preset is explicitly selected.
-
-- **Representative analysis:** scans a bounded low-resolution set of frames and selects typical, fast-motion, high-detail, dark, colourful, transition, and low-motion samples
-- **Candidate recommendations:** compares frame rate, palette mode, dithering, adaptive keyframes, and audio storage against a requested 8–32 MiB target
-- **Quality and size trade-offs:** reports visual, motion, temporal-stability, and audio scores with estimated minimum/maximum ROM size and confidence
-- **Recommendation application:** applies a chosen candidate while leaving the normal manual controls editable
-- **Enhanced scene detection:** combines changed-pixel, motion, brightness, fade, flash-rejection, and minimum-scene-length signals
-- **Adaptive keyframes:** forces keyframes at confirmed scene boundaries and uses content-aware maximum intervals while preserving arbitrary seeking
-- **Experimental compact audio:** block-based 4-bit IMA ADPCM at 16,384 Hz uses roughly half the audio storage, with a real codec preview before conversion
-- **Backward-safe preset isolation:** every non-Extreme preset forces standard PCM, fixed keyframes, and the established v0.11 conversion path
-- **Desktop/web parity:** both editions expose the same preset, target, priority, audio choices, analyzer results, and ROM metadata
-
-> [!WARNING]
-> Compact ADPCM and adaptive encoding are experimental. They are covered by encoder/decoder and ROM-structure tests, but this development build has not been qualified on every flash cartridge or long-duration real-hardware playback setup. Use Standard PCM when reliability matters more than capacity.
-
-### Video and ROM controls
-
-Version 0.11 adds native per-part title cards for automatically split single-video conversions, plus a lighter preview pipeline and compact one-row part navigation.
-
-- **Automatic long-video split:** no special mode is required. Create a normal **Single ROM**; when it cannot safely fit, the app selects the largest safe source-time segment for each part, verifies the encoded size, continues from the exact ending timestamp, and exports `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` in one ZIP
-- **Before starting:** the estimator shows `Estimated output: N ROM parts` using the selected ROM-size target and optional duration cap
-- **During conversion:** progress shows `Part N of approximately M` and the current source position, for example `18:42 / 50:00`
-- **Optional split panel:** check **Split the video** to reveal the 1–32 MiB target, 20 MiB / 30 MiB / Maximum shortcuts, chapter rules, title screens, and recovery settings; oversized Single ROM jobs still split automatically when the checkbox is off
-- **Duration-based parts:** enter a maximum duration as `MM:SS` (for example `1:05`); `0` leaves the duration automatic
-- **Chapter-aware splitting:** when chapter metadata is present, the splitter prefers a nearby earlier chapter boundary instead of cutting in the middle of a chapter
-- **Long-job recovery:** accepted parts are kept in a persistent recovery folder and reused when the same conversion is started again after an interruption
-- **Native per-part title cards:** split ROMs can open on a full 240×160 title card using the first frame of that part at 50% default darkening, the source filename as the title, and `Part {part}` as the automatic subtitle
-- **Shared or individual design:** edit one style for every part or navigate with the compact `Part N` / `of M` controls and override title, subtitle, background frame, darkness, colours, alignment, Large/Medium/Small text size, timing, and fade behaviour
-- **Compact options:** all title-card checkboxes stay together in one horizontal row
-- **Exact preview:** both editions show the title card with the same RGB555 rendering and 3×5 font data embedded in the ROM
+### Video and output
 
 - Drag in one or more videos
 - Trim start and end times
-- Playback speed controls
+- Playback-speed controls
 - Fit with bars, crop, or stretch
 - Four GBA-friendly frame-rate choices
+- Shared or per-scene palettes
+- Dithering off, ordered, or error diffusion
+- Keyframe/delta compression or uncompressed video
+- Automatic raw-frame fallback when compression would be larger
 - Configurable 3, 5, 10, or 15-second seek step
 - Optional looping per clip
-- Optional SRAM save/resume support
 - Editable 12-character ROM title
 - Clip reordering and per-clip menu titles
-
-### Image quality
-
-- Shared palette or per-scene palettes
-- Dithering off, ordered, or error diffusion
-- Optional keyframe/delta compression
-- Uncompressed-video mode
-- Automatic raw-frame fallback when compression would be larger
+- Optional SRAM save/resume support
 
 ### Audio
 
@@ -116,47 +61,87 @@ Version 0.11 adds native per-part title cards for automatically split single-vid
 - Per-clip volume
 - Optional loudness normalization
 - Optional limiter
-- Selected-channel audio preview in both the desktop and web editors
-- Audio-quality dropdown: Standard PCM, Compact ADPCM (Experimental), or Auto for ROM target under Extreme optimization
+- Selected-channel preview in both desktop and web editions
+- Standard PCM, Compact ADPCM (Experimental), or Auto for ROM target under Extreme optimization
 - Codec previews use the same 16,384 Hz PCM/ADPCM implementation written into the ROM
 
-### Menu design and multi-clip menu
+### Long videos and split ROMs
 
-Version 0.10 added a dedicated **Menu design** panel whenever **One ROM — clip menu** is selected. The desktop and browser editions use the same theme format and embed the chosen design directly into the exported ROM.
+Single-video conversions can automatically split into multiple ROMs when the selected cartridge target is exceeded. The converter estimates the part count before encoding, verifies the real encoded size of each accepted part, and continues from the exact ending timestamp.
 
-- Live pixel preview built from the same 120×80 indexed background data used by the GBA player
-- Integer-scaled preview with the player's exact 3×5 font, text coordinates, divider lines, and selector shape
+Optional split controls provide:
+
+- A **1–32 MiB** ROM-data target with 20 MiB, 30 MiB, and Maximum shortcuts
+- Optional maximum source duration per part using `MM:SS`
+- Chapter-aware split points when chapter metadata is available
+- Persistent recovery of completed parts after cancellation or failure
+- Progress such as `Part N of approximately M` and `18:42 / 50:00`
+- Output as `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` inside one ZIP
+
+### Native title cards
+
+Split ROMs can show a native **240×160** title card before each part.
+
+- First frame of the part as the default background
+- Adjustable background darkening
+- Source filename as the default title
+- Automatic `Part {part}` subtitle
+- Shared settings or per-part overrides
+- Independent title/subtitle size, alignment, text colour, and outline colour
+- Wait for `A` or timed start
+- Optional skip and fade into video
+- Pixel-accurate RGB555 preview in both editions
+
+### Menu design
+
+When **One ROM — clip menu** is selected, the menu can be customized directly in the editor.
+
+- Live 120×80 pixel preview using the same indexed data as the GBA player
+- Exact 3×5 font, divider lines, text coordinates, and selector shape
 - Built-in **Classic dark**, **Ocean Wave — static**, **Ocean Wave — animated**, and **Blue Wave — animated** backgrounds
-- Ocean Wave animation uses a lightweight palette shimmer: the bright curl changes about twice per second and the lower water about five times per second
-- Selectable UI-colour presets for normal and selected text
-- Optional one-pixel UI outline with a selectable outline colour
-- Custom PNG, JPEG, WebP, or GIF backgrounds, cropped to 120×80 and optimized to a GBA RGB555 indexed palette
-- GIF backgrounds sampled to at most 16 looping frames; frame animations are drawn on the hidden Mode 4 page and switched during VBlank
-- Theme data, animation settings, palette, UI colours, and outline settings are stored inside each menu ROM instead of requiring a separate player binary
-- Menu-theme storage is included in the pre-conversion size estimate
-- Menu-design choices are preserved in `.gbavideo` project files
-- One, two, or three title columns with total duration and current-selection status
-- Four-direction D-pad navigation and an independent blinking OBJ-sprite selector
-- The selected menu item is remembered when returning from playback and across restarts when SRAM resume is enabled
-- Each clip stores its own resume frame instead of sharing one global position
-- No unstable video thumbnails in the GBA menu
+- Selectable normal, selected, and outline colours
+- Optional one-pixel UI outline
+- Custom PNG, JPEG, WebP, or GIF backgrounds
+- GIF backgrounds sampled to at most 16 looping frames
+- One, two, or three title columns
+- Four-direction D-pad navigation
+- Remembered menu selection and separate resume position for each clip when SRAM resume is enabled
 
+Menu theme data is embedded directly into the ROM and included in the size estimate.
 
-### Automatic long-video handling
+### Latin and Cyrillic text
 
-For one source video, choose the normal **Single ROM** output and convert as usual. The converter checks the minimum required data before encoding and also verifies the real encoded size afterward. When one cartridge would exceed the selected target, the result automatically changes from a `.gba` file to a `_PARTS.zip` package containing sequential ROMs plus `PARTS.txt`. No manual split mode is exposed.
+Version **0.12.2** expands the existing 3×5 pixel font into one shared Latin + Cyrillic font, allowing mixed text in menu titles and title cards.
 
-The automatic split panel provides:
+- One shared character set instead of separate language fonts
+- Full Ukrainian support, including `Ґ Є І Ї`
+- UTF-8 text remains readable in `.gbavideo` project files
+- Menu titles and title cards count visible characters rather than UTF-8 bytes
+- `{part}` works in strings such as `Частина {part}`
+- Common typographic apostrophes, quotes, dashes, and ellipses are normalized
+- Unsupported characters are reported instead of silently disappearing
+- The internal 12-byte cartridge header remains ASCII-safe through transliteration
 
-- A 1–32 MiB ROM-data target slider, plus 20 MiB, 30 MiB, and Maximum presets
-- An optional fixed maximum source duration per part
-- Chapter-aware split points when the source contains chapters
-- Optional native 240×160 title cards with shared or per-part settings
-- First-frame backgrounds darkened behind the source filename and automatic `Part {part}` subtitle
-- Wait-for-A or timed start, optional skip, and fade into video
-- Persistent recovery of completed parts after cancellation or failure (desktop cache on Windows; IndexedDB in the web app)
+Lowercase Cyrillic input is accepted and rendered in the same uppercase-style 3×5 pixel font used by the player.
 
-The pre-conversion estimate reports the approximate part count. While encoding, the status area shows both the current part and source timestamp. The estimate can change as real compressed sizes become available.
+### Extreme optimization (Experimental)
+
+Extreme optimization is isolated from the stable presets. **Best quality**, **Balanced**, **Long video**, **Smallest ROM**, and **Custom** keep the established PCM/fixed-keyframe path unless Extreme optimization is explicitly selected.
+
+The experimental mode can:
+
+- Analyze representative low-resolution samples
+- Compare frame rate, palette, dithering, adaptive keyframes, and audio storage
+- Estimate ROM-size ranges and quality trade-offs
+- Apply a recommended candidate while keeping manual controls editable
+- Detect scene boundaries using motion, brightness, fades, flash rejection, and minimum scene length
+- Use adaptive keyframes while preserving seeking
+- Use 4-bit IMA ADPCM at 16,384 Hz to reduce audio storage
+
+> [!WARNING]
+> Compact ADPCM and adaptive encoding are experimental. They are covered by encoder/decoder and ROM-structure tests, but have not been qualified on every flash cartridge or long-duration real-hardware setup. Use Standard PCM when reliability matters more than capacity.
+
+For detailed release history, see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Generated ROM controls
 
@@ -184,6 +169,19 @@ The pre-conversion estimate reports the approximate part count. While encoding, 
 
 The full HUD can show elapsed and total time, current frame number, progress, and the loop icon.
 
+## Save/resume support
+
+When **Save/resume position** is enabled, the ROM declares `SRAM_V113` save memory.
+
+A single-video ROM stores its playback frame. Menu and playlist ROMs additionally store the most recently selected clip and a separate resume frame for each clip.
+
+When a saved position is available:
+
+- `A` continues from the saved time
+- `B` restarts that clip from the beginning
+
+Finishing a clip normally clears only that clip's saved frame. SRAM behavior should be tested on the intended flash cartridge because save handling differs among cartridges and emulator configurations.
+
 ## Desktop app
 
 Download the portable ZIP from the repository's **Releases** page, extract it, and run:
@@ -192,32 +190,20 @@ Download the portable ZIP from the repository's **Releases** page, extract it, a
 GBA Video Maker.exe
 ```
 
-No installer, Python runtime, administrator access, or devkitARM installation is needed. Official portable packages place a pinned Windows x64 `ffmpeg.exe` beside the application. The application does not download or update executables at runtime.
+No installer, Python runtime, administrator access, or devkitARM installation is required. Official portable packages place a pinned Windows x64 `ffmpeg.exe` beside the application, and the app does not download or update executables at runtime.
 
 > [!NOTE]
 > Windows may warn about an unsigned executable. Building from source or signing release binaries is the reliable way to establish publisher trust.
 
 ## Web app
 
-The standalone browser edition lives entirely under [`website/`](website/). It uses the same embedded `assets/player_stub.bin` as the desktop converter, so generated ROMs share the same playback engine and menu.
+The standalone browser edition lives under [`website/`](website/) and uses the same embedded `assets/player_stub.bin` as the desktop converter, so both editions generate ROMs with the same playback engine.
 
-The web edition now mirrors the Windows application's conversion workflow:
+The web edition supports the same main conversion workflow, including output modes, quality controls, long-video splitting, title cards, project save/open, menu design, audio preview, and Extreme optimization controls.
 
-- Quality presets, custom mode, size estimates, and the 32 MiB optimizer
-- Single ROM, menu, playlist, and separate-ROM ZIP outputs
-- Automatic and manually configured long-video splitting
-- Adjustable 1–32 MiB split target, `MM:SS` duration caps, chapter-aware cuts, part title screens, and numbered-ROM ZIP manifests
-- Interrupted split recovery in IndexedDB; reselecting the same source video continues after completed parts
-- `Part N of approximately M` and source-position progress
-- Frame rate, framing, palette, dithering, compression, audio channel, volume, normalization, limiter, trimming, speed, looping, seek step, and SRAM resume
-- Project save/open with source-file relinking, project defaults, per-clip overrides, clip reordering, a selected-clip timeline, GBA-font title preview, and audio preview
-- Menu-design parity with the desktop app, including live preview, UI and outline colours, built-in static/animated backgrounds, and custom image/GIF backgrounds
-
-Browser processing is local: selected videos are copied into FFmpeg's in-browser filesystem and are not uploaded to a project server. Browser security does not allow a saved project to silently reopen local files, so the web app relinks them by filename after the user selects them again.
+Browser processing is local. Selected videos are copied into FFmpeg's in-browser filesystem and are not uploaded to a project server. Browser security does not allow a saved project to silently reopen local files, so source files must be selected again and are relinked by filename.
 
 ### Run the website locally
-
-Install Node.js, then:
 
 ```bash
 cd website
@@ -226,7 +212,7 @@ npm test
 npm run dev
 ```
 
-Build the exact static site used by GitHub Pages:
+Build the static site used by GitHub Pages:
 
 ```bash
 cd website
@@ -236,22 +222,6 @@ npm run preview
 
 GitHub Pages deployment is configured in [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
-## Resume support
-
-When **Save/resume position** is enabled, the ROM declares `SRAM_V113` save memory.
-
-For a single-video ROM it stores the playback frame. For menu and playlist ROMs it stores:
-
-- The most recently selected clip
-- A separate playback frame for every clip
-
-Returning from a menu clip preserves that clip's position. Selecting it again presents the normal resume prompt:
-
-- `A` continues from the saved time
-- `B` restarts only that clip from the beginning
-
-Finishing a clip normally clears only that clip's saved frame. SRAM behavior should be tested on the intended flash cartridge because save handling differs among cartridges and emulator configurations.
-
 ## ROM format
 
 | Property | Value |
@@ -260,7 +230,7 @@ Finishing a clip normally clears only that clip's saved frame. SRAM behavior sho
 | Encoded video | 120×80 indexed frames |
 | Video colours | RGB555 palette entries 0–249 |
 | UI colours | Palette entries 250–255 |
-| Audio | Signed 8-bit mono PCM, 16,384 Hz |
+| Audio | Signed 8-bit mono PCM at 16,384 Hz; optional experimental IMA ADPCM |
 | Maximum ROM size | 32 MiB |
 | Padding | Next power-of-two cartridge size |
 
@@ -274,20 +244,20 @@ The desktop GUI is served locally on a random `127.0.0.1` address with a random 
 
 ### Browser
 
-The GitHub Pages site is static. Conversion runs in the browser with WebAssembly. The project does not require a video-upload server.
+The GitHub Pages site is static. Conversion runs locally in the browser with WebAssembly and does not require a video-upload server.
 
 See [`SECURITY.md`](SECURITY.md) for vulnerability-reporting guidance.
 
 ## Build from source
 
-Requirements:
+### Requirements
 
 - Go 1.23 or newer
 - FFmpeg for conversions and integration tests
 - LLVM tools (`clang`, `ld.lld`, and `llvm-objcopy`) to rebuild the GBA player
 - Node.js and npm for the standalone website
 
-Run the Go checks:
+### Go checks
 
 ```bash
 go fmt ./...
@@ -295,13 +265,15 @@ go vet ./...
 go test ./...
 ```
 
-Rebuild the embedded GBA player after changing files under `player/`:
+### Rebuild the GBA player
+
+After changing files under `player/`:
 
 ```bash
 ./player/build.sh
 ```
 
-Build the Windows executable:
+### Build the Windows executable
 
 ```bash
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
