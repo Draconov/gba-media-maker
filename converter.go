@@ -56,14 +56,25 @@ var nintendoLogo = []byte{
 	0xD6, 0x25, 0xE4, 0x8B, 0x38, 0x0A, 0xAC, 0x72, 0x21, 0xD4, 0xF8, 0x07,
 }
 
+type AudioTrackInfo struct {
+	Index       int    `json:"index"`
+	StreamIndex int    `json:"streamIndex,omitempty"`
+	Language    string `json:"language,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Codec       string `json:"codec,omitempty"`
+	Channels    int    `json:"channels,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+}
+
 type MediaInfo struct {
-	Duration      float64   `json:"duration"`
-	Width         int       `json:"width"`
-	Height        int       `json:"height"`
-	FPS           float64   `json:"fps"`
-	AudioStreams  int       `json:"audioStreams"`
-	AudioChannels int       `json:"audioChannels"`
-	Chapters      []float64 `json:"chapters,omitempty"`
+	Duration      float64          `json:"duration"`
+	Width         int              `json:"width"`
+	Height        int              `json:"height"`
+	FPS           float64          `json:"fps"`
+	AudioStreams  int              `json:"audioStreams"`
+	AudioChannels int              `json:"audioChannels"`
+	AudioTracks   []AudioTrackInfo `json:"audioTracks,omitempty"`
+	Chapters      []float64        `json:"chapters,omitempty"`
 }
 
 type ClipInput struct {
@@ -79,6 +90,7 @@ type ClipInput struct {
 	Speed       float64
 	FitMode     string
 	AudioMode   string
+	AudioTrack  int
 	Volume      float64
 	Loop        bool
 	PaletteMode string
@@ -95,6 +107,7 @@ type ProjectOptions struct {
 	VBlanks                int
 	FitMode                string
 	AudioMode              string
+	AudioTrack             int
 	Volume                 float64
 	Loop                   bool
 	RomTitle               string
@@ -138,6 +151,7 @@ type ConvertOptions struct {
 	VBlanks                int
 	FitMode                string
 	AudioMode              string
+	AudioTrack             int
 	Volume                 float64
 	Loop                   bool
 	RomTitle               string
@@ -183,44 +197,68 @@ type ConvertResult struct {
 type ProgressFunc func(percent int, status string)
 
 var (
-	durationPattern   = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
-	dimensionsPattern = regexp.MustCompile(`(?:^|[^0-9])(\d{2,5})x(\d{2,5})(?:[^0-9]|$)`)
-	fpsPattern        = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s+fps`)
-	channelsPattern   = regexp.MustCompile(`\b(\d+)\.(\d+)\b`)
-	chapterPattern    = regexp.MustCompile(`Chapter #[^:]+:[^:]+: start ([0-9]+(?:\.[0-9]+)?), end ([0-9]+(?:\.[0-9]+)?)`)
+	durationPattern      = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
+	dimensionsPattern    = regexp.MustCompile(`(?:^|[^0-9])(\d{2,5})x(\d{2,5})(?:[^0-9]|$)`)
+	fpsPattern           = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s+fps`)
+	channelsPattern      = regexp.MustCompile(`\b(\d+)\.(\d+)\b`)
+	chapterPattern       = regexp.MustCompile(`Chapter #[^:]+:[^:]+: start ([0-9]+(?:\.[0-9]+)?), end ([0-9]+(?:\.[0-9]+)?)`)
+	streamAudioPattern   = regexp.MustCompile(`Stream #\d+:(\d+)(?:\(([^)]+)\))?: Audio:\s*([^,]+)(.*)$`)
+	streamAnyPattern     = regexp.MustCompile(`Stream #\d+:\d+`)
+	metadataTitlePattern = regexp.MustCompile(`^\s*title\s*:\s*(.+?)\s*$`)
 )
 
-func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	output, _ := runCommandContext(ctx, ffmpegPath, "-hide_banner", "-i", path)
-	text := string(output)
+func parseAudioChannels(line string) int {
+	lower := strings.ToLower(line)
+	if strings.Contains(lower, "mono") {
+		return 1
+	}
+	if strings.Contains(lower, "stereo") {
+		return 2
+	}
+	if match := channelsPattern.FindStringSubmatch(lower); match != nil {
+		a, _ := strconv.Atoi(match[1])
+		b, _ := strconv.Atoi(match[2])
+		return a + b
+	}
+	return 0
+}
+
+func parseMediaInfo(text string) (MediaInfo, error) {
 	dm := durationPattern.FindStringSubmatch(text)
 	if dm == nil {
 		return MediaInfo{}, errors.New("could not read video duration")
 	}
 	h, _ := strconv.Atoi(dm[1])
 	m, _ := strconv.Atoi(dm[2])
-	s, _ := strconv.ParseFloat(dm[3], 64)
+	seconds, _ := strconv.ParseFloat(dm[3], 64)
 	var videoLine string
-	audioStreams, audioChannels := 0, 0
+	var audioTracks []AudioTrackInfo
+	currentAudio := -1
 	for _, line := range strings.Split(text, "\n") {
 		if videoLine == "" && strings.Contains(line, " Video:") {
 			videoLine = line
 		}
-		if strings.Contains(line, " Audio:") {
-			audioStreams++
-			lower := strings.ToLower(line)
-			if audioChannels == 0 {
-				if strings.Contains(lower, "mono") {
-					audioChannels = 1
-				} else if strings.Contains(lower, "stereo") {
-					audioChannels = 2
-				} else if lm := channelsPattern.FindStringSubmatch(lower); lm != nil {
-					a, _ := strconv.Atoi(lm[1])
-					b, _ := strconv.Atoi(lm[2])
-					audioChannels = a + b
-				}
+		if match := streamAudioPattern.FindStringSubmatch(strings.TrimSpace(line)); match != nil {
+			streamIndex, _ := strconv.Atoi(match[1])
+			track := AudioTrackInfo{
+				Index:       len(audioTracks),
+				StreamIndex: streamIndex,
+				Language:    strings.TrimSpace(match[2]),
+				Codec:       strings.TrimSpace(match[3]),
+				Channels:    parseAudioChannels(match[4]),
+				Default:     strings.Contains(strings.ToLower(match[4]), "(default)"),
+			}
+			audioTracks = append(audioTracks, track)
+			currentAudio = len(audioTracks) - 1
+			continue
+		}
+		if streamAnyPattern.MatchString(strings.TrimSpace(line)) {
+			currentAudio = -1
+			continue
+		}
+		if currentAudio >= 0 {
+			if match := metadataTitlePattern.FindStringSubmatch(line); match != nil {
+				audioTracks[currentAudio].Title = strings.TrimSpace(match[1])
 			}
 		}
 	}
@@ -245,7 +283,23 @@ func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 		}
 	}
 	sort.Float64s(chapters)
-	return MediaInfo{Duration: float64(h*3600+m*60) + s, Width: w, Height: hg, FPS: fps, AudioStreams: audioStreams, AudioChannels: audioChannels, Chapters: chapters}, nil
+	audioChannels := 0
+	if len(audioTracks) > 0 {
+		audioChannels = audioTracks[0].Channels
+	}
+	return MediaInfo{
+		Duration: float64(h*3600+m*60) + seconds,
+		Width:    w, Height: hg, FPS: fps,
+		AudioStreams: len(audioTracks), AudioChannels: audioChannels, AudioTracks: audioTracks,
+		Chapters: chapters,
+	}, nil
+}
+
+func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	output, _ := runCommandContext(ctx, ffmpegPath, "-hide_banner", "-i", path)
+	return parseMediaInfo(string(output))
 }
 
 func parseTime(value string) (float64, error) {
@@ -327,13 +381,34 @@ func buildAtempo(speed float64) []float64 {
 	return append(factors, remaining)
 }
 
+func selectedAudioTrack(info MediaInfo, index int) (AudioTrackInfo, bool) {
+	if index < 0 || index >= len(info.AudioTracks) {
+		return AudioTrackInfo{}, false
+	}
+	return info.AudioTracks[index], true
+}
+
+func selectedAudioChannels(info MediaInfo, index int) int {
+	if track, ok := selectedAudioTrack(info, index); ok && track.Channels > 0 {
+		return track.Channels
+	}
+	return info.AudioChannels
+}
+
+func audioMapSpecifier(index int) string {
+	if index < 0 {
+		index = 0
+	}
+	return fmt.Sprintf("0:a:%d", index)
+}
+
 func audioFilters(opt ProjectOptions, info MediaInfo) []string {
 	var filters []string
 	switch opt.AudioMode {
 	case "left":
 		filters = append(filters, "pan=mono|c0=c0")
 	case "right":
-		if info.AudioChannels <= 1 {
+		if selectedAudioChannels(info, opt.AudioTrack) <= 1 {
 			filters = append(filters, "pan=mono|c0=c0")
 		} else {
 			filters = append(filters, "pan=mono|c0=c1")
@@ -1039,7 +1114,7 @@ func extractAudio(opt ProjectOptions, info MediaInfo, input string, duration flo
 	if opt.AudioMode == "none" || info.AudioStreams == 0 {
 		return false, audioCodecPCM, adpcmInfo{}, os.WriteFile(audioPath, nil, 0644)
 	}
-	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-map", "0:a:0", "-vn"}
+	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-map", audioMapSpecifier(opt.AudioTrack), "-vn"}
 	filters := audioFilters(opt, info)
 	if len(filters) > 0 {
 		args = append(args, "-af", strings.Join(filters, ","))
@@ -1125,10 +1200,11 @@ type convertedClip struct {
 }
 
 func optionsForClip(project ProjectOptions, input ClipInput) ProjectOptions {
-	if !input.Custom {
-		return project
-	}
 	clip := project
+	clip.AudioTrack = input.AudioTrack
+	if !input.Custom {
+		return clip
+	}
 	clip.Start = input.Start
 	clip.End = input.End
 	clip.Speed = input.Speed
@@ -1217,6 +1293,9 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	info, err := inspectMedia(opt.FFmpegPath, input.InputPath)
 	if err != nil {
 		return convertedClip{}, fmt.Errorf("%s: %w", input.Name, err)
+	}
+	if opt.AudioMode != "none" && info.AudioStreams > 0 && (opt.AudioTrack < 0 || opt.AudioTrack >= info.AudioStreams) {
+		return convertedClip{}, fmt.Errorf("%s: selected audio track %d is not available", input.Name, opt.AudioTrack+1)
 	}
 	end := opt.End
 	if end <= 0 || end > info.Duration {
@@ -1681,6 +1760,7 @@ func splitRecoveryIdentity(opt ProjectOptions, input ClipInput, info MediaInfo, 
 		VBlanks          int
 		FitMode          string
 		AudioMode        string
+		AudioTrack       int
 		Volume           float64
 		Normalize        bool
 		Limiter          bool
@@ -1695,7 +1775,7 @@ func splitRecoveryIdentity(opt ProjectOptions, input ClipInput, info MediaInfo, 
 	}{
 		Path: input.InputPath, Name: input.Name, Size: st.Size(), Modified: st.ModTime().UnixNano(), Duration: info.Duration,
 		Start: start, End: end, Speed: opt.Speed, VBlanks: opt.VBlanks, FitMode: opt.FitMode,
-		AudioMode: opt.AudioMode, Volume: opt.Volume, Normalize: opt.Normalize, Limiter: opt.Limiter,
+		AudioMode: opt.AudioMode, AudioTrack: opt.AudioTrack, Volume: opt.Volume, Normalize: opt.Normalize, Limiter: opt.Limiter,
 		Compression: opt.Compression, PaletteMode: opt.PaletteMode, DitherMode: opt.DitherMode,
 		Budget: budget, MaxPartMinutes: opt.MaxPartMinutes, ChapterAware: opt.ChapterAware, PartTitleScreens: opt.PartTitleScreens,
 		PlayerTemplate: fmt.Sprintf("%x", sha256.Sum256(playerStub)),
@@ -2313,10 +2393,10 @@ func convertVideo(opt ConvertOptions, progress ProgressFunc) (ConvertResult, err
 		title = "GBA VIDEO"
 	}
 	return convertProject(ProjectOptions{
-		Inputs:     []ClipInput{{InputPath: opt.InputPath, Name: filepath.Base(opt.InputPath), Title: title}},
+		Inputs:     []ClipInput{{InputPath: opt.InputPath, Name: filepath.Base(opt.InputPath), Title: title, AudioTrack: opt.AudioTrack}},
 		OutputPath: opt.OutputPath, FFmpegPath: opt.FFmpegPath,
 		Start: opt.Start, End: opt.End, Speed: opt.Speed, VBlanks: opt.VBlanks,
-		FitMode: opt.FitMode, AudioMode: opt.AudioMode, Volume: opt.Volume, Loop: opt.Loop,
+		FitMode: opt.FitMode, AudioMode: opt.AudioMode, AudioTrack: opt.AudioTrack, Volume: opt.Volume, Loop: opt.Loop,
 		RomTitle: title, SeekSeconds: opt.SeekSeconds, Normalize: opt.Normalize, Limiter: opt.Limiter,
 		Resume: opt.Resume, Compression: opt.Compression, PaletteMode: opt.PaletteMode,
 		DitherMode: opt.DitherMode, OutputMode: "rom", KeyInterval: opt.KeyInterval,
@@ -2385,7 +2465,7 @@ func generateAudioPreview(opt ProjectOptions, info MediaInfo, input, outPath str
 	}
 	rawPath := outPath + ".s8"
 	defer os.Remove(rawPath)
-	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", "8", "-map", "0:a:0", "-vn"}
+	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", "8", "-map", audioMapSpecifier(opt.AudioTrack), "-vn"}
 	filters := audioFilters(opt, info)
 	if len(filters) > 0 {
 		args = append(args, "-af", strings.Join(filters, ","))

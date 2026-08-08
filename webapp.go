@@ -106,6 +106,7 @@ type clipSettingsRequest struct {
 	Speed       float64 `json:"speed"`
 	Fit         string  `json:"fit"`
 	Audio       string  `json:"audio"`
+	AudioTrack  int     `json:"audioTrack"`
 	Volume      float64 `json:"volume"`
 	Loop        bool    `json:"loop"`
 	PaletteMode string  `json:"paletteMode"`
@@ -896,7 +897,13 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		if strings.TrimSpace(clipReq.Title) == "" {
 			title = normalizeTitle(strings.TrimSuffix(v.Name, filepath.Ext(v.Name)))
 		}
-		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title}
+		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack}
+		if input.AudioTrack < 0 || input.AudioTrack >= v.Info.AudioStreams {
+			if v.Info.AudioStreams > 0 && input.AudioTrack != 0 {
+				return ProjectOptions{}, nil, fmt.Errorf("%s: selected audio track %d is not available", v.Name, input.AudioTrack+1)
+			}
+			input.AudioTrack = 0
+		}
 		if !clipReq.UseProject {
 			clipStart, parseErr := parseTime(clipReq.Start)
 			if parseErr != nil {

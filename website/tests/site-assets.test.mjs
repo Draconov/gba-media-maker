@@ -61,6 +61,10 @@ test("web edition exposes desktop parity controls", async () => {
   assert.match(script, /renderTitleCardPreview/);
   assert.match(script, /analyzeSmartScan/);
   assert.match(script, /encodeIMAADPCM/);
+  assert.match(script, /Input audio track/);
+  assert.match(script, /stream_tags=language,title/);
+  assert.match(script, /`0:a:\$\{Number\(clipOptions\.audioTrack\) \|\| 0\}`/);
+  assert.match(script, /audioTrack: Number\(entry\.audioTrack\) \|\| 0/);
   assert.match(html, /Extreme optimization \(Experimental\)/);
   assert.match(html, /Compact ADPCM \(Experimental\)/);
 });

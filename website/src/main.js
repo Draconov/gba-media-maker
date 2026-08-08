@@ -188,6 +188,7 @@ let resultFileName = "";
 let resultMime = "application/octet-stream";
 let logLines = [];
 let recentFFmpegLogs = [];
+let ffmpegMetadataQueue = Promise.resolve();
 let selectedEntryId = "";
 let previewURL = "";
 let audioPreviewURL = "";
@@ -542,6 +543,9 @@ function makeEntry(file) {
     speed: 1,
     fitMode: "fit",
     audioMode: "mix",
+    audioTrack: 0,
+    audioTracks: [],
+    audioTracksKnown: false,
     volume: 1,
     loop: false,
     paletteMode: "shared",
@@ -649,6 +653,7 @@ function clipSnapshot(entry) {
     speed: entry.speed,
     fitMode: entry.fitMode,
     audioMode: entry.audioMode,
+    audioTrack: Number(entry.audioTrack) || 0,
     volume: entry.volume,
     loop: entry.loop,
     paletteMode: entry.paletteMode,
@@ -750,6 +755,7 @@ function applyPendingProjectMatches() {
       speed: numericOr(saved.speed, 1),
       fitMode: saved.fitMode || "fit",
       audioMode: saved.audioMode || "mix",
+      audioTrack: Number.isInteger(saved.audioTrack) ? saved.audioTrack : 0,
       volume: numericOr(saved.volume, 1),
       loop: Boolean(saved.loop),
       paletteMode: saved.paletteMode || "shared",
@@ -1111,6 +1117,80 @@ function makeSelectControl(text, value, choices, onChange) {
   return { label, select };
 }
 
+function audioTrackLabel(track, fallbackIndex = 0) {
+  const number = Number.isInteger(track?.index) ? track.index + 1 : fallbackIndex + 1;
+  const details = [];
+  const title = String(track?.title || "").trim();
+  const language = String(track?.language || "").trim();
+  if (title) details.push(title);
+  else if (language) details.push(language.toUpperCase());
+  if (title && language && !title.toLowerCase().includes(language.toLowerCase())) details.push(language.toUpperCase());
+  if (Number(track?.channels) > 0) details.push(Number(track.channels) === 1 ? "mono" : Number(track.channels) === 2 ? "stereo" : `${track.channels} ch`);
+  if (track?.default) details.push("default");
+  return `Track ${number}${details.length ? ` — ${details.join(" · ")}` : ""}`;
+}
+
+function audioTrackChannels(probe, index) {
+  const track = probe?.audioTracks?.[Number(index) || 0];
+  return Number(track?.channels) || Number(probe?.channels) || 0;
+}
+
+function populateAudioTrackSelect(select, entry, loading = false) {
+  select.replaceChildren();
+  const tracks = entry.audioTracks || [];
+  if (loading && !entry.audioTracksKnown) {
+    const option = document.createElement("option");
+    option.value = String(Number(entry.audioTrack) || 0);
+    option.textContent = "Detecting audio tracks…";
+    select.append(option); select.disabled = true; return;
+  }
+  if (entry.audioTracksKnown && tracks.length === 0) {
+    const option = document.createElement("option"); option.value = "0"; option.textContent = "No audio tracks"; select.append(option);
+    entry.audioTrack = 0; select.disabled = true; return;
+  }
+  const count = tracks.length || Math.max(1, (Number(entry.audioTrack) || 0) + 1);
+  for (let index = 0; index < count; index += 1) {
+    const option = document.createElement("option"); option.value = String(index); option.textContent = audioTrackLabel(tracks[index], index); select.append(option);
+  }
+  let selected = Number(entry.audioTrack) || 0;
+  if (tracks.length && (selected < 0 || selected >= tracks.length)) selected = 0;
+  entry.audioTrack = selected; select.value = String(selected); select.disabled = conversionRunning;
+}
+
+function queueMetadataTask(task) {
+  const run = ffmpegMetadataQueue.then(task, task);
+  ffmpegMetadataQueue = run.catch(() => {});
+  return run;
+}
+
+async function ensureEntryAudioTracks(entry, select) {
+  if (!entry?.file || entry.audioTracksKnown || entry.audioTrackProbePromise || conversionRunning) {
+    populateAudioTrackSelect(select, entry);
+    return;
+  }
+  populateAudioTrackSelect(select, entry, true);
+  entry.audioTrackProbePromise = queueMetadataTask(async () => {
+    await ensureFFmpeg();
+    const inputName = `track-probe-${entry.id.replace(/[^A-Za-z0-9]/g, "").slice(0, 12)}${entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".mp4"}`;
+    await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
+    try {
+      const probe = await readProbe(inputName, `track-${entry.id}`, entry.file);
+      entry.duration = probe.duration || entry.duration;
+      entry.hasAudio = probe.hasAudio;
+      entry.audioTracks = probe.audioTracks || [];
+      entry.audioTracksKnown = !probe.audioUnknown;
+      entry.channels = audioTrackChannels(probe, entry.audioTrack);
+      entry.chapters = probe.chapters || entry.chapters || [];
+      if (entry.audioTracksKnown && entry.audioTrack >= entry.audioTracks.length) entry.audioTrack = 0;
+    } finally {
+      try { await ffmpeg.deleteFile(inputName); } catch { /* already removed */ }
+    }
+  });
+  try { await entry.audioTrackProbePromise; }
+  catch (error) { appendLog(`Audio-track detection warning: ${error instanceof Error ? error.message : String(error)}`); }
+  finally { entry.audioTrackProbePromise = null; populateAudioTrackSelect(select, entry); }
+}
+
 function moveEntry(index, direction) {
   const next = index + direction;
   if (next < 0 || next >= entries.length) return;
@@ -1226,11 +1306,13 @@ function renderFiles() {
     const volume = makeNumberControl("Volume %", Math.round(entry.volume * 100), 0, 200, 5, (value) => { entry.volume = clampNumber(value, 0, 200) / 100; });
     const fit = makeSelectControl("Screen framing", entry.fitMode, [["fit", "Fit with bars"], ["crop", "Crop to fill"], ["stretch", "Stretch"]], (value) => { entry.fitMode = value; });
     const audio = makeSelectControl("Audio channel", entry.audioMode, [["mix", "Mix to mono"], ["left", "Left channel"], ["right", "Right channel"], ["none", "No audio"]], (value) => { entry.audioMode = value; });
+    const audioTrack = makeSelectControl("Input audio track", String(Number(entry.audioTrack) || 0), [], (value) => { entry.audioTrack = Number(value) || 0; if (audioPreviewURL) { URL.revokeObjectURL(audioPreviewURL); audioPreviewURL = ""; elements.audioPreviewPlayer.removeAttribute("src"); elements.audioPreviewPlayer.hidden = true; } });
+    populateAudioTrackSelect(audioTrack.select, entry);
     const palette = makeSelectControl("Palette", entry.paletteMode, [["shared", "Shared palette"], ["scene", "Per-scene palette"]], (value) => { entry.paletteMode = value; });
     const dither = makeSelectControl("Dithering", entry.ditherMode, [["off", "Off"], ["ordered", "Ordered"], ["error", "Error diffusion"]], (value) => { entry.ditherMode = value; });
 
     controls.push(start.input, end.input, speed.input, volume.input, fit.select, audio.select, palette.select, dither.select);
-    optionsGrid.append(start.label, end.label, speed.label, fit.label, audio.label, volume.label, palette.label, dither.label);
+    optionsGrid.append(start.label, end.label, speed.label, fit.label, audioTrack.label, audio.label, volume.label, palette.label, dither.label);
 
     const loopLabel = document.createElement("label");
     loopLabel.className = "clip-loop clip-option-check";
@@ -1249,6 +1331,8 @@ function renderFiles() {
     controls.push(loopInput);
 
     for (const control of controls) control.disabled = entry.useProject || conversionRunning;
+    audioTrack.select.disabled = conversionRunning || (entry.audioTracksKnown && entry.audioTracks.length === 0);
+    details.addEventListener("toggle", () => { if (details.open) ensureEntryAudioTracks(entry, audioTrack.select); });
     details.append(summary, optionsGrid);
     row.append(fileName, titleLabel, moveGroup, remove, details);
     elements.fileList.append(row);
@@ -1327,13 +1411,13 @@ function effectiveClipOptions(entry, project) {
   if (!entry.useProject) {
     return {
       start: entry.start, end: entry.end, speed: entry.speed,
-      fitMode: entry.fitMode, audioMode: entry.audioMode, volume: entry.volume,
+      fitMode: entry.fitMode, audioMode: entry.audioMode, audioTrack: Number(entry.audioTrack) || 0, volume: entry.volume,
       loop: entry.loop, paletteMode: entry.paletteMode, ditherMode: entry.ditherMode,
     };
   }
   return {
     start: project.defaultStart, end: project.defaultEnd, speed: project.defaultSpeed,
-    fitMode: project.fitMode, audioMode: project.audioMode, volume: project.defaultVolume,
+    fitMode: project.fitMode, audioMode: project.audioMode, audioTrack: Number(entry.audioTrack) || 0, volume: project.defaultVolume,
     loop: project.defaultLoop, paletteMode: project.paletteMode, ditherMode: project.ditherMode,
   };
 }
@@ -1618,7 +1702,7 @@ async function readProbe(inputName, index, file) {
   try {
     const exitCode = await ffmpeg.ffprobe([
       "-v", "error",
-      "-show_entries", "format=duration:stream=codec_type,channels:chapter=start_time,end_time",
+      "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels:stream_tags=language,title:chapter=start_time,end_time",
       "-of", "json",
       inputName,
       "-o", outputName,
@@ -1628,11 +1712,17 @@ async function readProbe(inputName, index, file) {
       const probe = JSON.parse(decodeText(raw));
       const duration = Number(probe?.format?.duration);
       if (Number.isFinite(duration) && duration > 0) {
-        const audioStream = Array.isArray(probe.streams) ? probe.streams.find((stream) => stream.codec_type === "audio") : null;
+        const audioTracks = (Array.isArray(probe.streams) ? probe.streams : [])
+          .filter((stream) => stream.codec_type === "audio")
+          .map((stream, audioIndex) => ({
+            index: audioIndex, streamIndex: Number(stream.index) || 0, codec: String(stream.codec_name || ""),
+            channels: Number(stream.channels) || 0, language: String(stream.tags?.language || ""), title: String(stream.tags?.title || ""),
+          }));
+        const audioStream = audioTracks[0] || null;
         const chapters = Array.isArray(probe.chapters)
           ? probe.chapters.map((chapter) => Number(chapter.start_time)).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b)
           : [];
-        return { duration, hasAudio: Boolean(audioStream), channels: Number(audioStream?.channels) || 0, audioUnknown: false, chapters };
+        return { duration, hasAudio: Boolean(audioStream), channels: Number(audioStream?.channels) || 0, audioTracks, audioUnknown: false, chapters };
       }
     }
   } catch (error) {
@@ -1644,7 +1734,7 @@ async function readProbe(inputName, index, file) {
   const browserDuration = await browserDurationPromise;
   if (browserDuration > 0) {
     appendLog("ffprobe could not inspect this file; using browser metadata and testing audio during conversion.");
-    return { duration: browserDuration, hasAudio: true, channels: 0, audioUnknown: true, chapters: [] };
+    return { duration: browserDuration, hasAudio: true, channels: 0, audioTracks: [], audioUnknown: true, chapters: [] };
   }
 
   const detail = recentFFmpegLogs.slice(-3).join(" | ");
@@ -1740,9 +1830,12 @@ async function extractFrames(inputName, index, project, clipOptions, timing) {
 async function extractAudio(inputName, index, project, clipOptions, probe, timing) {
   if (clipOptions.audioMode === "none" || !probe.hasAudio) return new Uint8Array();
   const outputName = `audio-${index}.s8`;
+  if (probe.audioTracks?.length && (clipOptions.audioTrack < 0 || clipOptions.audioTrack >= probe.audioTracks.length)) {
+    throw new Error("The selected input audio track is not available in this file.");
+  }
   const filters = [];
   if (clipOptions.audioMode === "left") filters.push("pan=mono|c0=c0");
-  if (clipOptions.audioMode === "right") filters.push(probe.channels === 1 ? "pan=mono|c0=c0" : "pan=mono|c0=c1");
+  if (clipOptions.audioMode === "right") filters.push(audioTrackChannels(probe, clipOptions.audioTrack) === 1 ? "pan=mono|c0=c0" : "pan=mono|c0=c1");
   filters.push(`aresample=${AUDIO_RATE}:async=1:first_pts=0`);
   filters.push(atempoFilter(timing.speed));
   if (Math.abs(timing.volume - 1) > 0.000001) filters.push(`volume=${timing.volume.toFixed(6)}`);
@@ -1752,7 +1845,7 @@ async function extractAudio(inputName, index, project, clipOptions, probe, timin
   const exitCode = await ffmpeg.exec([
     "-hide_banner", "-loglevel", "error", "-i", inputName,
     ...trimArguments(timing),
-    "-map", "0:a:0", "-vn", "-af", filters.join(","),
+    "-map", `0:a:${Number(clipOptions.audioTrack) || 0}`, "-vn", "-af", filters.join(","),
     "-ac", "1", "-ar", String(AUDIO_RATE), "-f", "s8", outputName,
   ]);
   if (exitCode !== 0) {
@@ -1782,7 +1875,7 @@ function splitPartRomTitle(base, part) {
 function recoveryFingerprint(entry, project, start, end) {
   const settings = [
     entry.file.name, entry.file.size, entry.file.lastModified, start, end,
-    project.vblanks, project.fitMode, project.audioMode, project.defaultVolume,
+    project.vblanks, project.fitMode, project.audioMode, Number(entry.audioTrack) || 0, project.defaultVolume,
     project.normalize, project.limiter, project.compression, project.paletteMode,
     project.ditherMode, project.splitBudgetMiB, project.maxPartSeconds,
     project.chapterAware, project.partTitleScreens, JSON.stringify(project.titleCards || null),
@@ -1927,7 +2020,10 @@ async function performLongSplit(playerStub, project) {
     const probe = await readProbe(inputName, 0, entry.file);
     entry.duration = probe.duration;
     entry.hasAudio = probe.hasAudio;
-    entry.channels = probe.channels;
+    entry.audioTracks = probe.audioTracks || [];
+    entry.audioTracksKnown = !probe.audioUnknown;
+    if (entry.hasAudio && entry.audioTracksKnown && entry.audioTrack >= entry.audioTracks.length) throw new Error("The selected input audio track is not available in this file.");
+    entry.channels = audioTrackChannels(probe, entry.audioTrack);
     entry.chapters = probe.chapters || [];
     const clipOptions = effectiveClipOptions(entry, project);
     const whole = clipTiming(clipOptions, probe.duration);
@@ -2121,7 +2217,10 @@ async function performConversion() {
         const probe = await readProbe(inputName, index, entry.file);
         entry.duration = probe.duration;
         entry.hasAudio = probe.hasAudio;
-        entry.channels = probe.channels;
+        entry.audioTracks = probe.audioTracks || [];
+        entry.audioTracksKnown = !probe.audioUnknown;
+        if (entry.hasAudio && entry.audioTracksKnown && entry.audioTrack >= entry.audioTracks.length) throw new Error("The selected input audio track is not available in this file.");
+        entry.channels = audioTrackChannels(probe, entry.audioTrack);
         entry.chapters = probe.chapters || [];
         const timing = clipTiming(clipOptions, probe.duration);
         mapped(0.08, "Extracting 120×80 frames…");
@@ -2332,11 +2431,12 @@ async function createAudioPreview() {
     const duration = Math.min(10, Math.max(0.25, probe.duration - position));
     const filters = [];
     if (clip.audioMode === "left") filters.push("pan=mono|c0=c0");
-    if (clip.audioMode === "right") filters.push(probe.channels === 1 ? "pan=mono|c0=c0" : "pan=mono|c0=c1");
+    if (clip.audioMode === "right") filters.push(audioTrackChannels(probe, clip.audioTrack) === 1 ? "pan=mono|c0=c0" : "pan=mono|c0=c1");
     if (Math.abs(clip.volume - 1) > 0.000001) filters.push(`volume=${clip.volume.toFixed(6)}`);
     if (project.normalize) filters.push("loudnorm=I=-16:LRA=11:TP=-1.5");
     if (project.limiter) filters.push("alimiter=limit=0.95:attack=5:release=50");
-    const args = ["-hide_banner", "-loglevel", "error", "-ss", position.toFixed(3), "-t", duration.toFixed(3), "-i", inputName, "-map", "0:a:0", "-vn"];
+    if (probe.audioTracks?.length && (clip.audioTrack < 0 || clip.audioTrack >= probe.audioTracks.length)) throw new Error("The selected input audio track is not available in this file.");
+    const args = ["-hide_banner", "-loglevel", "error", "-ss", position.toFixed(3), "-t", duration.toFixed(3), "-i", inputName, "-map", `0:a:${Number(clip.audioTrack) || 0}`, "-vn"];
     if (filters.length) args.push("-af", filters.join(","));
     args.push("-ac", "1", "-ar", String(AUDIO_RATE), "-f", "s8", outputName);
     const code = await ffmpeg.exec(args);

@@ -114,7 +114,7 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte("GBA Video Maker 0.12.2")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Title and subtitle typography", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image or GIF", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Title and subtitle typography", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -131,6 +131,11 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	for _, want := range []string{"Ґ", "Є", "І", "Ї", "Ё", "Ъ", "Ы", "Э", "GBA_RUNTIME_CODES"} {
 		if !bytes.Contains(gbaTextJS, []byte(want)) {
 			t.Fatalf("unified GBA text asset is missing %q", want)
+		}
+	}
+	for _, want := range []string{"audioTrackLabel", "audioTrack:Number(config.audioTrack)||0", "audioTracks"} {
+		if !bytes.Contains(appJS, []byte(want)) {
+			t.Fatalf("desktop audio-track selector is missing %q", want)
 		}
 	}
 	if !bytes.Contains(appJS, []byte("titleCardPreviewPendingKey")) || !bytes.Contains(appJS, []byte("AbortController")) {
@@ -878,5 +883,91 @@ func TestExtremePresetIsIsolatedFromLegacyPresets(t *testing.T) {
 	}
 	if !extremeOpt.ExtremeOptimization || !extremeOpt.AdaptiveKeyframes || !extremeOpt.EnhancedSceneDetection || extremeOpt.AudioCodec != audioCodecADPCM {
 		t.Fatalf("Extreme settings were not enabled: %+v", extremeOpt)
+	}
+}
+
+func TestParseMediaInfoFindsSelectableAudioTracks(t *testing.T) {
+	text := `Input #0, matroska,webm, from 'multi.mkv':
+  Duration: 00:01:23.45, start: 0.000000, bitrate: 1800 kb/s
+  Stream #0:0: Video: ffv1, yuv420p, 640x360, 30 fps
+  Stream #0:1(eng): Audio: aac, 48000 Hz, stereo, fltp, 192 kb/s (default)
+      Metadata:
+        title           : English
+  Stream #0:2(jpn): Audio: aac, 48000 Hz, mono, fltp, 96 kb/s
+      Metadata:
+        title           : Japanese
+`
+	info, err := parseMediaInfo(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AudioStreams != 2 || len(info.AudioTracks) != 2 {
+		t.Fatalf("audio streams=%d tracks=%d", info.AudioStreams, len(info.AudioTracks))
+	}
+	first, second := info.AudioTracks[0], info.AudioTracks[1]
+	if first.Index != 0 || first.StreamIndex != 1 || first.Language != "eng" || first.Title != "English" || first.Channels != 2 || !first.Default {
+		t.Fatalf("unexpected first audio track: %#v", first)
+	}
+	if second.Index != 1 || second.StreamIndex != 2 || second.Language != "jpn" || second.Title != "Japanese" || second.Channels != 1 || second.Default {
+		t.Fatalf("unexpected second audio track: %#v", second)
+	}
+	if got := audioMapSpecifier(1); got != "0:a:1" {
+		t.Fatalf("audio map=%q", got)
+	}
+}
+
+func TestAudioTrackIsSourceSpecificEvenWithProjectSettings(t *testing.T) {
+	project := ProjectOptions{AudioTrack: 0, AudioMode: "mix", Speed: 1, FitMode: "fit", Volume: 1, PaletteMode: "shared", DitherMode: "ordered"}
+	clip := ClipInput{AudioTrack: 1, Custom: false}
+	effective := optionsForClip(project, clip)
+	if effective.AudioTrack != 1 {
+		t.Fatalf("effective audio track=%d want 1", effective.AudioTrack)
+	}
+}
+
+func TestAudioTrackSelectionProducesDifferentPreviewStreams(t *testing.T) {
+	ffmpeg := commandExists("ffmpeg")
+	if ffmpeg == "" {
+		t.Skip("ffmpeg missing")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "two-audio.mkv")
+	cmd := exec.Command(ffmpeg,
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "color=size=64x64:rate=10:color=black",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+		"-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
+		"-t", "1", "-map", "0:v", "-map", "1:a", "-map", "2:a",
+		"-c:v", "ffv1", "-c:a", "pcm_s16le",
+		"-metadata:s:a:0", "language=eng", "-metadata:s:a:0", "title=English",
+		"-metadata:s:a:1", "language=jpn", "-metadata:s:a:1", "title=Japanese",
+		input,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create two-track fixture: %v\n%s", err, output)
+	}
+	info, err := inspectMedia(ffmpeg, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info.AudioTracks) != 2 {
+		t.Fatalf("tracks=%d want 2", len(info.AudioTracks))
+	}
+	makePreview := func(track int) []byte {
+		path := filepath.Join(dir, fmt.Sprintf("track-%d.wav", track))
+		opt := ProjectOptions{FFmpegPath: ffmpeg, Start: 0, Speed: 1, AudioMode: "mix", AudioTrack: track, Volume: 1, AudioCodec: audioCodecPCM}
+		if err := generateAudioPreview(opt, info, input, path); err != nil {
+			t.Fatalf("track %d preview: %v", track, err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	first := makePreview(0)
+	second := makePreview(1)
+	if bytes.Equal(first, second) {
+		t.Fatal("different input audio tracks produced identical preview data")
 	}
 }

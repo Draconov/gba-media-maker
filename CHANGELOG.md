@@ -2,6 +2,7 @@
 
 ## [0.12.2] - 2026-08-07
 
+- Added per-source audio-track selection for video containers with multiple audio streams; track choice is preserved in project files and used by conversion and audio preview in both desktop and web editions.
 - Replaced the loose pause boolean with an explicit `RUNNING -> PAUSED -> RESUME_ARMED -> RUNNING` playback state machine so pause/resume work cannot leak into unrelated UI/decode paths.
 - Added explicit prepared-next-frame validity tracking. Ordinary pause keeps both the visible front page and rendered back page intact; help, HUD redraw, frame-step, and seek invalidate the prepared page deliberately.
 - Normal resume performs no video decode or current-frame redraw: it uses only the validated prepared back frame, positions audio while stopped, flips on VBlank, then starts the playback/audio clocks together.

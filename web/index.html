@@ -145,6 +145,7 @@
       <section class="section">
         <h3>Audio</h3>
         <div class="fields">
+          <div id="audioTrackField" class="field hidden"><label>Input audio track <span class="tiny">(selected clip)</span></label><select id="audioTrack"></select></div>
           <div class="field"><label>Channel</label><select id="audio"><option value="mix" selected>Mix to mono</option><option value="left">Left channel</option><option value="right">Right channel</option><option value="none">No audio</option></select></div>
           <div class="field project-control"><label>Audio quality</label><select id="audioQuality"><option value="pcm" selected>Standard PCM</option><option value="adpcm">Compact ADPCM (Experimental)</option><option value="auto">Auto for ROM target</option></select><span class="tiny">Compressed audio is available only with Extreme optimization.</span></div>
           <div class="field"><label>Volume %</label><input id="volume" type="number" min="0" max="200" step="5" value="100"></div>

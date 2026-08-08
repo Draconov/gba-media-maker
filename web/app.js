@@ -111,9 +111,9 @@ function selectedIndex() { return state?.videos?.findIndex(v => v.id === selecte
 function selectedVideo() { return state?.videos?.find(v => v.id === selectedID) || state?.videos?.[0]; }
 function cloneClip(settings) { return {...DEFAULT_CLIP, ...settings}; }
 function effectiveClip(id) {
-  const config = clipConfigs[id] || {title: 'GBA VIDEO', useProject: true, ...DEFAULT_CLIP};
-  return config.useProject ? {...projectDefaults, title: config.title, useProject: true}
-    : {...cloneClip(config), title: config.title, useProject: false};
+  const config = clipConfigs[id] || {title: 'GBA VIDEO', useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
+  return config.useProject ? {...projectDefaults, audioTrack: Number(config.audioTrack) || 0, title: config.title, useProject: true}
+    : {...cloneClip(config), audioTrack: Number(config.audioTrack) || 0, title: config.title, useProject: false};
 }
 function ensureClipConfigs() {
   if (!state?.videos) return;
@@ -121,7 +121,7 @@ function ensureClipConfigs() {
   for (const id of Object.keys(clipConfigs)) if (!valid.has(id)) delete clipConfigs[id];
   for (const video of state.videos) {
     if (!clipConfigs[video.id]) {
-      clipConfigs[video.id] = {title: titleFromFilename(video.name), useProject: true, ...DEFAULT_CLIP};
+      clipConfigs[video.id] = {title: titleFromFilename(video.name), useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
     }
   }
   if (!selectedID || !valid.has(selectedID)) selectedID = state.videos[0]?.id || '';
@@ -194,7 +194,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -244,6 +244,44 @@ for (const name of ['dragenter','dragover']) document.addEventListener(name, eve
 for (const name of ['dragleave','drop']) document.addEventListener(name, event => { event.preventDefault(); $('welcome').classList.remove('drag'); });
 document.addEventListener('drop', event => { const files = [...(event.dataTransfer?.files || [])]; if (files.length) upload(files, !!state?.videos?.length); });
 
+function audioTrackLabel(track, fallbackIndex = 0) {
+  const number = Number.isInteger(track?.index) ? track.index + 1 : fallbackIndex + 1;
+  const details = [];
+  const title = String(track?.title || '').trim();
+  const language = String(track?.language || '').trim();
+  if (title) details.push(title);
+  else if (language) details.push(language.toUpperCase());
+  if (title && language && !title.toLowerCase().includes(language.toLowerCase())) details.push(language.toUpperCase());
+  if (Number(track?.channels) > 0) details.push(Number(track.channels) === 1 ? 'mono' : Number(track.channels) === 2 ? 'stereo' : `${track.channels} ch`);
+  if (track?.default) details.push('default');
+  return `Track ${number}${details.length ? ' — ' + details.join(' · ') : ''}`;
+}
+function refreshAudioTrackSelector() {
+  const field = $('audioTrackField'), select = $('audioTrack');
+  if (!field || !select) return;
+  const video = selectedVideo();
+  const config = clipConfigs[selectedID];
+  const tracks = video?.info?.audioTracks || [];
+  const count = Number(video?.info?.audioStreams || tracks.length || 0);
+  field.classList.toggle('hidden', count <= 1);
+  select.replaceChildren();
+  if (count <= 0) {
+    const option = document.createElement('option'); option.value='0'; option.textContent='No audio tracks'; select.append(option);
+    select.disabled = true;
+    if (config) config.audioTrack = 0;
+    return;
+  }
+  for (let index=0; index<count; index++) {
+    const option=document.createElement('option');
+    option.value=String(index); option.textContent=audioTrackLabel(tracks[index], index); select.append(option);
+  }
+  let chosen = Number(config?.audioTrack || 0);
+  if (!Number.isInteger(chosen) || chosen < 0 || chosen >= count) chosen = 0;
+  if (config) config.audioTrack = chosen;
+  select.value=String(chosen);
+  select.disabled=!!state?.converting;
+}
+
 function renderClips() {
   if (!state?.videos) return;
   const html = state.videos.map((video, index) => {
@@ -284,6 +322,7 @@ function renderClips() {
   for (const button of $('clips').querySelectorAll('[data-relink]')) button.onclick = event => { event.stopPropagation(); relinkVideo(+button.dataset.relink); };
   const video = selectedVideo();
   $('clipInfo').textContent = video?.info ? 'Previewing ' + video.name + ' • ' + video.info.fps.toFixed(2) + ' source fps' : (video?.error || '');
+  refreshAudioTrackSelector();
   if (romTitleAuto && state.videos[0]) $('romTitle').value = titleFromFilename(state.videos[0].name);
   $('moveUp').disabled = selectedIndex() <= 0 || state.converting;
   $('moveDown').disabled = selectedIndex() < 0 || selectedIndex() >= state.videos.length - 1 || state.converting;
@@ -694,6 +733,7 @@ function refreshScope(force) {
   $('clipIdentitySection').classList.toggle('hidden', editScope !== 'clip');
   const config = clipConfigs[selectedID];
   if (!config) return;
+  refreshAudioTrackSelector();
   const custom = editScope === 'clip' && !config.useProject;
   $('scopeBadge').textContent = editScope === 'project' ? 'Project settings' : (custom ? 'Custom settings' : 'Project settings');
   $('scopeBadge').className = 'scope-badge ' + (custom ? 'custom' : 'project');
@@ -721,7 +761,7 @@ $('useProject').onchange = () => {
   const config = clipConfigs[selectedID];
   if (!config) return;
   if (!config.useProject && $('useProject').checked) config.useProject = true;
-  else if (config.useProject && !$('useProject').checked) Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title});
+  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack}); }
   refreshScope(true); renderClips(); estimate();
 };
 function savePerClipField(id) {
@@ -737,6 +777,11 @@ function savePerClipField(id) {
   estimate();
   if (['start','end','fit','speed'].includes(id)) { syncTimeline(false); updatePreview(); }
 }
+$('audioTrack').addEventListener('change', () => {
+  const config=clipConfigs[selectedID]; if (!config) return;
+  config.audioTrack=Number($('audioTrack').value) || 0;
+  if (audioURL) { URL.revokeObjectURL(audioURL); audioURL=''; $('audioPlayer').removeAttribute('src'); }
+});
 for (const id of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode']) $(id).addEventListener('input', () => savePerClipField(id));
 for (const id of ['fps','seekSeconds','compression','normalize','limiter','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit']) $(id).addEventListener('input', () => { $('preset').value = 'custom'; estimate(); });
 $('splitVideo').addEventListener('change', () => { updateSplitControls(); $('preset').value = 'custom'; estimate(); });
@@ -914,7 +959,7 @@ function values() {
     ...global, ...projectDefaults,
     clips: state.videos.map(video => {
       const config = clipConfigs[video.id];
-      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,volume:Number(config.volume),loop:!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode};
+      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode};
     })
   };
 }
@@ -1168,7 +1213,7 @@ function applyPendingProject() {
     rebuildMenuTheme();
   }
   clipConfigs = {};
-  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered'};
+  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered'};
   ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
 }
 async function saveProject() {
