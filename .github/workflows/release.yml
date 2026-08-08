@@ -125,67 +125,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p _vendor
-          python -m pip download \
-            --only-binary=:all: \
-            --no-deps \
-            --platform win_amd64 \
-            --implementation py \
-            --python-version 3 \
-            --abi none \
-            --dest _vendor \
-            shaka-streamer-binaries==1.5.1
+          FFMPEG_TAG="autobuild-2026-08-07-13-13"
+          FFMPEG_ARCHIVE="ffmpeg-master-latest-win64-lgpl.zip"
+          FFMPEG_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_TAG}"
 
-          wheel="$(find _vendor -maxdepth 1 -name 'shaka_streamer_binaries-1.5.1-*-win_amd64.whl' -print -quit)"
-          if [[ -z "$wheel" ]]; then
-            echo "::error::The pinned Windows wheel was not downloaded."
+          mkdir -p _vendor/ffmpeg
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "${FFMPEG_BASE}/checksums.sha256" \
+            --output _vendor/checksums.sha256
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "${FFMPEG_BASE}/${FFMPEG_ARCHIVE}" \
+            --output "_vendor/${FFMPEG_ARCHIVE}"
+
+          expected="$(awk -v name="${FFMPEG_ARCHIVE}" '$2 == name || $2 == "*" name { print $1; exit }' _vendor/checksums.sha256)"
+          if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "::error::Could not find ${FFMPEG_ARCHIVE} in the pinned release checksum list."
             exit 1
           fi
+          echo "${expected}  _vendor/${FFMPEG_ARCHIVE}" | sha256sum -c -
 
-          echo "240b5a649527f1ddd8b95e7856a0e830c5da02664be5d45032654d274ead7a8c  $wheel" | sha256sum -c -
+          unzip -q "_vendor/${FFMPEG_ARCHIVE}" -d _vendor/ffmpeg
+          candidate="$(find _vendor/ffmpeg -type f -path '*/bin/ffmpeg.exe' -print -quit)"
+          if [[ -z "${candidate}" ]]; then
+            echo "::error::No ffmpeg.exe was found in the pinned archive."
+            exit 1
+          fi
+          cp "${candidate}" ffmpeg.exe
 
-          # Do not assume where the wheel stores FFmpeg or what its internal
-          # filename is. Find the Windows PE binary by its MZ header and copy
-          # it to the portable package under the name the app expects.
-          WHEEL="$wheel" python - <<'PY'
-          import os
-          import pathlib
-          import zipfile
-
-          wheel = pathlib.Path(os.environ["WHEEL"])
-          output = pathlib.Path("ffmpeg.exe")
-
-          with zipfile.ZipFile(wheel) as archive:
-              names = sorted(
-                  archive.namelist(),
-                  key=lambda name: (
-                      pathlib.PurePosixPath(name).name.lower() not in {"ffmpeg", "ffmpeg.exe"},
-                      len(name),
-                      name,
-                  ),
-              )
-              for name in names:
-                  base = pathlib.PurePosixPath(name).name.lower()
-                  if "ffmpeg" not in base or name.endswith("/"):
-                      continue
-                  data = archive.read(name)
-                  if data.startswith(b"MZ"):
-                      output.write_bytes(data)
-                      print(f"Extracted {name} -> {output}")
-                      break
-              else:
-                  raise SystemExit("No Windows FFmpeg PE executable was found in the verified wheel")
-
-          if output.stat().st_size < 1_000_000:
-              raise SystemExit("Extracted FFmpeg executable is unexpectedly small")
-          PY
-
-          test -s ffmpeg.exe
           python - <<'PY'
           from pathlib import Path
-          data = Path("ffmpeg.exe").read_bytes()[:2]
-          if data != b"MZ":
+
+          path = Path("ffmpeg.exe")
+          data = path.read_bytes()
+          if data[:2] != b"MZ":
               raise SystemExit("ffmpeg.exe is not a Windows PE executable")
+          if len(data) < 1_000_000:
+              raise SystemExit("Extracted FFmpeg executable is unexpectedly small")
+          if b"--enable-libdav1d" not in data and b"--enable-libaom" not in data:
+              raise SystemExit("Pinned FFmpeg build has no verified software AV1 decoder")
+          print(f"Verified software-AV1-capable FFmpeg: {len(data)} bytes")
           PY
 
       - name: Package portable ZIP

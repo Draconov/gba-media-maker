@@ -422,7 +422,7 @@ func extractTitleCardBackground(opt ProjectOptions, input ClipInput, settings Ti
 		"-vf", makePreviewFilter(opt.FitMode), "-threads", "1",
 		"-pix_fmt", "rgb24", "-f", "rawvideo", outPath)
 	if err != nil {
-		return nil, fmt.Errorf("title-card frame extraction failed: %s", strings.TrimSpace(string(output)))
+		return nil, ffmpegVideoError("FFmpeg could not extract the title-card frame", output)
 	}
 	data, err := os.ReadFile(outPath)
 	if err != nil {

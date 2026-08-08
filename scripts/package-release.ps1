@@ -14,7 +14,15 @@ Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $stage -ItemType Directory -Force | Out-Null
 $ffmpeg = Join-Path $root "ffmpeg.exe"
 if (-not (Test-Path $ffmpeg)) {
-    throw "ffmpeg.exe is required beside the project before packaging. The app no longer downloads executables at runtime."
+    throw "ffmpeg.exe is required beside the project before packaging. Run .\scripts\fetch-ffmpeg.ps1 to fetch the pinned build."
+}
+
+$decoders = (& $ffmpeg -hide_banner -decoders 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0) {
+    throw "ffmpeg.exe could not list its decoders."
+}
+if ($decoders -notmatch "libdav1d" -and $decoders -notmatch "libaom-av1") {
+    throw "ffmpeg.exe has no software AV1 decoder. Run .\scripts\fetch-ffmpeg.ps1 to install the pinned compatible build."
 }
 
 Copy-Item (Join-Path $root "GBA Video Maker.exe") $stage

@@ -432,12 +432,22 @@ func audioFilters(opt ProjectOptions, info MediaInfo) []string {
 	return filters
 }
 
+func ffmpegVideoError(prefix string, output []byte) error {
+	detail := strings.TrimSpace(string(output))
+	lower := strings.ToLower(detail)
+	if strings.Contains(lower, "hardware accelerated av1 decoding") ||
+		(strings.Contains(lower, "decoder: function not implemented") && strings.Contains(lower, "/av1")) {
+		return fmt.Errorf("%s:\nThis FFmpeg build cannot decode AV1 in software. Use an FFmpeg build with libdav1d or libaom AV1 decoding support.\n\nFFmpeg details:\n%s", prefix, detail)
+	}
+	return fmt.Errorf("%s:\n%s", prefix, detail)
+}
+
 func extractFrames(opt ProjectOptions, input string, duration float64, path string, progress ProgressFunc) error {
 	fps := gbaRefresh / float64(opt.VBlanks)
 	vf := makeVideoFilter(opt.FitMode, opt.Speed, fps)
 	output, err := runCommand(opt.FFmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-an", "-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo", path)
 	if err != nil {
-		return fmt.Errorf("FFmpeg could not convert the video:\n%s", strings.TrimSpace(string(output)))
+		return ffmpegVideoError("FFmpeg could not convert the video", output)
 	}
 	st, err := os.Stat(path)
 	if err != nil || st.Size() < frameBytes*3 {
@@ -2426,7 +2436,7 @@ func generatePreviewContext(parent context.Context, ffmpegPath, input string, ti
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return fmt.Errorf("preview failed: %s", strings.TrimSpace(string(output)))
+		return ffmpegVideoError("Preview failed", output)
 	}
 	return nil
 }

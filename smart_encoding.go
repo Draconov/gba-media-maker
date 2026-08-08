@@ -151,7 +151,7 @@ func extractSmartScanContext(parent context.Context, ffmpegPath, input string, s
 	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", start), "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-vf", fmt.Sprintf("fps=%.8f,scale=%d:%d:flags=area", fps, frameWidth, frameHeight), "-pix_fmt", "rgb24", "-f", "rawvideo", output}
 	out, err := runCommandContext(ctx, ffmpegPath, args...)
 	if err != nil {
-		return 0, fmt.Errorf("smart scan failed: %s", string(out))
+		return 0, ffmpegVideoError("FFmpeg smart scan failed", out)
 	}
 	st, err := os.Stat(output)
 	if err != nil {

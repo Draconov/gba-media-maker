@@ -139,7 +139,7 @@ The player validates these values before showing the continue/restart prompt.
 - Listener restricted to `127.0.0.1`
 - Random token in all API paths
 - Upload-size cap
-- Pinned FFmpeg download hash
+- Pinned FFmpeg release plus SHA-256 archive verification and software-AV1 capability check
 - Argument-array process execution rather than shell commands
 - Sanitized output names
 - Temporary per-session workspace

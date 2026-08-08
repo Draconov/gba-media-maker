@@ -12,4 +12,4 @@ Include reproduction steps, affected version, operating system, and impact. Do n
 
 ## Local service design
 
-The app binds to loopback only, uses a random per-session URL token, limits upload size, and verifies the pinned FFmpeg download by SHA-256. Changes that weaken any of those properties require an explicit security review.
+The app binds to loopback only, uses a random per-session URL token, limits upload size, and verifies the pinned FFmpeg archive against the SHA-256 checksum list published with the pinned binary release. Changes that weaken any of those properties require an explicit security review.
