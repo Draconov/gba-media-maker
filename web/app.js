@@ -995,8 +995,10 @@ function estimateModel(model) {
     paletteBytes += palettes * 512 + (palettes > 1 ? frameCount * 2 : 0);
     if (clip.audio !== 'none' && video.info.audioStreams) {
       const requested = model.global.preset === 'extreme' ? model.global.audioQuality : 'pcm';
-      const codec = requested === 'auto' ? (smartAnalysis?.recommended?.audioCodec || 'pcm') : requested;
-      audioBytes += displayDuration * 16384 * (codec === 'adpcm' ? 0.505 : 1) + frameCount * 4;
+      const pcmBytes = displayDuration * 16384;
+      const targetBytes = Math.max(1, Math.min(32, Number(model.global.smartTargetMiB) || 32)) * MIB;
+      const codec = requested === 'auto' && model.global.preset === 'extreme' && pcmBytes > targetBytes / 3 ? 'adpcm' : (requested === 'adpcm' ? 'adpcm' : 'pcm');
+      audioBytes += pcmBytes * (codec === 'adpcm' ? 0.505 : 1) + frameCount * 4;
     }
   }
   const bytes = Math.ceil(player + videoBytes + audioBytes + paletteBytes + indexBytes);

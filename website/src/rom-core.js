@@ -561,6 +561,7 @@ export function convertRawClip({
   const errorCurrent = new Int32Array((FRAME_WIDTH + 2) * 3);
   const errorNext = new Int32Array((FRAME_WIDTH + 2) * 3);
   let lastKeyframe = 0;
+  let changeBudget = 0;
 
   for (let frame = 0; frame < frameCount; frame += 1) {
     const sourceStart = frame * RGB_FRAME_BYTES;
@@ -588,15 +589,17 @@ export function convertRawClip({
         let changed = 0;
         if (adaptiveKeyframes) {
           for (let i = 0; i < current.length; i += 1) if (current[i] !== previous[i]) changed += 1;
+          changeBudget += changed;
         }
         const forceKey = adaptiveKeyframes
-          ? sceneBoundary || distance >= maxAdaptive || (distance >= 8 && delta.length > FRAME_BYTES * 0.82) || (distance >= keyInterval && changed > FRAME_BYTES * 0.72)
+          ? sceneBoundary || distance >= maxAdaptive || (distance >= 8 && delta.length > FRAME_BYTES * 82 / 100) || (distance >= keyInterval && changeBudget > FRAME_BYTES * 5)
           : fixedKey;
         if (!forceKey && delta.length < current.length) {
           type = 1;
           payload = delta;
         } else {
           lastKeyframe = frame;
+          changeBudget = 0;
         }
       } else {
         lastKeyframe = 0;

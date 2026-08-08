@@ -971,3 +971,84 @@ func TestAudioTrackSelectionProducesDifferentPreviewStreams(t *testing.T) {
 		t.Fatal("different input audio tracks produced identical preview data")
 	}
 }
+
+func TestCanonicalBrowserProjectSchemaLoadsInDesktop(t *testing.T) {
+	raw := `{
+  "format": "gba-video-maker-project",
+  "version": 1,
+  "appVersion": "0.12.2",
+  "settings": {
+    "preset": "extreme",
+    "audioQuality": "auto",
+    "smartTargetMiB": 24,
+    "smartPriority": "balanced",
+    "start": "0:02",
+    "end": "1:05",
+    "speed": 1.25,
+    "fps": "classic",
+    "fit": "crop",
+    "audio": "left",
+    "volume": 85,
+    "loop": true,
+    "romTitle": "PROJECT",
+    "seekSeconds": 10,
+    "normalize": true,
+    "limiter": true,
+    "resume": true,
+    "compression": "delta",
+    "paletteMode": "scene",
+    "ditherMode": "ordered",
+    "outputMode": "rom",
+    "splitVideo": true,
+    "splitBudgetMiB": 24,
+    "maxPartDuration": "12:30",
+    "chapterAware": true,
+    "partTitleScreens": false,
+    "resumeLongSplit": true,
+    "menuBackground": "classic-dark",
+    "menuUIColor": "#FFFFFF",
+    "menuSelectionColor": "#FFDE00",
+    "menuOutline": true,
+    "menuOutlineColor": "#000000"
+  },
+  "clips": [{
+    "path": "",
+    "name": "movie.mkv",
+    "size": 123456789,
+    "lastModified": 1700000000123,
+    "settings": {
+      "title": "MOVIE",
+      "useProject": false,
+      "start": "0:03",
+      "end": "0:55",
+      "speed": 1.5,
+      "fit": "stretch",
+      "audio": "right",
+      "audioTrack": 1,
+      "volume": 70,
+      "loop": false,
+      "paletteMode": "shared",
+      "ditherMode": "off"
+    }
+  }]
+}`
+	var doc projectDocument
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&doc); err != nil {
+		t.Fatalf("browser canonical project does not fit desktop schema: %v", err)
+	}
+	if doc.Format != "gba-video-maker-project" || doc.Version != 1 || len(doc.Clips) != 1 {
+		t.Fatalf("unexpected project identity: %+v", doc)
+	}
+	clip := doc.Clips[0]
+	if clip.Path != "" || clip.Name != "movie.mkv" || clip.Size != 123456789 || clip.LastModified != 1700000000123 {
+		t.Fatalf("browser relink hints were not preserved: %+v", clip)
+	}
+	if clip.Settings.AudioTrack != 1 || clip.Settings.Fit != "stretch" || clip.Settings.Volume != 70 {
+		t.Fatalf("browser clip settings did not map to desktop schema: %+v", clip.Settings)
+	}
+	if doc.Settings.FPS != "classic" || doc.Settings.MaxPartDuration != "12:30" || doc.Settings.AudioQuality != "auto" {
+		t.Fatalf("browser project settings did not map to desktop schema: %+v", doc.Settings)
+	}
+}

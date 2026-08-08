@@ -3,6 +3,8 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { AUDIO_RATE, GBA_REFRESH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.js";
 import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
+import { canonicalProjectFromBrowser, normalizeBrowserProjectDocument } from "./project-format.js";
+import { batchRomFileName, buildOptimizerProposal, conversionOutputFileName as desktopOutputFileName, FPS_VBLANKS, parsePartDuration, resolveAudioCodec, splitArchiveFileName, splitPartFileName, VBLANKS_FPS } from "./parity-utils.js";
 import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
 import { buildTitleCardAsset, createTitleCardProject, defaultTitleCardSettings, normalizeTitleCardSettings, renderTitleCardPreview, resolveTitleCardSettings, sanitizeTitleCardText, TITLE_CARD_BYTES } from "./title-cards.js";
 import { analyzeSmartScan } from "./smart-encoding.js";
@@ -213,6 +215,7 @@ let titleCardPreviewVideo = null;
 let titleCardPreviewURL = "";
 let titleCardPreviewToken = 0;
 let titleCardVisibilitySignature = "";
+let romTitleAuto = true;
 
 function menuStyleSettings() {
   return { uiColor: elements.menuUIColor?.value || "#FFFFFF", selectedColor: elements.menuSelectionColor?.value || "#FFDE00", outline: Boolean(elements.menuOutline?.checked), outlineColor: elements.menuOutlineColor?.value || "#000000" };
@@ -521,15 +524,15 @@ function titleFromFile(file) {
   return sanitizeMenuTitle(base) || "VIDEO";
 }
 
+function romTitleFromFile(file) {
+  return sanitizeGBAText(String(file?.name || "").replace(/\.[^.]+$/, ""), 12).text || "GBA VIDEO";
+}
+
 function cleanFileBase(value, fallback = "GBA_VIDEO") {
   return String(value || fallback)
     .trim()
     .replace(/[^A-Za-z0-9_-]+/g, "_")
     .replace(/^_+|_+$/g, "") || fallback;
-}
-
-function outputFileName(romTitle, extension = "gba") {
-  return `${cleanFileBase(romTitle, "gba-video")}.${extension}`;
 }
 
 function makeEntry(file) {
@@ -565,6 +568,7 @@ function addFiles(fileList) {
     if (existing.has(key)) continue;
     const entry = makeEntry(file);
     entries.push(entry);
+    if (romTitleAuto && entries.length === 1) elements.romTitle.value = romTitleFromFile(file);
     if (!selectedEntryId) selectedEntryId = entry.id;
     existing.add(key);
     hydrateEntryMetadata(entry).then(() => { applyPendingProjectMatches(); renderFiles(); updateEstimate(); }).catch(() => {});
@@ -626,38 +630,19 @@ function updateSplitVisibility() {
   elements.splitBudgetValue.textContent = `${elements.splitBudget.value} MiB`;
 }
 
-function projectSettingsSnapshot() {
-  const project = currentOptions();
+function projectSettingsSnapshot(includeMenuTheme = true) {
+  const project = currentOptions(includeMenuTheme);
   return {
     ...project,
     preset: elements.preset.value,
-    smartAnalysis,
     splitVideo: elements.splitVideo.checked,
     splitBudgetMiB: Number(elements.splitBudget.value),
-    maxPartDuration: elements.maxPartDuration.value,
+    maxPartDuration: elements.maxPartDuration.value.trim() || "0",
     chapterAware: elements.chapterAware.checked,
     partTitleScreens: elements.partTitleScreens.checked,
     titleCards: serializedTitleCards(),
     resumeLongSplit: elements.resumeLongSplit.checked,
     menuTheme: includeMenuTheme && elements.outputMode.value === "menu" ? serializedMenuTheme() : null,
-  };
-}
-
-function clipSnapshot(entry) {
-  return {
-    source: { name: entry.file.name, size: entry.file.size, lastModified: entry.file.lastModified },
-    title: entry.title,
-    useProject: entry.useProject,
-    start: entry.start,
-    end: entry.end,
-    speed: entry.speed,
-    fitMode: entry.fitMode,
-    audioMode: entry.audioMode,
-    audioTrack: Number(entry.audioTrack) || 0,
-    volume: entry.volume,
-    loop: entry.loop,
-    paletteMode: entry.paletteMode,
-    ditherMode: entry.ditherMode,
   };
 }
 
@@ -673,12 +658,11 @@ function downloadBlob(blob, fileName) {
 }
 
 function saveProject() {
-  const data = {
-    format: "GBA Video Maker Project",
-    version: 1,
+  const data = canonicalProjectFromBrowser({
     settings: projectSettingsSnapshot(),
-    clips: entries.map(clipSnapshot),
-  };
+    entries,
+    appVersion: "0.12.2",
+  });
   const base = cleanFileBase(elements.romTitle.value || "GBA_VIDEO", "GBA_VIDEO");
   downloadBlob(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" }), `${base}.gbavideo`);
 }
@@ -708,6 +692,7 @@ function applySettings(settings = {}) {
     elements.defaultVolume.value = String(savedVolume <= 2 ? Math.round(savedVolume * 100) : savedVolume);
   } else elements.defaultVolume.value = "100";
   assign(elements.romTitle, "romTitle", "GBA VIDEO");
+  romTitleAuto = false;
   elements.defaultLoop.checked = Boolean(settings.defaultLoop);
   elements.normalize.checked = Boolean(settings.normalize);
   elements.limiter.checked = settings.limiter !== false;
@@ -730,12 +715,10 @@ function applySettings(settings = {}) {
   }
   if (settings.preset) elements.preset.value = settings.preset;
   if (elements.preset.value !== "extreme") elements.audioQuality.value = "pcm";
-  smartAnalysis = settings.smartAnalysis || null;
+  smartAnalysis = null;
+  elements.smartResults.hidden = true;
+  elements.smartStatus.textContent = "Not analyzed";
   updateExtremeVisibility();
-  if (smartAnalysis?.recommended) {
-    renderSmartResults(smartAnalysis);
-    elements.smartStatus.textContent = `Saved analysis restored · ${smartAnalysis.confidence || "unknown"} confidence`;
-  }
 }
 
 function applyPendingProjectMatches() {
@@ -744,7 +727,14 @@ function applyPendingProjectMatches() {
   const orderedMatches = [];
   const used = new Set();
   for (const saved of pendingProject.clips) {
-    const match = entries.find((entry) => !used.has(entry.id) && entry.file.name === saved.source?.name && entry.file.size === saved.source?.size);
+    const savedName = saved.source?.name || "";
+    const savedSize = Number(saved.source?.size) || 0;
+    const savedModified = Number(saved.source?.lastModified) || 0;
+    const candidates = entries.filter((entry) => {
+      if (used.has(entry.id) || entry.file.name !== savedName) return false;
+      return !savedSize || entry.file.size === savedSize;
+    });
+    const match = candidates.find((entry) => savedModified && entry.file.lastModified === savedModified) || candidates[0];
     if (!match) { unmatched.push(saved); continue; }
     used.add(match.id);
     Object.assign(match, {
@@ -773,13 +763,14 @@ function applyPendingProjectMatches() {
 
 async function openProjectFile(file) {
   const parsed = JSON.parse(await file.text());
-  if (!parsed || parsed.format !== "GBA Video Maker Project" || !Array.isArray(parsed.clips)) throw new Error("This is not a valid .gbavideo project.");
-  applySettings(parsed.settings || {});
-  pendingProject = parsed;
+  const normalized = normalizeBrowserProjectDocument(parsed);
+  applySettings(normalized.settings);
+  pendingProject = normalized;
   applyPendingProjectMatches();
   updateOutputModes();
   renderFiles();
   updateEstimate();
+  syncSelectedPreview(true);
   if (pendingProject) elements.projectNotice.textContent = `Project loaded. Select ${pendingProject.clips.length} source video${pendingProject.clips.length === 1 ? "" : "s"} to relink.`;
 }
 
@@ -801,7 +792,7 @@ function estimateProject(project = currentOptions(false)) {
     videoBytes += (raw * ratio + (project.compression === "delta" ? clipFrames * 12 : 0)) * adaptiveFactor;
     if (clip.audioMode !== "none" && entry.hasAudio !== false) {
       const pcmBytes = duration * AUDIO_RATE;
-      const codec = project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality;
+      const codec = resolveAudioCodec(project.audioQuality, project.extremeOptimization, pcmBytes, project.smartTargetMiB);
       audioBytes += codec === "adpcm" ? pcmBytes * 0.505 + 20 : pcmBytes;
     }
     paletteBytes += (clip.paletteMode === "scene" ? Math.max(1, Math.ceil(duration / 30)) : 1) * 512 + clipFrames * (clip.paletteMode === "scene" ? 2 : 0);
@@ -811,7 +802,7 @@ function estimateProject(project = currentOptions(false)) {
   let totalBytes = metadataBytes + videoBytes + audioBytes + paletteBytes;
   const budgetMiB = elements.splitVideo.checked ? Number(elements.splitBudget.value) : 32;
   const budget = Math.max(1, Math.min(32, budgetMiB)) * 1048576;
-  const maxPartSeconds = elements.splitVideo.checked ? parseClock(elements.maxPartDuration.value) : 0;
+  const maxPartSeconds = elements.splitVideo.checked ? parsePartDuration(elements.maxPartDuration.value) : 0;
   let partsBySize = Math.max(1, Math.ceil(totalBytes / budget));
   let partsByDuration = Number.isFinite(maxPartSeconds) && maxPartSeconds > 0 ? Math.max(1, Math.ceil(totalDuration / maxPartSeconds)) : 1;
   const needsSplit = entries.length === 1 && elements.outputMode.value === "rom" && (elements.splitVideo.checked || totalBytes > ROM_LIMIT);
@@ -834,9 +825,9 @@ function updateEstimate() {
     if (elements.titleCardGroup) elements.titleCardGroup.hidden = true;
     return;
   }
-  const durationError = elements.splitVideo.checked && !Number.isFinite(parseClock(elements.maxPartDuration.value));
+  const durationError = elements.splitVideo.checked && !Number.isFinite(parsePartDuration(elements.maxPartDuration.value));
   if (durationError) {
-    elements.estimateArea.textContent = "Maximum duration must be 0, seconds, MM:SS, or H:MM:SS.";
+    elements.estimateArea.textContent = "Maximum duration must be 0 or MM:SS, for example 1:05.";
     elements.optimizerButton.disabled = false;
     return;
   }
@@ -849,39 +840,110 @@ function updateEstimate() {
   updateTitleCardVisibility(lastEstimate);
 }
 
+function optimizerSnapshot() {
+  const clips = {};
+  for (const entry of entries) {
+    clips[entry.id] = {
+      title: entry.title,
+      useProject: entry.useProject !== false,
+      start: Number(entry.start) || 0,
+      end: Number(entry.end) || 0,
+      speed: Number(entry.speed) || 1,
+      fit: entry.fitMode || "fit",
+      audio: entry.audioMode || "mix",
+      audioTrack: Number(entry.audioTrack) || 0,
+      volume: Number.isFinite(Number(entry.volume)) ? Number(entry.volume) : 1,
+      loop: Boolean(entry.loop),
+      paletteMode: entry.paletteMode || "shared",
+      ditherMode: entry.ditherMode || "ordered",
+    };
+  }
+  return {
+    global: {
+      fps: VBLANKS_FPS[Number(elements.vblanks.value)] || "balanced",
+      compression: elements.compression.value,
+      outputMode: elements.outputMode.value,
+      preset: elements.preset.value,
+      audioQuality: elements.audioQuality.value,
+      smartTargetMiB: Number(elements.smartTarget.value) || 32,
+      normalize: elements.normalize.checked,
+      limiter: elements.limiter.checked,
+    },
+    defaults: {
+      start: clampNumber(elements.defaultStart.value, 0, 86400),
+      end: Math.max(0, numericOr(elements.defaultEnd.value, 0)),
+      speed: clampNumber(elements.defaultSpeed.value, 0.5, 3),
+      fit: elements.fitMode.value,
+      audio: elements.audioMode.value,
+      volume: clampNumber(elements.defaultVolume.value, 0, 200) / 100,
+      loop: elements.defaultLoop.checked,
+      paletteMode: elements.paletteMode.value,
+      ditherMode: elements.ditherMode.value,
+    },
+    clips,
+  };
+}
+
+function applyOptimizerModel(model) {
+  elements.vblanks.value = String(FPS_VBLANKS[model.global.fps] || 5);
+  elements.compression.value = model.global.compression;
+  elements.normalize.checked = Boolean(model.global.normalize);
+  elements.limiter.checked = Boolean(model.global.limiter);
+  elements.defaultStart.value = String(model.defaults.start || 0);
+  elements.defaultEnd.value = Number(model.defaults.end) > 0 ? String(model.defaults.end) : "";
+  elements.defaultSpeed.value = String(model.defaults.speed || 1);
+  elements.fitMode.value = model.defaults.fit || "fit";
+  elements.audioMode.value = model.defaults.audio || "mix";
+  elements.defaultVolume.value = String(Math.round((Number.isFinite(Number(model.defaults.volume)) ? Number(model.defaults.volume) : 1) * 100));
+  elements.defaultLoop.checked = Boolean(model.defaults.loop);
+  elements.paletteMode.value = model.defaults.paletteMode || "shared";
+  elements.ditherMode.value = model.defaults.ditherMode || "ordered";
+  for (const entry of entries) {
+    const config = model.clips[entry.id];
+    if (!config) continue;
+    entry.title = config.title || entry.title;
+    entry.useProject = config.useProject !== false;
+    entry.start = Number(config.start) || 0;
+    entry.end = Number(config.end) || 0;
+    entry.speed = Number(config.speed) || 1;
+    entry.fitMode = config.fit || "fit";
+    entry.audioMode = config.audio || "mix";
+    entry.audioTrack = Number(config.audioTrack) || 0;
+    entry.volume = Number.isFinite(Number(config.volume)) ? Number(config.volume) : 1;
+    entry.loop = Boolean(config.loop);
+    entry.paletteMode = config.paletteMode || "shared";
+    entry.ditherMode = config.ditherMode || "ordered";
+  }
+  elements.preset.value = "custom";
+  updateExtremeVisibility();
+}
+
 function optimizeToFit() {
   if (!entries.length) return;
-  const controls = [elements.compression, elements.paletteMode, elements.ditherMode, elements.vblanks, elements.audioMode];
-  const original = controls.map((control) => control.value);
-  let estimate = estimateProject();
-  if (estimate.totalBytes <= ROM_LIMIT) {
-    elements.projectNotice.textContent = "The current estimate already fits one 32 MiB ROM.";
+  const metadata = entries.map((entry) => ({
+    id: entry.id,
+    name: entry.file.name,
+    duration: Number(entry.duration) || 0,
+    hasAudio: entry.hasAudio !== false,
+  }));
+  const proposal = buildOptimizerProposal(optimizerSnapshot(), metadata, selectedEntryId, {
+    romLimit: ROM_LIMIT,
+    menuThemeBytes: elements.outputMode.value === "menu" ? menuThemeBytes() : 0,
+    audioRate: AUDIO_RATE,
+  });
+  if (proposal.noop) {
+    elements.projectNotice.textContent = proposal.before?.error || "The current estimate already fits one 32 MiB ROM.";
     return;
   }
-  const proposals = [
-    [elements.compression, "delta", "enable delta + keyframe compression"],
-    [elements.paletteMode, "shared", "use a shared palette"],
-    [elements.ditherMode, "off", "disable dithering"],
-    [elements.vblanks, "8", "use Compact 7.47 FPS"],
-    [elements.audioMode, "none", "disable audio"],
-  ];
-  const changes = [];
-  for (const [control, value, description] of proposals) {
-    if (control.value === value) continue;
-    control.value = value;
-    changes.push(description);
-    estimate = estimateProject();
-    if (estimate.totalBytes <= ROM_LIMIT) break;
-  }
-  const proposalValues = controls.map((control) => control.value);
-  controls.forEach((control, index) => { control.value = original[index]; });
-  const message = `${changes.length ? changes.map((change) => `• ${change}`).join("\n") : "No smaller settings remain."}\n\nEstimated result: ${formatBytes(estimate.totalBytes)}.${estimate.totalBytes > ROM_LIMIT ? " Automatic splitting will still be needed." : ""}\n\nApply these changes?`;
-  if (!changes.length || !confirm(message)) return;
-  controls.forEach((control, index) => { control.value = proposalValues[index]; });
-  elements.preset.value = "custom";
+  const result = proposal.after;
+  const message = `${proposal.changes.length ? proposal.changes.map((change) => `• ${change}`).join("\n") : "No smaller settings remain."}\n\nEstimated result: ${formatBytes(result.bytes)}.${result.bytes > ROM_LIMIT ? " Automatic splitting will still be needed." : ""}\n\nApply these changes?`;
+  if (!proposal.changes.length || !confirm(message)) return;
+  applyOptimizerModel(proposal.model);
+  resetResult();
+  renderFiles();
   updateEstimate();
-  syncSelectedPreview();
-  elements.projectNotice.textContent = estimate.totalBytes <= ROM_LIMIT
+  syncSelectedPreview(true);
+  elements.projectNotice.textContent = result.bytes <= ROM_LIMIT
     ? "Applied the reviewed optimizer proposal."
     : "Applied the smallest reviewed proposal; automatic splitting is still required.";
 }
@@ -930,6 +992,24 @@ function revokePreviewURLs() {
   audioPreviewURL = "";
 }
 
+function applyPreviewFraming(fitMode) {
+  const mode = fitMode === "crop" || fitMode === "stretch" ? fitMode : "fit";
+  elements.previewVideo.dataset.fitMode = mode;
+  elements.previewVideo.style.objectFit = mode === "crop" ? "cover" : mode === "stretch" ? "fill" : "contain";
+}
+
+function drawFittedPreviewFrame(context, video, fitMode, width = 120, height = 80) {
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, width, height);
+  const sourceWidth = video.videoWidth || width;
+  const sourceHeight = video.videoHeight || height;
+  if (fitMode === "stretch") { context.drawImage(video, 0, 0, width, height); return; }
+  const scale = fitMode === "crop" ? Math.max(width / sourceWidth, height / sourceHeight) : Math.min(width / sourceWidth, height / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(video, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+}
+
 function syncSelectedPreview(force = false) {
   const entry = selectedEntry();
   elements.previewCard.hidden = !entry;
@@ -945,6 +1025,7 @@ function syncSelectedPreview(force = false) {
   const duration = Math.max(0.01, entry.duration || elements.previewVideo.duration || 1);
   const project = currentOptions(false);
   const clip = effectiveClipOptions(entry, project);
+  applyPreviewFraming(clip.fitMode);
   const start = clampNumber(clip.start, 0, duration);
   const end = clip.end > start ? Math.min(clip.end, duration) : duration;
   for (const control of [elements.timelinePlay, elements.timelineStart, elements.timelineEnd]) {
@@ -1067,7 +1148,10 @@ async function renderTimelineThumbnails(entry) {
       const canvas = document.createElement("canvas");
       canvas.width = 120;
       canvas.height = 80;
-      canvas.getContext("2d").drawImage(video, 0, 0, 120, 80);
+      const context = canvas.getContext("2d");
+      const project = currentOptions(false);
+      const clip = effectiveClipOptions(entry, project);
+      drawFittedPreviewFrame(context, video, clip.fitMode, 120, 80);
       elements.timelineThumbs.append(canvas);
     }
   } catch { /* thumbnail preview is optional */ }
@@ -1138,23 +1222,40 @@ function audioTrackChannels(probe, index) {
 function populateAudioTrackSelect(select, entry, loading = false) {
   select.replaceChildren();
   const tracks = entry.audioTracks || [];
+  const showSelector = entry.audioTracksKnown && tracks.length > 1;
+  if (select.parentElement) select.parentElement.hidden = !showSelector;
+
   if (loading && !entry.audioTracksKnown) {
     const option = document.createElement("option");
-    option.value = String(Number(entry.audioTrack) || 0);
+    option.value = "0";
     option.textContent = "Detecting audio tracks…";
-    select.append(option); select.disabled = true; return;
+    select.append(option);
+    select.disabled = true;
+    return;
   }
-  if (entry.audioTracksKnown && tracks.length === 0) {
-    const option = document.createElement("option"); option.value = "0"; option.textContent = "No audio tracks"; select.append(option);
-    entry.audioTrack = 0; select.disabled = true; return;
+
+  if (entry.audioTracksKnown && tracks.length <= 1) {
+    entry.audioTrack = 0;
+    const option = document.createElement("option");
+    option.value = "0";
+    option.textContent = tracks.length === 1 ? audioTrackLabel(tracks[0], 0) : "No audio tracks";
+    select.append(option);
+    select.disabled = true;
+    return;
   }
+
   const count = tracks.length || Math.max(1, (Number(entry.audioTrack) || 0) + 1);
   for (let index = 0; index < count; index += 1) {
-    const option = document.createElement("option"); option.value = String(index); option.textContent = audioTrackLabel(tracks[index], index); select.append(option);
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = audioTrackLabel(tracks[index], index);
+    select.append(option);
   }
   let selected = Number(entry.audioTrack) || 0;
   if (tracks.length && (selected < 0 || selected >= tracks.length)) selected = 0;
-  entry.audioTrack = selected; select.value = String(selected); select.disabled = conversionRunning;
+  entry.audioTrack = selected;
+  select.value = String(selected);
+  select.disabled = conversionRunning;
 }
 
 function queueMetadataTask(task) {
@@ -1393,7 +1494,7 @@ function currentOptions(includeMenuTheme = true) {
     resume: elements.resume.checked,
     splitVideo: elements.splitVideo.checked,
     splitBudgetMiB: Number(elements.splitBudget.value),
-    maxPartSeconds: parseClock(elements.maxPartDuration.value),
+    maxPartSeconds: parsePartDuration(elements.maxPartDuration.value),
     chapterAware: elements.chapterAware.checked,
     partTitleScreens: elements.partTitleScreens.checked,
     titleCards: serializedTitleCards(),
@@ -1868,8 +1969,10 @@ function clipTransferList(clip) {
 
 
 function splitPartRomTitle(base, part) {
-  const suffix = String(part).padStart(2, "0");
-  return `${String(base || "VIDEO").slice(0, 9)}${suffix}`.slice(0, 12);
+  const source = String(base || "").trim() || "GBA VIDEO";
+  const suffix = ` P${String(part).padStart(2, "0")}`;
+  const limit = Math.max(1, 12 - suffix.length);
+  return `${source.slice(0, limit).trim()}${suffix}`.trim();
 }
 
 function recoveryFingerprint(entry, project, start, end) {
@@ -1954,7 +2057,7 @@ async function encodeLoadedRange({ inputName, entry, probe, project, start, end,
     keyInterval: 30,
     adaptiveKeyframes: Boolean(project.extremeOptimization && project.adaptiveKeyframes),
     enhancedSceneDetection: Boolean(project.extremeOptimization && project.enhancedSceneDetection),
-    audioCodec: project.extremeOptimization ? (project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality) : "pcm",
+    audioCodec: resolveAudioCodec(project.audioQuality, project.extremeOptimization, audio.byteLength, project.smartTargetMiB),
     seekSeconds: project.seekSeconds,
     loop: false,
   }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.54, `Part ${part}: ${message}`));
@@ -1994,10 +2097,9 @@ function splitZipResult(parts, entry, estimatedParts, partial = false) {
   const files = parts.map((part) => ({ name: part.name, data: new Uint8Array(part.data) }));
   files.push({ name: "PARTS.txt", data: splitManifest(parts, entry.file.name) });
   const zip = buildStoredZip(files);
-  const base = cleanFileBase(entry.file.name.replace(/\.[^.]+$/, ""), "MY_VIDEO");
   return {
     buffer: zip.buffer,
-    fileName: `${base}_PARTS.zip`,
+    fileName: splitArchiveFileName(entry.file.name),
     mime: "application/zip",
     details: {
       clipCount: parts.length,
@@ -2099,8 +2201,7 @@ async function performLongSplit(playerStub, project) {
       }
       if (!accepted) throw new Error(`Could not fit part ${partNumber} within the selected ROM-size target.`);
 
-      const base = cleanFileBase(entry.file.name.replace(/\.[^.]+$/, ""), "MY_VIDEO");
-      const name = `${base}_PART_${String(partNumber).padStart(2, "0")}.gba`;
+      const name = splitPartFileName(entry.file.name, partNumber);
       const data = accepted.buffer.slice(0);
       parts.push({
         name,
@@ -2142,7 +2243,6 @@ async function performLongSplit(playerStub, project) {
 
 async function assembleBatch(playerStub, clips, project) {
   const files = [];
-  const usedNames = new Map();
   let totalFrames = 0;
   let totalSize = 0;
   for (let index = 0; index < clips.length; index += 1) {
@@ -2153,21 +2253,17 @@ async function assembleBatch(playerStub, clips, project) {
     const assembled = await runRomTask("assembleROM", {
       playerStub: stub,
       clips: [clip],
-      options: { romTitle: clip.title, outputMode: "menu", resume: project.resume },
+      options: { romTitle: project.romTitle, outputMode: "rom", resume: project.resume },
     }, transfers);
-    let base = cleanFileBase(clip.title, `VIDEO_${index + 1}`);
-    const count = usedNames.get(base) || 0;
-    usedNames.set(base, count + 1);
-    if (count) base = `${base}_${count + 1}`;
     const data = new Uint8Array(assembled.buffer);
-    files.push({ name: `${base}.gba`, data });
+    files.push({ name: batchRomFileName(entries[index]?.file?.name), data });
     totalFrames += assembled.details.frameCount;
     totalSize += data.length;
   }
   const zip = buildStoredZip(files);
   return {
     buffer: zip.buffer,
-    fileName: outputFileName(project.romTitle, "zip"),
+    fileName: "GBA_Video_Collection.zip",
     mime: "application/zip",
     details: { clipCount: clips.length, frameCount: totalFrames, paddedSize: totalSize, outputKind: "zip" },
   };
@@ -2176,7 +2272,7 @@ async function assembleBatch(playerStub, clips, project) {
 async function performConversion() {
   const project = currentOptions();
   if (project.splitVideo && !Number.isFinite(project.maxPartSeconds)) {
-    throw new Error("Maximum duration must be 0, seconds, MM:SS, or H:MM:SS.");
+    throw new Error("Maximum duration must be 0 or MM:SS, for example 1:05.");
   }
   await ensureFFmpeg();
   if (conversionCancelled) throw new Error("Conversion cancelled.");
@@ -2239,7 +2335,7 @@ async function performConversion() {
           keyInterval: 30,
           adaptiveKeyframes: Boolean(project.extremeOptimization && project.adaptiveKeyframes),
           enhancedSceneDetection: Boolean(project.extremeOptimization && project.enhancedSceneDetection),
-          audioCodec: project.extremeOptimization ? (project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality) : "pcm",
+          audioCodec: resolveAudioCodec(project.audioQuality, project.extremeOptimization, audio.byteLength, project.smartTargetMiB),
           seekSeconds: project.seekSeconds,
           loop: Boolean(clipOptions.loop),
         }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.6, message));
@@ -2263,7 +2359,7 @@ async function performConversion() {
     updateProgress(100, "ROM ready.");
     return {
       ...assembled,
-      fileName: outputFileName(project.romTitle, "gba"),
+      fileName: desktopOutputFileName(entries.map((entry) => entry.file.name), project.outputMode),
       mime: "application/octet-stream",
     };
   } catch (error) {
@@ -2443,7 +2539,7 @@ async function createAudioPreview() {
     if (code !== 0) throw new Error("Could not create the selected-channel audio preview.");
     let pcm = await ffmpeg.readFile(outputName);
     if (!(pcm instanceof Uint8Array)) pcm = new Uint8Array(pcm);
-    const selected = project.extremeOptimization ? (project.audioQuality === "auto" ? (smartAnalysis?.recommended?.audioCodec || "pcm") : project.audioQuality) : "pcm";
+    const selected = resolveAudioCodec(project.audioQuality, project.extremeOptimization, pcm.byteLength, project.smartTargetMiB);
     if (selected === "adpcm") pcm = decodeIMAADPCM(encodeIMAADPCM(pcm).data).pcm;
     const data = wavFromSigned8(pcm);
     if (audioPreviewURL) URL.revokeObjectURL(audioPreviewURL);
@@ -2577,6 +2673,8 @@ for (const control of [elements.smartTarget, elements.smartPriority, elements.au
 }
 elements.outputMode.addEventListener("change", () => { preferredOutputMode = elements.outputMode.value; updateOutputModes(); updateConvertButton(); resetResult(); updateEstimate(); });
 
+elements.romTitle.addEventListener("input", () => { romTitleAuto = false; });
+
 const ordinarySettings = [
   elements.seekSeconds, elements.defaultStart, elements.defaultEnd, elements.defaultSpeed,
   elements.defaultVolume, elements.defaultLoop, elements.romTitle, elements.resume,
@@ -2610,6 +2708,8 @@ elements.fileInput.addEventListener("change", () => {
 elements.clearButton.addEventListener("click", () => {
   entries = [];
   selectedEntryId = "";
+  romTitleAuto = true;
+  elements.romTitle.value = "";
   titleCardProject = null;
   titleCardProjectSource = "";
   titleCardPart = 1;

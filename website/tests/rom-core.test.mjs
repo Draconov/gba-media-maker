@@ -237,3 +237,34 @@ test("browser ROM stores Cyrillic clip titles as compact one-byte GBA glyph code
   assert.deepEqual([...result.rom.subarray(ASSET_OFFSET + 60, ASSET_OFFSET + 72)], [0x82,0x8c,0x85,0x86,0x93,0x20,0x84,0x87,0x8d,0x88,0x00,0x00]);
   assert.equal(new TextDecoder().decode(result.rom.subarray(0xa0, 0xac)), "MOYE VIDEO  ");
 });
+
+test("adaptive keyframes use the desktop accumulated change budget", () => {
+  const frameCount = 40;
+  const frames = new Uint8Array(RGB_FRAME_BYTES * frameCount);
+  const chunkPixels = FRAME_BYTES / 5;
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const activeChunk = frame % 5;
+    const frameBase = frame * RGB_FRAME_BYTES;
+    const startPixel = activeChunk * chunkPixels;
+    const endPixel = startPixel + chunkPixels;
+    for (let pixel = startPixel; pixel < endPixel; pixel += 1) {
+      const offset = frameBase + pixel * 3;
+      frames[offset] = 255;
+      frames[offset + 1] = 255;
+      frames[offset + 2] = 255;
+    }
+  }
+  const clip = convertRawClip({
+    framesRGB: frames,
+    title: "BUDGET",
+    vblanks: 5,
+    paletteMode: "shared",
+    ditherMode: "off",
+    compression: "delta",
+    keyInterval: 30,
+    adaptiveKeyframes: true,
+    enhancedSceneDetection: false,
+  });
+  const frame30Offset = u32(clip.videoIndex, 30 * 4);
+  assert.equal(u32(clip.video, frame30Offset), 0, "frame 30 should be forced to a keyframe by accumulated changes");
+});

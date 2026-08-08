@@ -153,9 +153,11 @@ type convertRequest struct {
 }
 
 type projectClip struct {
-	Path     string              `json:"path"`
-	Name     string              `json:"name"`
-	Settings clipSettingsRequest `json:"settings"`
+	Path         string              `json:"path"`
+	Name         string              `json:"name"`
+	Size         int64               `json:"size,omitempty"`
+	LastModified int64               `json:"lastModified,omitempty"`
+	Settings     clipSettingsRequest `json:"settings"`
 }
 
 type projectDocument struct {
@@ -555,7 +557,8 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		if path == "" {
 			return false, "", fmt.Errorf("%s was imported through drag and drop; use its Relink button before saving the project", video.Name)
 		}
-		if st, err := os.Stat(path); err != nil || st.IsDir() {
+		st, statErr := os.Stat(path)
+		if statErr != nil || st.IsDir() {
 			return false, "", fmt.Errorf("%s needs to be relinked before saving", video.Name)
 		}
 		clip, ok := settings[video.ID]
@@ -563,7 +566,9 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 			return false, "", fmt.Errorf("settings for %s are missing", video.Name)
 		}
 		clip.ID = ""
-		doc.Clips = append(doc.Clips, projectClip{Path: path, Name: video.Name, Settings: clip})
+		doc.Clips = append(doc.Clips, projectClip{
+			Path: path, Name: video.Name, Size: st.Size(), LastModified: st.ModTime().UnixMilli(), Settings: clip,
+		})
 	}
 	path, err := saveFileDialog("Save GBA Video Maker project", projectDialogFilter, "gbavideo", "My Project.gbavideo")
 	if err != nil {
@@ -622,15 +627,22 @@ func (s *appState) openProject() (projectOpenResponse, error) {
 	projectDir := filepath.Dir(paths[0])
 	for _, saved := range doc.Clips {
 		id := newVideoID()
-		path := filepath.Clean(saved.Path)
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(projectDir, path)
-		}
+		rawPath := strings.TrimSpace(saved.Path)
+		path := ""
 		status := "waiting"
 		var clipErr string
-		if st, statErr := os.Stat(path); statErr != nil || st.IsDir() {
+		if rawPath != "" {
+			path = filepath.Clean(rawPath)
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(projectDir, path)
+			}
+			if st, statErr := os.Stat(path); statErr != nil || st.IsDir() {
+				status = "missing"
+				clipErr = "Source file is missing. Relink this clip."
+			}
+		} else {
 			status = "missing"
-			clipErr = "Source file is missing. Relink this clip."
+			clipErr = "Source file needs to be relinked on this computer."
 		}
 		name := sanitizeFilename(saved.Name)
 		if name == "video" && path != "" {
@@ -697,6 +709,9 @@ func (s *appState) startInspection() {
 			ready := s.videos[i].Info != nil
 			s.mu.Unlock()
 			if ready {
+				continue
+			}
+			if strings.TrimSpace(path) == "" {
 				continue
 			}
 			if st, statErr := os.Stat(path); statErr != nil || st.IsDir() {
