@@ -14,12 +14,12 @@ try {
     Invoke-WebRequest -Uri "$baseUrl/checksums.sha256" -OutFile $checksums
 
     # Dated BtbN releases use build-specific filenames. Discover the exact
-    # master/win64/LGPL ZIP from the pinned release instead of assuming the
+    # non-shared win64/LGPL ZIP from the pinned release instead of assuming the
     # floating `latest` release filename.
     $archiveName = $null
     $expected = $null
     foreach ($line in Get-Content $checksums) {
-        if ($line -match '^(?<hash>[0-9a-fA-F]{64})\s+\*?(?<name>ffmpeg-master-\S+-win64-lgpl\.zip)$') {
+        if ($line -match '^(?<hash>[0-9a-fA-F]{64})\s+\*?(?<name>ffmpeg-\S+-win64-lgpl\.zip)$') {
             $expected = $Matches['hash'].ToLowerInvariant()
             $archiveName = $Matches['name']
             break
@@ -27,7 +27,7 @@ try {
     }
     if (-not $archiveName -or -not $expected) {
         $available = Get-Content $checksums | Where-Object { $_ -match 'win64.*lgpl.*\.zip$' }
-        throw "Could not find a master win64 LGPL FFmpeg ZIP in the pinned release. Candidates: $($available -join '; ')"
+        throw "Could not find the non-shared win64 LGPL FFmpeg ZIP in the pinned release. Candidates: $($available -join '; ')"
     }
 
     $archive = Join-Path $temp $archiveName

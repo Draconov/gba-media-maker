@@ -135,11 +135,11 @@ jobs:
 
           # Dated BtbN releases use build-specific archive names. The floating
           # `latest` release is the one that has *-latest-* filenames, so discover
-          # the exact pinned win64 LGPL archive from this release's checksum list.
-          archive_entry="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?ffmpeg-master-[^[:space:]]+-win64-lgpl\.zip$' \
+          # the exact pinned non-shared win64 LGPL archive from this release's checksum list.
+          archive_entry="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?ffmpeg-[^[:space:]]+-win64-lgpl\.zip$' \
             _vendor/checksums.sha256 | head -n 1 || true)"
           if [[ -z "${archive_entry}" ]]; then
-            echo "::error::Could not find a master win64 LGPL FFmpeg ZIP in the pinned release."
+            echo "::error::Could not find the non-shared win64 LGPL FFmpeg ZIP in the pinned release."
             echo "Available win64 LGPL entries:"
             grep -E 'win64.*lgpl.*\.zip$' _vendor/checksums.sha256 || true
             exit 1
