@@ -30,7 +30,7 @@ Version 0.12.2 follows the Windows application's conversion workflow and uses th
 - Supports `.gbavideo` project save/open with browser-safe source relinking
 - Estimates ROM size and long-video part count before conversion
 - Recovers completed split parts through IndexedDB
-- Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF support as the Windows app
+- Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF/video support as the Windows app
 - Provides native 240×160 split-part title cards with shared or individual part settings, 50% default darkening, and independent title/subtitle Large/Medium/Small sizing, alignment, text colour, and outline colour in a compact two-row typography table
 - Keeps the `Part N` selector, plain `of M` total, navigation buttons, and all title-card checkboxes in compact single rows while avoiding duplicate preview extraction
 
@@ -83,10 +83,10 @@ The **Menu design** section appears when multiple clips are loaded and **Menu RO
 - Ocean Wave dual-rate palette shimmer: approximately 2 changes per second on the bright curl and 5 changes per second on the lower water
 - Seven UI-colour presets
 - Optional one-pixel outline with five outline colours
-- Custom PNG, JPEG, WebP, or GIF upload
+- Custom PNG, JPEG, WebP, GIF, or video upload
 - Center-crop and resize to 120×80
 - RGB555 indexed conversion with reserved menu UI colours
-- Up to 16 sampled looping GIF frames at approximately 5 changes per second
+- GIFs and videos sampled to at most 16 looping frames; video start and 1–32 second sample duration are configurable and source audio is ignored
 - Integer-scaled preview using the player's exact 3×5 font, coordinates, divider lines, and selector shape
 - Theme data embedded in the ROM as an `MTH1` record, so each exported menu ROM is self-contained
 - Theme palette, frames, animation timing, colours, and outline settings included in size estimates and project files
@@ -162,7 +162,7 @@ website/
 │   ├── main.js               interface, smart analysis, conversion workflow, and downloads
 │   ├── adpcm.js              block IMA ADPCM encoder/decoder used by preview and ROM output
 │   ├── smart-encoding.js      representative analysis, candidate scoring, and size ranges
-│   ├── menu-themes.js        built-in themes, custom image/GIF conversion, and preview
+│   ├── menu-themes.js        built-in themes, custom image/GIF/video conversion, and preview
 │   ├── title-cards.js        native title-card state, preview, and TCD1 serialization
 │   ├── style.css             responsive light/dark interface
 │   ├── rom.worker.js         palette and compression worker

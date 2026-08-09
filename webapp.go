@@ -1238,6 +1238,88 @@ func (s *appState) routes(page []byte) http.Handler {
 		s.addUploaded(videos, appendMode)
 		jsonResponse(w, 202, map[string]int{"count": len(videos)})
 	})
+	api.HandleFunc("/menu-background/video", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		start, err := strconv.ParseFloat(r.URL.Query().Get("start"), 64)
+		if err != nil || start < 0 {
+			errorJSON(w, 400, errors.New("invalid menu background start time"))
+			return
+		}
+		duration, err := strconv.ParseFloat(r.URL.Query().Get("duration"), 64)
+		if err != nil {
+			errorJSON(w, 400, errors.New("invalid menu background duration"))
+			return
+		}
+		if _, _, _, err := menuBackgroundSampling(duration); err != nil {
+			errorJSON(w, 400, err)
+			return
+		}
+		s.mu.Lock()
+		ff := s.ffmpegPath
+		busy := s.converting
+		s.mu.Unlock()
+		if busy {
+			errorJSON(w, 409, errors.New("wait for the current conversion to finish"))
+			return
+		}
+		if ff == "" {
+			errorJSON(w, 503, errors.New("FFmpeg is not available"))
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+		if err := r.ParseMultipartForm(16 << 20); err != nil {
+			errorJSON(w, 400, fmt.Errorf("invalid menu background upload: %w", err))
+			return
+		}
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
+		}
+		source, header, err := r.FormFile("video")
+		if err != nil {
+			errorJSON(w, 400, errors.New("menu background video is missing"))
+			return
+		}
+		defer source.Close()
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		if ext == "" || len(ext) > 10 {
+			ext = ".video"
+		}
+		inputPath := filepath.Join(s.sessionDir, fmt.Sprintf("menu-background-%d%s", time.Now().UnixNano(), ext))
+		outputPath := filepath.Join(s.sessionDir, fmt.Sprintf("menu-background-%d.rgb", time.Now().UnixNano()))
+		defer os.Remove(inputPath)
+		defer os.Remove(outputPath)
+		destination, err := os.Create(inputPath)
+		if err != nil {
+			errorJSON(w, 500, err)
+			return
+		}
+		_, copyErr := io.Copy(destination, source)
+		closeErr := destination.Close()
+		if copyErr != nil {
+			errorJSON(w, 500, copyErr)
+			return
+		}
+		if closeErr != nil {
+			errorJSON(w, 500, closeErr)
+			return
+		}
+
+		data, count, frameVBlanks, err := extractMenuBackgroundVideoFrames(r.Context(), ff, inputPath, start, duration, outputPath)
+		if err != nil {
+			errorJSON(w, 400, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Menu-Frame-Count", strconv.Itoa(count))
+		w.Header().Set("X-Menu-Frame-VBlanks", strconv.Itoa(frameVBlanks))
+		w.WriteHeader(200)
+		_, _ = w.Write(data)
+	})
 	api.HandleFunc("/dialog/videos", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(405)

@@ -32,6 +32,9 @@ let smartAbort = null;
 let scopeInitialized = false;
 let menuBackgroundID = 'ocean-wave-animated';
 let customMenuTheme = null;
+let customMenuSourceFile = null;
+let customMenuSourceIsVideo = false;
+let customMenuLoadToken = 0;
 let activeMenuTheme = null;
 let stopMenuPreview = null;
 let titleCardProject = null;
@@ -194,7 +197,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -414,20 +417,51 @@ function menuThemeBytes() {
   if (!activeMenuTheme) return 0;
   return 64 + activeMenuTheme.palette.length + activeMenuTheme.frames.reduce((sum, frame) => sum + frame.length, 0);
 }
-async function loadCustomMenuBackground(file) {
+function menuBackgroundVideoTiming() {
+  const start=parseClock($('customMenuVideoStart')?.value || '0');
+  const duration=parseClock($('customMenuVideoDuration')?.value || '0:04');
+  if(!Number.isFinite(start)||start<0) throw new Error('Video start must be a valid non-negative time.');
+  if(!Number.isFinite(duration)||duration<1||duration>32) throw new Error('Video duration must be between 1 and 32 seconds.');
+  return {start,duration};
+}
+async function decodeDesktopMenuVideo(file,settings,token) {
+  const {start,duration}=menuBackgroundVideoTiming();
+  $('menuBackgroundStatus').textContent='Uploading and decoding '+file.name+' with FFmpeg…';
+  const form=new FormData(); form.append('video',file,file.name);
+  const response=await fetch(BASE+'/menu-background/video?start='+encodeURIComponent(start)+'&duration='+encodeURIComponent(duration),{method:'POST',headers:headers(),body:form});
+  if(!response.ok) {
+    let message='Could not decode the menu background video.';
+    try { const body=await response.json(); if(body?.error) message=body.error; } catch { const text=await response.text(); if(text) message=text; }
+    throw new Error(message);
+  }
+  const bytes=new Uint8Array(await response.arrayBuffer());
+  if(token!==customMenuLoadToken) return null;
+  const frameVBlanks=Number(response.headers.get('X-Menu-Frame-VBlanks'))||12;
+  return MenuThemeTools.decodeRGB24Frames(bytes,file.name,frameVBlanks,settings,fraction=>{
+    if(token===customMenuLoadToken) $('menuBackgroundStatus').textContent='Optimizing '+file.name+'… '+Math.round(fraction*100)+'%';
+  });
+}
+async function loadCustomMenuBackground(file=customMenuSourceFile) {
   if (!file) return;
-  $('menuBackgroundStatus').textContent = 'Optimizing ' + file.name + '…';
+  customMenuSourceFile=file;
+  customMenuSourceIsVideo=MenuThemeTools.isVideoFile(file);
+  $('customMenuVideoTiming')?.classList.toggle('hidden',!customMenuSourceIsVideo);
+  const token=++customMenuLoadToken;
+  $('menuBackgroundStatus').textContent = (customMenuSourceIsVideo?'Decoding ':'Optimizing ') + file.name + '…';
   try {
-    customMenuTheme = await MenuThemeTools.decodeCustomFile(file, menuStyleSettings(), fraction => {
-      $('menuBackgroundStatus').textContent = 'Optimizing ' + file.name + '… ' + Math.round(fraction * 100) + '%';
-    });
+    const theme=customMenuSourceIsVideo
+      ? await decodeDesktopMenuVideo(file,menuStyleSettings(),token)
+      : await MenuThemeTools.decodeCustomFile(file,menuStyleSettings(),fraction=>{ if(token===customMenuLoadToken) $('menuBackgroundStatus').textContent='Optimizing '+file.name+'… '+Math.round(fraction*100)+'%'; });
+    if(token!==customMenuLoadToken||!theme) return;
+    customMenuTheme=theme;
     $('menuBackgroundStatus').textContent = customMenuTheme.frames.length > 1
-      ? file.name + ' — ' + customMenuTheme.frames.length + ' optimized animation frames'
+      ? file.name + ' — ' + customMenuTheme.frames.length + ' optimized looping frames'
       : file.name + ' — optimized static background';
     rebuildMenuTheme(); estimate();
   } catch (error) {
+    if(token!==customMenuLoadToken) return;
     customMenuTheme = null;
-    $('menuBackgroundStatus').textContent = 'Could not read this image or GIF: ' + error.message;
+    $('menuBackgroundStatus').textContent = 'Could not read this image, GIF or video: ' + error.message;
   }
 }
 
@@ -1211,7 +1245,8 @@ function applyPendingProject() {
     $('menuBackground').value = settings.menuBackground || settings.menuTheme?.id || 'ocean-wave-animated';
     restoreMenuColors(settings);
     $('menuOutline').checked = settings.menuOutline !== false;
-    if (($('menuBackground').value === 'custom') && settings.menuTheme) customMenuTheme = MenuThemeTools.deserializeTheme(settings.menuTheme);
+    customMenuLoadToken++; customMenuSourceFile=null; customMenuSourceIsVideo=false; $('customMenuVideoTiming')?.classList.add('hidden'); $('customMenuBackground').value='';
+    customMenuTheme = (($('menuBackground').value === 'custom') && settings.menuTheme) ? MenuThemeTools.deserializeTheme(settings.menuTheme) : null;
     rebuildMenuTheme();
   }
   clipConfigs = {};
@@ -1252,7 +1287,8 @@ if ($('menuBackground')) {
   }
   $('menuOutline').addEventListener('change', () => { rebuildMenuTheme(); estimate(); });
   $('customMenuBackground').addEventListener('change', event => loadCustomMenuBackground(event.target.files?.[0]));
-  $('clearCustomMenuBackground').onclick = () => { customMenuTheme = null; $('customMenuBackground').value = ''; $('menuBackgroundStatus').textContent = 'Choose a PNG, JPG, WebP or GIF.'; rebuildMenuTheme(); estimate(); };
+  for(const id of ['customMenuVideoStart','customMenuVideoDuration']) $(id)?.addEventListener('change',()=>{ if(customMenuSourceIsVideo&&customMenuSourceFile) loadCustomMenuBackground(customMenuSourceFile); });
+  $('clearCustomMenuBackground').onclick = () => { customMenuLoadToken++; customMenuTheme = null; customMenuSourceFile=null; customMenuSourceIsVideo=false; $('customMenuBackground').value = ''; $('customMenuVideoTiming')?.classList.add('hidden'); $('menuBackgroundStatus').textContent = 'Choose a PNG, JPG, WebP, GIF or video.'; rebuildMenuTheme(); estimate(); };
 }
 
 

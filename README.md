@@ -101,8 +101,8 @@ When **One ROM — clip menu** is selected, the menu can be customized directly 
 - Built-in **Classic dark**, **Ocean Wave — static**, **Ocean Wave — animated**, and **Blue Wave — animated** backgrounds
 - Selectable normal, selected, and outline colours
 - Optional one-pixel UI outline
-- Custom PNG, JPEG, WebP, or GIF backgrounds
-- GIF backgrounds sampled to at most 16 looping frames
+- Custom PNG, JPEG, WebP, GIF, or video backgrounds
+- GIFs and videos sampled to at most 16 looping frames; video start and 1–32 second sample duration are configurable, and source audio is ignored
 - One, two, or three title columns
 - Four-direction D-pad navigation
 - Remembered menu selection and separate resume position for each clip when SRAM resume is enabled

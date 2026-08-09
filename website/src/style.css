@@ -853,3 +853,4 @@ input[type="range"] {
 .smart-result-card h4, .smart-result-card p { margin: 0; }
 .smart-result-metrics { font-size: .84rem; line-height: 1.45; color: var(--muted, #bac4d0); }
 @media (max-width: 650px) { .experimental-grid { grid-template-columns: 1fr; } }
+.custom-menu-background{display:grid;gap:9px}.custom-menu-background>label,.menu-video-timing label{display:grid;gap:7px}.menu-video-timing{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:620px){.menu-video-timing{grid-template-columns:1fr}}

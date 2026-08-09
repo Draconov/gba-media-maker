@@ -5,7 +5,7 @@ import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
 import { canonicalProjectFromBrowser, normalizeBrowserProjectDocument } from "./project-format.js";
 import { batchRomFileName, buildOptimizerProposal, conversionOutputFileName as desktopOutputFileName, FPS_VBLANKS, parsePartDuration, resolveAudioCodec, splitArchiveFileName, splitPartFileName, VBLANKS_FPS } from "./parity-utils.js";
-import { createBuiltinTheme, decodeCustomFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
+import { createBuiltinTheme, decodeCustomFile, decodeRGB24Frames, isVideoFile, serializeTheme, deserializeTheme, startPreview, applyUI, settingsColours, rgb555ToHex, quantizeHexColor, describeColor, setupGBAColorPicker } from "./menu-themes.js";
 import { buildTitleCardAsset, createTitleCardProject, defaultTitleCardSettings, normalizeTitleCardSettings, renderTitleCardPreview, resolveTitleCardSettings, sanitizeTitleCardText, TITLE_CARD_BYTES } from "./title-cards.js";
 import { analyzeSmartScan } from "./smart-encoding.js";
 import { glyphBits, glyphLength, sanitizeGBAText, unsupportedGBARunes } from "./gba-text.js";
@@ -36,6 +36,9 @@ const elements = {
   menuBackground: document.querySelector("#menuBackground"),
   customMenuBackgroundRow: document.querySelector("#customMenuBackgroundRow"),
   customMenuBackground: document.querySelector("#customMenuBackground"),
+  customMenuVideoTiming: document.querySelector("#customMenuVideoTiming"),
+  customMenuVideoStart: document.querySelector("#customMenuVideoStart"),
+  customMenuVideoDuration: document.querySelector("#customMenuVideoDuration"),
   clearCustomMenuBackground: document.querySelector("#clearCustomMenuBackground"),
   menuUIColor: document.querySelector("#menuUIColor"),
   menuUIColorValue: document.querySelector("#menuUIColorValue"),
@@ -200,6 +203,9 @@ let thumbRenderToken = 0;
 let lastPartialSplit = null;
 let preferredOutputMode = "rom";
 let customMenuTheme = null;
+let customMenuSourceFile = null;
+let customMenuSourceIsVideo = false;
+let customMenuLoadToken = 0;
 let activeMenuTheme = null;
 let stopMenuPreview = null;
 let titleCardProject = null;
@@ -260,16 +266,67 @@ function rebuildMenuTheme() {
 }
 function serializedMenuTheme() { rebuildMenuTheme(); return activeMenuTheme ? serializeTheme(activeMenuTheme) : null; }
 function menuThemeBytes() { return activeMenuTheme ? 64 + activeMenuTheme.palette.length + activeMenuTheme.frames.reduce((sum, frame) => sum + frame.length, 0) : 0; }
-async function loadCustomMenuBackground(file) {
-  if (!file) return;
-  elements.menuBackgroundStatus.textContent = `Optimizing ${file.name}…`;
+function menuBackgroundVideoTiming() {
+  const start=parseClock(elements.customMenuVideoStart?.value || "0");
+  const duration=parseClock(elements.customMenuVideoDuration?.value || "0:04");
+  if(!Number.isFinite(start)||start<0) throw new Error("Video start must be a valid non-negative time.");
+  if(!Number.isFinite(duration)||duration<1||duration>32) throw new Error("Video duration must be between 1 and 32 seconds.");
+  return {start,duration};
+}
+function menuBackgroundSampling(duration) {
+  const count=Math.max(1,Math.min(16,Math.round(duration*(GBA_REFRESH/6))));
+  const fps=count/duration;
+  const frameVBlanks=Math.max(6,Math.min(120,Math.round(GBA_REFRESH/fps)));
+  return {count,fps,frameVBlanks};
+}
+async function decodeBrowserMenuVideo(file,settings,token) {
+  const {start,duration}=menuBackgroundVideoTiming();
+  const {count,fps,frameVBlanks}=menuBackgroundSampling(duration);
+  await ensureFFmpeg();
+  if(token!==customMenuLoadToken) return null;
+  const ext=file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0]?.toLowerCase() || ".mp4";
+  const inputName=`menu-background-input${ext}`;
+  const outputName="menu-background.rgb";
+  recentFFmpegLogs=[];
   try {
-    customMenuTheme = await decodeCustomFile(file, menuStyleSettings(), fraction => { elements.menuBackgroundStatus.textContent = `Optimizing ${file.name}… ${Math.round(fraction * 100)}%`; });
-    elements.menuBackgroundStatus.textContent = customMenuTheme.frames.length > 1 ? `${file.name} — ${customMenuTheme.frames.length} optimized animation frames` : `${file.name} — optimized static background`;
+    try { await ffmpeg.deleteFile(inputName); } catch { /* absent */ }
+    try { await ffmpeg.deleteFile(outputName); } catch { /* absent */ }
+    elements.menuBackgroundStatus.textContent=`Loading ${file.name} into the browser video engine…`;
+    await ffmpeg.writeFile(inputName,await fetchFile(file));
+    if(token!==customMenuLoadToken) return null;
+    elements.menuBackgroundStatus.textContent=`Decoding ${file.name}…`;
+    const filter=`fps=${fps.toFixed(8)},scale=120:80:force_original_aspect_ratio=increase,crop=120:80`;
+    const code=await ffmpeg.exec(["-y","-hide_banner","-loglevel","error","-ss",start.toFixed(6),"-i",inputName,"-t",duration.toFixed(6),"-an","-vf",filter,"-frames:v",String(count),"-pix_fmt","rgb24","-f","rawvideo",outputName]);
+    if(code!==0) throw new Error(`FFmpeg could not decode the menu background video. ${recentFFmpegLogs.slice(-1)[0]||""}`.trim());
+    const raw=await ffmpeg.readFile(outputName);
+    if(token!==customMenuLoadToken) return null;
+    return decodeRGB24Frames(raw,file.name,frameVBlanks,settings,fraction=>{ if(token===customMenuLoadToken) elements.menuBackgroundStatus.textContent=`Optimizing ${file.name}… ${Math.round(fraction*100)}%`; });
+  } finally {
+    if(ffmpeg) {
+      try { await ffmpeg.deleteFile(inputName); } catch { /* absent */ }
+      try { await ffmpeg.deleteFile(outputName); } catch { /* absent */ }
+    }
+  }
+}
+async function loadCustomMenuBackground(file=customMenuSourceFile) {
+  if (!file) return;
+  customMenuSourceFile=file;
+  customMenuSourceIsVideo=isVideoFile(file);
+  if(elements.customMenuVideoTiming) elements.customMenuVideoTiming.hidden=!customMenuSourceIsVideo;
+  const token=++customMenuLoadToken;
+  elements.menuBackgroundStatus.textContent = `${customMenuSourceIsVideo?"Decoding":"Optimizing"} ${file.name}…`;
+  try {
+    const theme=customMenuSourceIsVideo
+      ? await decodeBrowserMenuVideo(file,menuStyleSettings(),token)
+      : await decodeCustomFile(file,menuStyleSettings(),fraction=>{ if(token===customMenuLoadToken) elements.menuBackgroundStatus.textContent=`Optimizing ${file.name}… ${Math.round(fraction*100)}%`; });
+    if(token!==customMenuLoadToken||!theme) return;
+    customMenuTheme=theme;
+    elements.menuBackgroundStatus.textContent = customMenuTheme.frames.length > 1 ? `${file.name} — ${customMenuTheme.frames.length} optimized looping frames` : `${file.name} — optimized static background`;
     rebuildMenuTheme(); resetResult(); updateEstimate();
   } catch (error) {
+    if(token!==customMenuLoadToken) return;
     customMenuTheme = null;
-    elements.menuBackgroundStatus.textContent = `Could not read this image or GIF: ${error instanceof Error ? error.message : String(error)}`;
+    elements.menuBackgroundStatus.textContent = `Could not read this image, GIF or video: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
@@ -710,6 +767,9 @@ function applySettings(settings = {}) {
     elements.menuBackground.value = settings.menuBackground || settings.menuTheme?.id || "ocean-wave-animated";
     restoreMenuColors(settings);
     elements.menuOutline.checked = settings.menuOutline !== false;
+    customMenuLoadToken++; customMenuSourceFile=null; customMenuSourceIsVideo=false;
+    if(elements.customMenuBackground) elements.customMenuBackground.value="";
+    if(elements.customMenuVideoTiming) elements.customMenuVideoTiming.hidden=true;
     customMenuTheme = elements.menuBackground.value === "custom" && settings.menuTheme ? deserializeTheme(settings.menuTheme) : null;
     rebuildMenuTheme();
   }
@@ -1685,7 +1745,7 @@ function setBusy(busy) {
     elements.maxPartDuration, elements.chapterAware, elements.partTitleScreens, elements.resumeLongSplit,
     elements.saveProjectButton, elements.openProjectInput, elements.optimizerButton,
     elements.timelinePlay, elements.timelineStart, elements.timelineEnd, elements.audioPreviewButton,
-    elements.titlePreviewInput, elements.menuBackground, elements.customMenuBackground,
+    elements.titlePreviewInput, elements.menuBackground, elements.customMenuBackground, elements.customMenuVideoStart, elements.customMenuVideoDuration,
     elements.clearCustomMenuBackground, elements.menuUIColor, elements.menuSelectionColor, elements.menuOutline, elements.menuOutlineColor,
     elements.titleCardPrev, elements.titleCardNext, elements.titleCardPartSelect, elements.titleCardUseShared,
     elements.titleCardCopyToAll, elements.titleCardBackground, elements.titleCardDarkness, elements.titleCardFrameOffset,
@@ -2586,9 +2646,11 @@ if (elements.menuBackground) {
   }
   elements.menuOutline.addEventListener("change", () => { rebuildMenuTheme(); resetResult(); updateEstimate(); });
   elements.customMenuBackground.addEventListener("change", event => loadCustomMenuBackground(event.target.files?.[0]));
+  for(const input of [elements.customMenuVideoStart,elements.customMenuVideoDuration]) input?.addEventListener("change",()=>{ if(customMenuSourceIsVideo&&customMenuSourceFile) loadCustomMenuBackground(customMenuSourceFile); });
   elements.clearCustomMenuBackground.addEventListener("click", () => {
-    customMenuTheme = null; elements.customMenuBackground.value = "";
-    elements.menuBackgroundStatus.textContent = "Choose a built-in background or upload a custom image/GIF.";
+    customMenuLoadToken++; customMenuTheme = null; customMenuSourceFile=null; customMenuSourceIsVideo=false; elements.customMenuBackground.value = "";
+    if(elements.customMenuVideoTiming) elements.customMenuVideoTiming.hidden=true;
+    elements.menuBackgroundStatus.textContent = "Choose a built-in background or upload a custom image, GIF or video.";
     rebuildMenuTheme(); resetResult(); updateEstimate();
   });
 }

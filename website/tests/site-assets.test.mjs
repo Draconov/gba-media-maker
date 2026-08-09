@@ -48,7 +48,7 @@ test("web edition exposes desktop parity controls", async () => {
     "titleCardTitle", "titleCardSubtitle", "titleCardBackground", "titleCardDarkness", "titleCardTextSize",
     "titleCardTextColor", "titleCardOutlineColor", "titleCardSubtitleTextSize", "titleCardSubtitleAlignment",
     "titleCardSubtitleTextColor", "titleCardSubtitleOutlineColor", "titleCardStartMode", "titleCardFade",
-    "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground",
+    "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground", "customMenuVideoTiming", "customMenuVideoStart", "customMenuVideoDuration",
     "menuUIColor", "menuSelectionColor", "menuOutline", "menuOutlineColor",
   ]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(script, /performLongSplit/);
@@ -56,6 +56,10 @@ test("web edition exposes desktop parity controls", async () => {
   assert.match(script, /Part \$\{partNumber\} of approximately/);
   assert.match(script, /indexedDB\.open\("gba-video-maker"/);
   assert.match(script, /decodeCustomFile/);
+  assert.match(script, /decodeRGB24Frames/);
+  assert.match(script, /isVideoFile/);
+  assert.match(html, /Custom image, GIF or video/);
+  assert.match(html, /Video duration/);
   assert.match(script, /serializeTheme/);
   assert.match(script, /buildTitleCardAsset/);
   assert.match(script, /renderTitleCardPreview/);

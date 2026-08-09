@@ -2,6 +2,10 @@
 
 ## [0.12.2] - 2026-08-07
 
+- Added custom video menu backgrounds for menu ROMs in both desktop and web editions. Videos are center-cropped to 120×80, sampled to at most 16 looping MTH1 frames, support configurable start time and 1–32 second sample duration, and ignore source audio.
+- Fixed pinned BtbN FFmpeg release discovery for dated autobuilds whose master snapshot is named `ffmpeg-N-...-win64-lgpl.zip` rather than `ffmpeg-master-...`.
+- Fixed the pinned BtbN FFmpeg release download: dated releases now discover their build-specific Windows x64 LGPL archive name from `checksums.sha256` instead of incorrectly requesting the floating `*-latest-*` filename.
+- Fixed AV1 source conversion on PCs without hardware AV1 decoding by switching portable releases to a pinned FFmpeg build with a verified software AV1 decoder; incompatible manual FFmpeg builds now produce a clear AV1-specific error.
 - Added per-source audio-track selection for video containers with multiple audio streams; track choice is preserved in project files and used by conversion and audio preview in both desktop and web editions.
 - Replaced the loose pause boolean with an explicit `RUNNING -> PAUSED -> RESUME_ARMED -> RUNNING` playback state machine so pause/resume work cannot leak into unrelated UI/decode paths.
 - Added explicit prepared-next-frame validity tracking. Ordinary pause keeps both the visible front page and rendered back page intact; help, HUD redraw, frame-step, and seek invalidate the prepared page deliberately.
