@@ -2,10 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $tag = "autobuild-2026-08-07-13-13"
-$archiveName = "ffmpeg-master-latest-win64-lgpl.zip"
 $baseUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$tag"
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("gbavm-ffmpeg-" + [guid]::NewGuid().ToString("N"))
-$archive = Join-Path $temp $archiveName
 $checksums = Join-Path $temp "checksums.sha256"
 $extract = Join-Path $temp "extract"
 $destination = Join-Path $root "ffmpeg.exe"
@@ -14,14 +12,28 @@ try {
     New-Item -ItemType Directory -Path $temp -Force | Out-Null
     Write-Host "Downloading pinned FFmpeg checksum list..."
     Invoke-WebRequest -Uri "$baseUrl/checksums.sha256" -OutFile $checksums
-    Write-Host "Downloading pinned FFmpeg build..."
+
+    # Dated BtbN releases use build-specific filenames. Discover the exact
+    # master/win64/LGPL ZIP from the pinned release instead of assuming the
+    # floating `latest` release filename.
+    $archiveName = $null
+    $expected = $null
+    foreach ($line in Get-Content $checksums) {
+        if ($line -match '^(?<hash>[0-9a-fA-F]{64})\s+\*?(?<name>ffmpeg-master-\S+-win64-lgpl\.zip)$') {
+            $expected = $Matches['hash'].ToLowerInvariant()
+            $archiveName = $Matches['name']
+            break
+        }
+    }
+    if (-not $archiveName -or -not $expected) {
+        $available = Get-Content $checksums | Where-Object { $_ -match 'win64.*lgpl.*\.zip$' }
+        throw "Could not find a master win64 LGPL FFmpeg ZIP in the pinned release. Candidates: $($available -join '; ')"
+    }
+
+    $archive = Join-Path $temp $archiveName
+    Write-Host "Downloading pinned FFmpeg build: $archiveName"
     Invoke-WebRequest -Uri "$baseUrl/$archiveName" -OutFile $archive
 
-    $line = Get-Content $checksums | Where-Object { $_ -match ("^[0-9a-fA-F]{64}\s+\*?" + [regex]::Escape($archiveName) + "$") } | Select-Object -First 1
-    if (-not $line) {
-        throw "Could not find $archiveName in the pinned release checksum list."
-    }
-    $expected = ($line -split "\s+")[0].ToLowerInvariant()
     $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
         throw "FFmpeg archive checksum mismatch. Expected $expected but got $actual."

@@ -126,22 +126,38 @@ jobs:
         run: |
           set -euo pipefail
           FFMPEG_TAG="autobuild-2026-08-07-13-13"
-          FFMPEG_ARCHIVE="ffmpeg-master-latest-win64-lgpl.zip"
           FFMPEG_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_TAG}"
 
           mkdir -p _vendor/ffmpeg
           curl --fail --location --retry 3 --retry-delay 2 \
             "${FFMPEG_BASE}/checksums.sha256" \
             --output _vendor/checksums.sha256
+
+          # Dated BtbN releases use build-specific archive names. The floating
+          # `latest` release is the one that has *-latest-* filenames, so discover
+          # the exact pinned win64 LGPL archive from this release's checksum list.
+          archive_entry="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?ffmpeg-master-[^[:space:]]+-win64-lgpl\.zip$' \
+            _vendor/checksums.sha256 | head -n 1 || true)"
+          if [[ -z "${archive_entry}" ]]; then
+            echo "::error::Could not find a master win64 LGPL FFmpeg ZIP in the pinned release."
+            echo "Available win64 LGPL entries:"
+            grep -E 'win64.*lgpl.*\.zip$' _vendor/checksums.sha256 || true
+            exit 1
+          fi
+
+          expected="$(printf '%s\n' "${archive_entry}" | awk '{print $1}')"
+          FFMPEG_ARCHIVE="$(printf '%s\n' "${archive_entry}" | \
+            sed -E 's/^[0-9a-fA-F]{64}[[:space:]]+\*?//')"
+          if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ || -z "${FFMPEG_ARCHIVE}" ]]; then
+            echo "::error::Invalid FFmpeg entry in the pinned release checksum list."
+            exit 1
+          fi
+
+          echo "Using pinned FFmpeg asset: ${FFMPEG_ARCHIVE}"
           curl --fail --location --retry 3 --retry-delay 2 \
             "${FFMPEG_BASE}/${FFMPEG_ARCHIVE}" \
             --output "_vendor/${FFMPEG_ARCHIVE}"
 
-          expected="$(awk -v name="${FFMPEG_ARCHIVE}" '$2 == name || $2 == "*" name { print $1; exit }' _vendor/checksums.sha256)"
-          if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ ]]; then
-            echo "::error::Could not find ${FFMPEG_ARCHIVE} in the pinned release checksum list."
-            exit 1
-          fi
           echo "${expected}  _vendor/${FFMPEG_ARCHIVE}" | sha256sum -c -
 
           unzip -q "_vendor/${FFMPEG_ARCHIVE}" -d _vendor/ffmpeg
