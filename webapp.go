@@ -112,6 +112,8 @@ type clipSettingsRequest struct {
 	PaletteMode  string  `json:"paletteMode"`
 	DitherMode   string  `json:"ditherMode"`
 	ImageSeconds float64 `json:"imageSeconds,omitempty"`
+	MusicTitle   string  `json:"musicTitle,omitempty"`
+	MusicArtist  string  `json:"musicArtist,omitempty"`
 }
 
 type convertRequest struct {
@@ -949,7 +951,11 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		if clipReq.UseProject {
 			imageSeconds = req.ImageSeconds
 		}
-		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds}
+		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds, MusicTitle: clipReq.MusicTitle, MusicArtist: clipReq.MusicArtist}
+		if isAnimatedGIFPath(v.Path) {
+			input.MediaKind = "video"
+			input.Loop = true
+		}
 		if input.AudioTrack < 0 || input.AudioTrack >= v.Info.AudioStreams {
 			if v.Info.AudioStreams > 0 && input.AudioTrack != 0 {
 				return ProjectOptions{}, nil, fmt.Errorf("%s: selected audio track %d is not available", v.Name, input.AudioTrack+1)
@@ -977,7 +983,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 			input.FitMode = clipReq.Fit
 			input.AudioMode = clipReq.Audio
 			input.Volume = clipReq.Volume / 100
-			input.Loop = clipReq.Loop
+			input.Loop = clipReq.Loop || isAnimatedGIFPath(v.Path)
 			input.PaletteMode = clipReq.PaletteMode
 			input.DitherMode = clipReq.DitherMode
 		}
@@ -1029,10 +1035,18 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	}
 	mode := req.OutputMode
 	if len(inputs) == 1 {
+		// A one-item ROM opens the media directly; a menu would only add an
+		// unnecessary extra click.
 		mode = "rom"
-	}
-	if mode != "rom" && mode != "playlist" && mode != "menu" && mode != "batch" {
-		mode = "rom"
+	} else if mode == "batch" {
+		// Separate-ROM export remains available for users who do not want a
+		// collection ROM.
+		mode = "batch"
+	} else {
+		// Every multi-item collection uses the media menu, regardless of
+		// whether it contains mixed media, only videos, only music, or only
+		// images. Legacy playlist/rom project values are upgraded here.
+		mode = "menu"
 	}
 	base := strings.TrimSuffix(sanitizeFilename(videos[0].Name), filepath.Ext(videos[0].Name))
 	if len(inputs) > 1 {

@@ -70,7 +70,7 @@ type AudioTrackInfo struct {
 }
 
 type MediaInfo struct {
-	Kind          string           `json:"kind"` // video, audio, image
+	Kind          string           `json:"kind"` // video (including animated GIF), audio, image
 	Duration      float64          `json:"duration"`
 	Width         int              `json:"width"`
 	Height        int              `json:"height"`
@@ -104,6 +104,8 @@ type ClipInput struct {
 	DitherMode   string
 	MediaKind    string
 	ImageSeconds float64
+	MusicTitle   string
+	MusicArtist  string
 }
 
 type ProjectOptions struct {
@@ -240,6 +242,10 @@ func isStillImagePath(path string) bool {
 	return false
 }
 
+func isAnimatedGIFPath(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".gif")
+}
+
 func isAudioFirstPath(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mp3", ".flac", ".wav", ".ogg", ".opus", ".m4a", ".aac", ".wma", ".aiff", ".ape":
@@ -311,7 +317,11 @@ func parseMediaInfoForPath(text, path string) (MediaInfo, error) {
 		}
 	}
 	kind := "video"
-	if isAudioFirstPath(path) && len(audioTracks) > 0 {
+	if isAnimatedGIFPath(path) {
+		// Animated GIFs are first-class looping video media. They deliberately
+		// bypass still-image handling so every animation frame is encoded.
+		kind = "video"
+	} else if isAudioFirstPath(path) && len(audioTracks) > 0 {
 		kind = "audio"
 	} else if isStillImagePath(path) {
 		kind = "image"
@@ -350,7 +360,14 @@ func parseMediaInfo(text string) (MediaInfo, error) { return parseMediaInfoForPa
 func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	output, _ := runCommandContext(ctx, ffmpegPath, "-hide_banner", "-i", path)
+	args := []string{"-hide_banner"}
+	if isAnimatedGIFPath(path) {
+		// Read exactly one source animation cycle. Looping is handled natively
+		// by the generated GBA clip instead of asking FFmpeg to repeat forever.
+		args = append(args, "-ignore_loop", "1")
+	}
+	args = append(args, "-i", path)
+	output, _ := runCommandContext(ctx, ffmpegPath, args...)
 	return parseMediaInfoForPath(string(output), path)
 }
 
@@ -497,7 +514,12 @@ func ffmpegVideoError(prefix string, output []byte) error {
 func extractFrames(opt ProjectOptions, input string, duration float64, path string, progress ProgressFunc) error {
 	fps := gbaRefresh / float64(opt.VBlanks)
 	vf := makeVideoFilter(opt.FitMode, opt.Speed, fps)
-	output, err := runCommand(opt.FFmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start), "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-an", "-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo", path)
+	args := []string{"-y", "-hide_banner", "-loglevel", "error", "-ss", fmt.Sprintf("%.6f", opt.Start)}
+	if isAnimatedGIFPath(input) {
+		args = append(args, "-ignore_loop", "1")
+	}
+	args = append(args, "-i", input, "-t", fmt.Sprintf("%.6f", duration), "-an", "-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo", path)
+	output, err := runCommand(opt.FFmpegPath, args...)
 	if err != nil {
 		return ffmpegVideoError("FFmpeg could not convert the video", output)
 	}
@@ -1326,7 +1348,7 @@ type convertedClip struct {
 	options                                              ProjectOptions
 	info                                                 MediaInfo
 	mediaKind                                            string
-	artist, album                                        string
+	mediaTitle, artist, album                            string
 	mediaMetadata                                        bool
 	imageSeconds                                         float64
 	frameCount, paletteCount                             int
@@ -1440,6 +1462,12 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	if input.MediaKind != "" {
 		kind = input.MediaKind
 	}
+	if isAnimatedGIFPath(input.InputPath) {
+		// GIF semantics are animation + repeat. Keep it on the video pipeline
+		// and always set the native clip loop flag so the effect repeats on GBA.
+		kind = "video"
+		opt.Loop = true
+	}
 	// Audio media must always retain an audio stream. Treat the legacy
 	// "none" setting as the default mono mix instead of generating a silent
 	// audio entry that the GBA runtime cannot meaningfully play.
@@ -1509,7 +1537,21 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 		if err != nil {
 			return convertedClip{}, err
 		}
-		return convertedClip{input: input, options: opt, info: info, mediaKind: "audio", artist: info.Artist, album: info.Album, mediaMetadata: strings.TrimSpace(info.Artist) != "" || strings.TrimSpace(info.Album) != "", frameCount: frameCount, paletteCount: 0, hasAudio: hasAudio, audioCodec: audioCodec, audioSampleCount: audioInfo.SampleCount, audioBlockSamples: audioInfo.BlockSamples, audioBlockBytes: audioInfo.BlockBytes, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: nativeImageBytes, storedVideo: nativeImageBytes, duration: duration}, nil
+		mediaTitle := strings.TrimSpace(input.MusicTitle)
+		if mediaTitle == "" {
+			mediaTitle = strings.TrimSpace(info.Title)
+		}
+		if mediaTitle == "" {
+			mediaTitle = strings.TrimSpace(strings.TrimSuffix(input.Name, filepath.Ext(input.Name)))
+		}
+		if mediaTitle == "" {
+			mediaTitle = strings.TrimSpace(input.Title)
+		}
+		artist := strings.TrimSpace(input.MusicArtist)
+		if artist == "" {
+			artist = strings.TrimSpace(info.Artist)
+		}
+		return convertedClip{input: input, options: opt, info: info, mediaKind: "audio", mediaTitle: mediaTitle, artist: artist, album: info.Album, mediaMetadata: true, frameCount: frameCount, paletteCount: 0, hasAudio: hasAudio, audioCodec: audioCodec, audioSampleCount: audioInfo.SampleCount, audioBlockSamples: audioInfo.BlockSamples, audioBlockBytes: audioInfo.BlockBytes, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: nativeImageBytes, storedVideo: nativeImageBytes, duration: duration}, nil
 	}
 	local(5, "extracting frames")
 	if err := extractFrames(opt, input.InputPath, duration, framesPath, local); err != nil {
@@ -1624,14 +1666,15 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 	binary.LittleEndian.PutUint32(dst[92:96], uint32(c.audioBlockBytes))
 }
 
-const mediaMetadataMagic = 0x31444d4d // "MMD1"
-const mediaMetadataSize = 44
+const mediaMetadataMagic = 0x32444d4d // "MMD2"
+const mediaMetadataSize = 80
 
-func encodeMediaMetadata(artist, album string) []byte {
+func encodeMediaMetadata(title, artist, album string) []byte {
 	b := make([]byte, mediaMetadataSize)
 	binary.LittleEndian.PutUint32(b[0:4], mediaMetadataMagic)
-	copy(b[4:24], encodeGBATextFixed(artist, 20))
-	copy(b[24:44], encodeGBATextFixed(album, 20))
+	copy(b[4:32], encodeGBATextFixed(title, 28))
+	copy(b[32:60], encodeGBATextFixed(artist, 28))
+	copy(b[60:80], encodeGBATextFixed(album, 20))
 	return b
 }
 
@@ -1680,7 +1723,7 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 		}
 		if c.mediaKind == "audio" && c.mediaMetadata {
 			offsets["videoIndex"] = len(rom)
-			rom = appendAligned(rom, encodeMediaMetadata(c.artist, c.album))
+			rom = appendAligned(rom, encodeMediaMetadata(c.mediaTitle, c.artist, c.album))
 		}
 		rom, offsets["video"], err = appendFile(rom, c.video)
 		if err != nil {

@@ -114,7 +114,7 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte("GBA Media Maker 0.13.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video/audio)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image, GIF or video", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image, GIF or video", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track", "Song title", "Artist(s)", "Enable slideshow", "Collections automatically use the media menu", ".gif"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -628,6 +628,40 @@ func TestBuildOptionsUsesNormalSingleROMModeForAutomaticSplitting(t *testing.T) 
 	}
 }
 
+func TestBuildOptionsForcesMediaMenuForEveryCollection(t *testing.T) {
+	dir := t.TempDir()
+	state := &appState{
+		sessionDir: dir,
+		ffmpegPath: "ffmpeg",
+		videos: []uploadedVideo{
+			{ID: "song", Path: filepath.Join(dir, "song.wav"), Name: "song.wav", Info: &MediaInfo{Kind: "audio", Duration: 120, AudioStreams: 1, AudioChannels: 2, Title: "Metadata title", Artist: "Metadata artist"}, Status: "ready"},
+			{ID: "image", Path: filepath.Join(dir, "cover.png"), Name: "cover.png", Info: &MediaInfo{Kind: "image", Width: 240, Height: 160}, Status: "ready"},
+		},
+	}
+	req := convertRequest{
+		Start: "0", Speed: 1, FPS: "compact", Fit: "fit", Audio: "mix", Volume: 100,
+		RomTitle: "COLLECTION", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered",
+		OutputMode: "playlist", ImageSeconds: 0,
+		Clips: []clipSettingsRequest{
+			{ID: "song", Title: "SONG", UseProject: true, MusicTitle: "CUSTOM SONG TITLE", MusicArtist: "CUSTOM ARTIST"},
+			{ID: "image", Title: "IMAGE", UseProject: true},
+		},
+	}
+	opt, _, err := state.buildOptions(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.OutputMode != "menu" {
+		t.Fatalf("multi-item output mode=%q, want menu", opt.OutputMode)
+	}
+	if len(opt.Inputs) != 2 || opt.Inputs[0].MusicTitle != "CUSTOM SONG TITLE" || opt.Inputs[0].MusicArtist != "CUSTOM ARTIST" {
+		t.Fatalf("music settings were not preserved: %+v", opt.Inputs)
+	}
+	if opt.Inputs[1].ImageSeconds != 0 {
+		t.Fatalf("manual image viewer was changed to slideshow: %v", opt.Inputs[1].ImageSeconds)
+	}
+}
+
 func TestSingleROMAutomaticallySplitsWhenBudgetIsExceeded(t *testing.T) {
 	ff := commandExists("ffmpeg")
 	if ff == "" {
@@ -1071,5 +1105,23 @@ func TestCanonicalBrowserProjectSchemaLoadsInDesktop(t *testing.T) {
 	}
 	if doc.Settings.FPS != "classic" || doc.Settings.MaxPartDuration != "12:30" || doc.Settings.AudioQuality != "auto" {
 		t.Fatalf("browser project settings did not map to desktop schema: %+v", doc.Settings)
+	}
+}
+
+func TestBuildOptionsForcesGIFLoop(t *testing.T) {
+	state := &appState{
+		sessionDir: t.TempDir(), ffmpegPath: "ffmpeg",
+		videos: []uploadedVideo{{
+			ID: "gif", Path: filepath.Join(t.TempDir(), "animation.gif"), Name: "animation.gif", Status: "ready",
+			Info: &MediaInfo{Kind: "video", Duration: 1, Width: 96, Height: 64, FPS: 10},
+		}},
+	}
+	req := convertRequest{Start: "0", Speed: 1, FPS: "balanced", Fit: "fit", Audio: "none", Volume: 100, RomTitle: "GIF", SeekSeconds: 5, Compression: "delta", PaletteMode: "shared", DitherMode: "ordered", OutputMode: "rom"}
+	opt, _, err := state.buildOptions(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opt.Inputs) != 1 || !opt.Inputs[0].Loop || opt.Inputs[0].MediaKind != "video" {
+		t.Fatalf("GIF options=%+v", opt.Inputs)
 	}
 }

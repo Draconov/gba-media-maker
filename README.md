@@ -16,10 +16,10 @@ GBA Media Maker is the v0.13 evolution of GBA Video Maker. It keeps the existing
 - **Video + Audio + Image** files in the same project and ROM.
 - **Audio-only ROMs** from MP3, WAV, FLAC, OGG/Opus, M4A/AAC and other formats supported by FFmpeg.
 - Embedded cover-art extraction for audio, with a generated fallback artwork screen.
-- GBA **Now Playing** screen with title, artist, album, elapsed/total time, progress, pause, seek, volume and mute.
+- GBA **Now Playing** screen with editable 28-character song title and artist subtitle, elapsed/total time, progress, pause, seek, volume and mute.
 - **Native 240×160 static images** stored as RGB555 instead of 120×80 video frames.
-- Image viewer/gallery controls and optional automatic slideshow timing (`0` = manual).
-- Mixed media menu with `[V]`, `[A]`, and `[I]` entry tags.
+- Image viewer/gallery controls with an explicit **Enable slideshow** switch; turn it off for a manual viewer.
+- Every multi-item collection ROM starts in the media menu, whether it is mixed media, video-only, music-only, or image-only; entries use `[V]`, `[A]`, and `[I]` tags.
 - `.gbamedia` v2 project files; legacy `.gbavideo` v1 projects remain accepted.
 - Existing video presets, title cards, menus, palette modes, long-video splitting, PCM and experimental IMA ADPCM are retained.
 
@@ -27,35 +27,38 @@ GBA Media Maker is the v0.13 evolution of GBA Video Maker. It keeps the existing
 
 1. Launch **GBA Media Maker**.
 2. Choose or drag one or more media files.
-3. Reorder them and choose **Single ROM**, **Playlist**, **Media menu**, or **Separate ROMs**.
-4. Selecting a video, audio file, or image automatically exposes the settings relevant to that media type.
+3. Reorder them. A one-item project opens directly; every multi-item collection uses the **Media menu** automatically (or choose **Separate ROMs**).
+4. Selecting a video, music file, or image exposes a dedicated Video, Music, or Image settings panel.
 5. Create the output and test the `.gba` in an emulator or on hardware/flashcart.
 
 The Windows app runs a local-only UI on `127.0.0.1` and invokes FFmpeg locally. Source media is not uploaded by the desktop application.
 
 ## GBA controls
 
-### Video
-- `A`: pause/resume
-- `L` / `R`: seek
-- `Up` / `Down`: volume
-- `SELECT`: mute
-- `START`: HUD
-- `B`: return to media menu/restart, depending on ROM mode
+### During playback
 
-### Audio
-- `A`: pause/resume
-- `L` / `R`: seek
-- `Up` / `Down`: volume
-- `SELECT`: mute
-- `START`: Now Playing/HUD
-- `SELECT + Left/Right`: previous/next media in playlist mode
+| Button | Action |
+|---|---|
+| `A` | Pause or resume |
+| `B` | Restart the current media, or return to the media menu in menu ROMs |
+| `L` / `R` | Previous / next media |
+| D-pad `Left` / `Right` | Seek while playing; step one frame while paused. Holding repeats about every 0.3 seconds |
+| D-pad `Up` / `Down` | Volume 0% / 50% / 100% |
+| `SELECT` | Mute / unmute |
+| `START` | Cycle HUD: hidden → time only → full |
+| `L + R` | Quickly hide the HUD or restore the previous HUD mode |
+| `START + SELECT` | Open the controls-help screen |
+| `SELECT + L/R` | Legacy playlist shortcut: previous / next media without opening a menu |
 
-### Images
-- `Left` / `Right`: previous/next image
-- `A`: toggle overlay
-- `B`: return to media menu/restart
-- Optional slideshow duration advances automatically; `0` keeps the image open manually.
+Static image entries use the same media-navigation/HUD shortcuts; `A` pauses or resumes an automatic slideshow when a slideshow duration is configured.
+
+### Media menu
+
+| Button | Action |
+|---|---|
+| D-pad `Up` / `Down` | Move within the current column |
+| D-pad `Left` / `Right` | Move between columns (and across menu pages when needed) |
+| `A` | Play the selected media |
 
 ## Media formats
 

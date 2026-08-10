@@ -132,3 +132,74 @@ func TestPlayerSlashGlyphSourceUsesCompactFiveStepPattern(t *testing.T) {
 		t.Fatal("player slash glyph must use the 0x12A4 compact five-step pattern")
 	}
 }
+
+func TestAudioNowPlayingUILayoutAndFeedback(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"MEDIA_META_MAGIC_V2",
+		"media_title_limit(c),0x7FFF",
+		"media_artist_limit(c),0x5294",
+		"text3n(VRAM0,8,144,cur,5,0x7FFF)",
+		"rect3(VRAM0,8,156,224,4,0x2108)",
+		"rect3(VRAM0,8,156,w,4,0x03FF)",
+		"mute_badge3(VRAM0,ui->muted)",
+		"volume_badge3(VRAM0,ui->volume_level)",
+		"ui->mute_timer=HUD_HOLD_VBLANKS",
+		"ui->volume_timer=VOLUME_HOLD_VBLANKS",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("audio Now Playing UI missing %q", want)
+		}
+	}
+}
+
+func TestPlayerUsesUnifiedV013Controls(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"#defineSEEK_REPEAT_VBLANKS18u",
+		"#defineSHOULDER_COMBO_GRACE_VBLANKS2u",
+		"cycle_hud(structPlayerUI*ui)",
+		"quick_toggle_hud(structPlayerUI*ui)",
+		"held_seek_action(u16now,u16pressed,intpaused,structPlayerUI*ui)",
+		"common_combo_action(u16now,u16pressed,intcan_change,intplaylist,structPlayerUI*ui)",
+		"(now&(KEY_START|KEY_SELECT))==(KEY_START|KEY_SELECT)",
+		"(now&(KEY_L|KEY_R))==(KEY_L|KEY_R)",
+		"returncan_change?(dir<0?ACTION_PREV_CLIP:ACTION_NEXT_CLIP):ACTION_NONE",
+		"ui->volume_level<2",
+		"ui->volume_level>0",
+		"PLAY_RESULT_NEXT_CLIP_DIRECT",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("v0.13 control mapping missing %q", want)
+		}
+	}
+}
+
+func TestPlayerMenuUsesColumnNavigation(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"page_start=(sel/20u)*20u",
+		"for(col=0;col<2;col++)",
+		"for(row=0;row<10;row++)",
+		"menu_column_length",
+		"if((p&KEY_UP)&&col_len)",
+		"if((p&KEY_DOWN)&&col_len)",
+		"if(p&KEY_LEFT)",
+		"if(p&KEY_RIGHT)",
+		"if(p&KEY_A)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("column menu navigation missing %q", want)
+		}
+	}
+}
+
+func TestRestartClearsResumeOutsideMenu(t *testing.T) {
+	src := compactSource(playerSource(t))
+	if !strings.Contains(src, "if(is_menu_mode(meta)){save_position(meta,clip_index,frame);returnPLAY_RESULT_RETURN_MENU;}clear_position(meta,clip_index);returnPLAY_RESULT_RESTART_CURRENT") {
+		t.Fatal("video B restart must clear the resume position outside menu ROMs")
+	}
+	if !strings.Contains(src, "if(is_menu_mode(m)){save_position(m,idx,f);returnPLAY_RESULT_RETURN_MENU;}clear_position(m,idx);returnPLAY_RESULT_RESTART_CURRENT") {
+		t.Fatal("audio B restart must clear the resume position outside menu ROMs")
+	}
+}

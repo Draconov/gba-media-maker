@@ -56,7 +56,7 @@ Static images bypass the video quantizer entirely. FFmpeg applies the selected f
 
 ## Mixed media ROMs
 
-Menu/playlist descriptors may freely combine video, audio and image entries. The runtime dispatches each descriptor by flags, while common title, loop, playlist navigation and SRAM selection state remain shared.
+Collection descriptors may freely combine video, audio and image entries. New multi-item projects are emitted as menu ROMs regardless of media mix; the runtime dispatches each descriptor by flags while common title, loop, navigation and SRAM selection state remain shared. Legacy playlist ROMs remain readable.
 
 ## Desktop UI
 

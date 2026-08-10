@@ -113,12 +113,18 @@ function sanitizeMenuTitle(value) {
 function selectedIndex() { return state?.videos?.findIndex(v => v.id === selectedID) ?? -1; }
 function selectedVideo() { return state?.videos?.find(v => v.id === selectedID) || state?.videos?.[0]; }
 function mediaKind(video=selectedVideo()){ return video?.info?.kind || 'video'; }
+function isGIF(video=selectedVideo()){ return /\.gif$/i.test(video?.name || ''); }
+function rawFilenameTitle(name){ return String(name || '').replace(/\.[^.]+$/, '').trim(); }
+function defaultMusicTitle(video){ return String(video?.info?.title || rawFilenameTitle(video?.name) || 'UNTITLED').trim().slice(0,28); }
+function defaultMusicArtist(video){ return String(video?.info?.artist || '').trim().slice(0,28); }
 function titleForVideo(video){ const meta=video?.info?.title; return titleFromFilename((meta && mediaKind(video)==='audio') ? meta : (video?.name || 'GBA MEDIA')); }
 function cloneClip(settings) { return {...DEFAULT_CLIP, ...settings}; }
 function effectiveClip(id) {
   const config = clipConfigs[id] || {title: 'GBA VIDEO', useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
-  return config.useProject ? {...projectDefaults, audioTrack: Number(config.audioTrack) || 0, title: config.title, useProject: true}
+  const result = config.useProject ? {...projectDefaults, audioTrack: Number(config.audioTrack) || 0, title: config.title, useProject: true}
     : {...cloneClip(config), audioTrack: Number(config.audioTrack) || 0, title: config.title, useProject: false};
+  if (isGIF(state?.videos?.find(video => video.id === id))) result.loop = true;
+  return result;
 }
 function ensureClipConfigs() {
   if (!state?.videos) return;
@@ -126,8 +132,11 @@ function ensureClipConfigs() {
   for (const id of Object.keys(clipConfigs)) if (!valid.has(id)) delete clipConfigs[id];
   for (const video of state.videos) {
     if (!clipConfigs[video.id]) {
-      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
+      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, musicTitle: defaultMusicTitle(video), musicArtist: defaultMusicArtist(video), ...DEFAULT_CLIP};
     }
+    if (clipConfigs[video.id].musicTitle == null) clipConfigs[video.id].musicTitle = defaultMusicTitle(video);
+    if (clipConfigs[video.id].musicArtist == null) clipConfigs[video.id].musicArtist = defaultMusicArtist(video);
+    if (isGIF(video)) clipConfigs[video.id].loop = true;
   }
   if (!selectedID || !valid.has(selectedID)) selectedID = state.videos[0]?.id || '';
 }
@@ -199,9 +208,10 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds','imageSlideshow','imageFit','musicTitle','musicArtist','musicStart','musicEnd','musicSpeed'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
+  if(!busy && state?.videos?.length) syncMediaAliasControls();
 }
 
 async function chooseNative(append) {
@@ -299,7 +309,7 @@ function renderClips() {
     if(info){
       if(kind==='image') status=`${info.width}×${info.height} • Image`;
       else if(kind==='audio') status=`${fmt(info.duration)} • ${info.audioStreams||1} audio track${(info.audioStreams||1)===1?'':'s'}${info.artist?' • '+info.artist:''}`;
-      else status=`${info.width}×${info.height} • ${fmt(info.duration)}${info.audioStreams?' • audio':' • silent'}`;
+      else status=isGIF(video) ? `${info.width}×${info.height} • ${fmt(info.duration)} • GIF • auto-loop` : `${info.width}×${info.height} • ${fmt(info.duration)}${info.audioStreams?' • audio':' • silent'}`;
     }
     const relink = video.needsRelink ? '<button class="clip-action relink" data-relink="' + index + '" title="Relink source file">↻</button>' : '';
     return '<div class="clip ' + (video.id === selectedID ? 'active' : '') + '" draggable="true" data-id="' + video.id + '">' +
@@ -747,20 +757,52 @@ function updateTitleCardSection(estimateResult) {
 function updateMediaSettingsVisibility(){
   const kind=mediaKind();
   const isVideo=kind==='video',isAudio=kind==='audio',isImage=kind==='image';
+  $('qualitySection')?.classList.toggle('hidden',!isVideo);
+  $('videoSection')?.classList.toggle('hidden',!isVideo);
+  $('musicSection')?.classList.toggle('hidden',!isAudio);
   $('imageSection')?.classList.toggle('hidden',!isImage);
   $('colorSection')?.classList.toggle('hidden',!isVideo);
   $('extremeSection')?.classList.toggle('media-hidden',!isVideo);
   $('smartAnalyze')?.classList.toggle('hidden',!isVideo);
-  // Timing/framing is useful for video, audio trim, and image fit; video-only controls are muted below.
   for(const id of ['fps','compression','paletteMode','ditherMode']) if($(id)){ const off=!isVideo; $(id).dataset.mediaDisabled=off?'1':'0'; $(id).disabled=off||!!state?.converting||$(id).dataset.scopeDisabled==='1'; }
-  for(const id of ['start','end','speed']) if($(id)){ const off=isImage; $(id).dataset.mediaDisabled=off?'1':'0'; $(id).disabled=off||!!state?.converting||$(id).dataset.scopeDisabled==='1'; }
-  if($('fit')) $('fit').disabled=!!state?.converting||$('fit').dataset.scopeDisabled==='1';
+  for(const id of ['start','end','speed']) if($(id)){ const off=!isVideo; $(id).dataset.mediaDisabled=off?'1':'0'; $(id).disabled=off||!!state?.converting||$(id).dataset.scopeDisabled==='1'; }
+  if($('fit')) { const off=!isVideo; $('fit').dataset.mediaDisabled=off?'1':'0'; $('fit').disabled=off||!!state?.converting||$('fit').dataset.scopeDisabled==='1'; }
   $('audioSection')?.classList.toggle('hidden',isImage);
   $('timelinePanel')?.classList.toggle('hidden',isImage);
   $('previewEnd')?.classList.toggle('hidden',isImage);
-  $('audioPreview')?.classList.toggle('hidden',isImage);
   if(isAudio && $('audio')) $('audio').value=$('audio').value==='none'?'mix':$('audio').value;
-  if(isImage && $('imageSeconds') && !Number.isFinite(Number($('imageSeconds').value))) $('imageSeconds').value='5';
+  syncMediaAliasControls();
+}
+
+function currentSettingsSource(){
+  return editScope === 'project' ? projectDefaults : effectiveClip(selectedID);
+}
+function settingsAreLocked(){
+  const config=clipConfigs[selectedID];
+  return editScope==='clip' && !!config?.useProject;
+}
+function syncMediaAliasControls(){
+  const source=currentSettingsSource();
+  const locked=settingsAreLocked() || !!state?.converting;
+  const kind=mediaKind();
+  if(kind==='audio'){
+    const config=clipConfigs[selectedID];
+    if($('musicTitle')) { $('musicTitle').value=config?.musicTitle ?? defaultMusicTitle(selectedVideo()); $('musicTitle').disabled=!!state?.converting; }
+    if($('musicArtist')) { $('musicArtist').value=config?.musicArtist ?? defaultMusicArtist(selectedVideo()); $('musicArtist').disabled=!!state?.converting; }
+    for(const [id,key] of [['musicStart','start'],['musicEnd','end'],['musicSpeed','speed']]) if($(id)){ $(id).value=source[key] ?? ''; $(id).disabled=locked; }
+  }
+  if(kind==='image'){
+    if($('imageFit')) { $('imageFit').value=source.fit || 'fit'; $('imageFit').disabled=locked; }
+    const seconds=Number(source.imageSeconds);
+    const enabled=Number.isFinite(seconds) && seconds>0;
+    if($('imageSlideshow')) { $('imageSlideshow').checked=enabled; $('imageSlideshow').disabled=locked; }
+    if($('imageSeconds')) {
+      if(enabled) $('imageSeconds').value=seconds;
+      else if(!Number.isFinite(Number($('imageSeconds').value)) || Number($('imageSeconds').value)<=0) $('imageSeconds').value=5;
+      $('imageSeconds').disabled=locked || !enabled;
+    }
+    $('imageSlideshowDuration')?.classList.toggle('scope-muted',!enabled);
+  }
 }
 
 function updateSplitControls() {
@@ -778,9 +820,11 @@ function updateOutputModes() {
   if (single) {
     select.innerHTML = '<option value="rom">Single ROM</option>';
     select.value = 'rom';
+    if($('outputModeHint')) $('outputModeHint').textContent='A single item opens directly.';
   } else {
-    select.innerHTML = '<option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option>';
-    select.value = ['playlist','menu','batch'].includes(current) ? current : 'playlist';
+    select.innerHTML = '<option value="menu">One ROM — media menu</option><option value="batch">Separate ROMs in ZIP</option>';
+    select.value = current === 'batch' ? 'batch' : 'menu';
+    if($('outputModeHint')) $('outputModeHint').textContent='Every collection ROM starts in the media menu, even when all items are the same type.';
   }
   $('menuSettingsSection')?.classList.toggle('hidden', !(state.videos.length > 1 && select.value === 'menu'));
   updateSplitControls();
@@ -807,7 +851,9 @@ function refreshScope(force) {
     const element = $(key);
     if (!element) continue;
     if (element.type === 'checkbox') element.checked = !!source[key]; else element.value = source[key];
-    const disabled = editScope === 'clip' && config.useProject;
+    const gifLoop = key === 'loop' && isGIF();
+    if (gifLoop) element.checked = true;
+    const disabled = (editScope === 'clip' && config.useProject) || gifLoop;
     element.dataset.scopeDisabled = disabled ? '1' : '0';
     element.disabled = disabled || !!state?.converting;
   }
@@ -821,7 +867,7 @@ $('useProject').onchange = () => {
   const config = clipConfigs[selectedID];
   if (!config) return;
   if (!config.useProject && $('useProject').checked) config.useProject = true;
-  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack}); }
+  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack,musicTitle=config.musicTitle,musicArtist=config.musicArtist; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack, musicTitle, musicArtist}); }
   refreshScope(true); renderClips(); estimate();
 };
 function savePerClipField(id) {
@@ -843,6 +889,36 @@ $('audioTrack').addEventListener('change', () => {
   if (audioURL) { URL.revokeObjectURL(audioURL); audioURL=''; $('audioPlayer').removeAttribute('src'); }
 });
 for (const id of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode','imageSeconds']) $(id).addEventListener('input', () => savePerClipField(id));
+function saveAliasField(id,key){
+  const element=$(id);
+  if(!element || settingsAreLocked()) return;
+  const value=element.type==='number'?Number(element.value):element.value;
+  if(editScope==='project') projectDefaults[key]=value;
+  else { const config=clipConfigs[selectedID]; if(!config || config.useProject) return; config[key]=value; }
+  const source=$(key); if(source) source.value=value;
+  $('preset').value='custom';
+  estimate();
+  if(['start','end','fit','speed'].includes(key)){ syncTimeline(false); updatePreview(); }
+}
+for(const [id,key] of [['musicStart','start'],['musicEnd','end'],['musicSpeed','speed'],['imageFit','fit']]) $(id)?.addEventListener('input',()=>saveAliasField(id,key));
+$('musicTitle')?.addEventListener('input',()=>{ const config=clipConfigs[selectedID]; if(config){ config.musicTitle=$('musicTitle').value.slice(0,28); estimate(); } });
+$('musicArtist')?.addEventListener('input',()=>{ const config=clipConfigs[selectedID]; if(config){ config.musicArtist=$('musicArtist').value.slice(0,28); estimate(); } });
+$('imageSlideshow')?.addEventListener('change',()=>{
+  if(settingsAreLocked()) return;
+  const source=currentSettingsSource();
+  let seconds=Number(source.imageSeconds);
+  if($('imageSlideshow').checked){
+    if(!Number.isFinite(seconds)||seconds<=0) seconds=Number($('imageSeconds').dataset.lastSeconds)||5;
+  }else{
+    if(Number.isFinite(seconds)&&seconds>0) $('imageSeconds').dataset.lastSeconds=String(seconds);
+    seconds=0;
+  }
+  if(editScope==='project') projectDefaults.imageSeconds=seconds;
+  else { const config=clipConfigs[selectedID]; if(config&&!config.useProject) config.imageSeconds=seconds; }
+  syncMediaAliasControls();
+  estimate();
+});
+$('imageSeconds')?.addEventListener('input',()=>{ const value=Number($('imageSeconds').value); if(value>0) $('imageSeconds').dataset.lastSeconds=String(value); syncMediaAliasControls(); });
 for (const id of ['fps','seekSeconds','compression','normalize','limiter','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit']) $(id).addEventListener('input', () => { $('preset').value = 'custom'; estimate(); });
 $('splitVideo').addEventListener('change', () => { updateSplitControls(); $('preset').value = 'custom'; estimate(); });
 $('outputMode').onchange = () => { updateOutputModes(); estimate(); };
@@ -1019,7 +1095,7 @@ function values() {
     ...global, ...projectDefaults,
     clips: state.videos.map(video => {
       const config = clipConfigs[video.id];
-      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number(config.imageSeconds)||0};
+      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:isGIF(video)||!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number.isFinite(Number(config.imageSeconds))?Number(config.imageSeconds):5,musicTitle:config.musicTitle||'',musicArtist:config.musicArtist||''};
     })
   };
 }
@@ -1262,7 +1338,7 @@ $('audioQuality').addEventListener('change', () => { smartAnalysis = null; if ($
 function applyPendingProject() {
   const settings = pendingProject;
   pendingProject = null;
-  projectDefaults = cloneClip({start:settings.start,end:settings.end,speed:settings.speed,fit:settings.fit || 'fit',audio:settings.audio,volume:settings.volume,loop:settings.loop,paletteMode:settings.paletteMode,ditherMode:settings.ditherMode,imageSeconds:Number(settings.imageSeconds)||5});
+  projectDefaults = cloneClip({start:settings.start,end:settings.end,speed:settings.speed,fit:settings.fit || 'fit',audio:settings.audio,volume:settings.volume,loop:settings.loop,paletteMode:settings.paletteMode,ditherMode:settings.ditherMode,imageSeconds:Number.isFinite(Number(settings.imageSeconds))?Number(settings.imageSeconds):5});
   for (const key of ['fps','compression','outputMode']) if (settings[key]) $(key).value = settings[key];
   $('preset').value = settings.preset || 'custom';
   $('audioQuality').value = settings.audioQuality || 'pcm';
@@ -1289,7 +1365,7 @@ function applyPendingProject() {
     rebuildMenuTheme();
   }
   clipConfigs = {};
-  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(clip.imageSeconds)?clip.imageSeconds:5};
+  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(Number(clip.imageSeconds))?Number(clip.imageSeconds):5,musicTitle:clip.musicTitle ?? null,musicArtist:clip.musicArtist ?? null};
   ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
 }
 async function saveProject() {

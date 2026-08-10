@@ -2,6 +2,8 @@
 
 ## [0.13.0] - 2026-08-10
 
+- Added animated GIF import as looping video media; GIFs now appear under the Media files picker and automatically loop in generated ROMs.
+
 ### Added
 - Renamed the application experience to **GBA Media Maker** and added first-class Video, Audio, and Image media types.
 - Added audio-only conversion, native 240×160 cover artwork, title/artist/album metadata, GBA Now Playing UI, seeking, pause, volume, mute, playlist navigation, and SRAM resume integration.
@@ -15,6 +17,8 @@
 - Renamed Add Video/clip-facing UI to Add Media and hide settings that do not apply to the selected media type.
 - Long-video autosplitting is now strictly video-only.
 - Rebuilt `assets/player_stub.bin` with the v0.13 media runtime.
+- Refined audio Now Playing: 28-character song title and author fields, restored video-style volume/mute feedback, raised the time/play row above the progress bar, and increased the progress bar to 4 pixels.
+- Reworked ROM controls: shoulders now switch media, D-pad Left/Right owns seeking/frame-step with ~0.3 s hold-repeat, START cycles hidden/time/full HUD modes, L+R quick-toggles HUD visibility, START+SELECT opens help, and menu navigation uses true columns.
 
 ### Compatibility
 - Existing video conversion remains on the legacy 120×80 indexed playback path.
