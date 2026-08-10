@@ -112,7 +112,7 @@ jobs:
         run: >-
           go run ./tools/embedicon
           -exe "GBA Media Maker.exe"
-          -ico "assets/app_icon.ico"
+          -ico "assets/icon.ico"
 
       - name: Fetch pinned FFmpeg for the portable package
         shell: bash

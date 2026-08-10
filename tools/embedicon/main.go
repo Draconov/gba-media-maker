@@ -201,7 +201,7 @@ func embed(exePath, icoPath string) error {
 
 func main() {
 	exe := flag.String("exe", "GBA Media Maker.exe", "Windows executable to update")
-	ico := flag.String("ico", "assets/app_icon.ico", "ICO file to embed")
+	ico := flag.String("ico", "assets/icon.ico", "ICO file to embed")
 	flag.Parse()
 	if err := embed(*exe, *ico); err != nil {
 		fmt.Fprintln(os.Stderr, "embedicon:", err)

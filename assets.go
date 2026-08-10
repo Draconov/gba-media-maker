@@ -4,7 +4,7 @@ import _ "embed"
 
 // Embedded browser assets keep the source readable and avoid a large inline script.
 //
-//go:embed assets/app_icon.png
+//go:embed assets/icon.png
 var appIconPNG []byte
 
 //go:embed web/index.html

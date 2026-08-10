@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/app_icon.png" width="96" alt="GBA Media Maker icon">
+  <img src="assets/icon.png" width="96" alt="GBA Media Maker icon">
 
 # GBA Media Maker
 
