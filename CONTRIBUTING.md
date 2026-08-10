@@ -6,7 +6,7 @@ Bug reports, reproducible test cases, documentation fixes, and focused pull requ
 
 1. Use the latest release.
 2. Check whether `ffmpeg.exe` exists beside the app or can be downloaded by it.
-3. Attach `GBA Video Maker.log` when the app exits unexpectedly.
+3. Attach `GBA Media Maker.log` when the app exits unexpectedly.
 4. Include the source video's container, codec, resolution, duration, audio layout, and the selected conversion settings.
 5. Do not upload copyrighted source videos unless you have permission to share them. A short synthetic reproduction is preferred.
 

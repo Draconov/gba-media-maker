@@ -37,7 +37,7 @@ func TestRunWebAppLifecycle(t *testing.T) {
 	}
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !bytes.Contains(page, []byte("Drag and drop videos here")) {
+	if resp.StatusCode != 200 || !bytes.Contains(page, []byte("Drag and drop media here")) {
 		t.Fatalf("unexpected page status=%d", resp.StatusCode)
 	}
 	req, _ := http.NewRequest(http.MethodPost, strings.TrimSuffix(url, "/")+"/api/close", nil)
@@ -111,10 +111,10 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte(`name="gbavm-session-token" content="abc123"`)) {
 		t.Fatal("token not embedded")
 	}
-	if !bytes.Contains(page, []byte("GBA Video Maker 0.12.2")) {
+	if !bytes.Contains(page, []byte("GBA Media Maker 0.13.0")) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image, GIF or video", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Title and subtitle typography", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video/audio)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image, GIF or video", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}

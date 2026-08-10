@@ -36,6 +36,9 @@ const (
 	frameBytes             = frameWidth * frameHeight
 	audioRate              = 16384
 	videoPaletteColors     = 250
+	nativeImageWidth       = 240
+	nativeImageHeight      = 160
+	nativeImageBytes       = nativeImageWidth * nativeImageHeight * 2
 	gbaRefresh             = 59.727500569606
 	defaultLongSplitBudget = 31 * 1024 * 1024
 )
@@ -67,10 +70,14 @@ type AudioTrackInfo struct {
 }
 
 type MediaInfo struct {
+	Kind          string           `json:"kind"` // video, audio, image
 	Duration      float64          `json:"duration"`
 	Width         int              `json:"width"`
 	Height        int              `json:"height"`
 	FPS           float64          `json:"fps"`
+	Title         string           `json:"title,omitempty"`
+	Artist        string           `json:"artist,omitempty"`
+	Album         string           `json:"album,omitempty"`
 	AudioStreams  int              `json:"audioStreams"`
 	AudioChannels int              `json:"audioChannels"`
 	AudioTracks   []AudioTrackInfo `json:"audioTracks,omitempty"`
@@ -84,17 +91,19 @@ type ClipInput struct {
 
 	// Custom selects the per-clip overrides below. When false, the project
 	// defaults in ProjectOptions are used.
-	Custom      bool
-	Start       float64
-	End         float64
-	Speed       float64
-	FitMode     string
-	AudioMode   string
-	AudioTrack  int
-	Volume      float64
-	Loop        bool
-	PaletteMode string
-	DitherMode  string
+	Custom       bool
+	Start        float64
+	End          float64
+	Speed        float64
+	FitMode      string
+	AudioMode    string
+	AudioTrack   int
+	Volume       float64
+	Loop         bool
+	PaletteMode  string
+	DitherMode   string
+	MediaKind    string
+	ImageSeconds float64
 }
 
 type ProjectOptions struct {
@@ -223,36 +232,65 @@ func parseAudioChannels(line string) int {
 	return 0
 }
 
-func parseMediaInfo(text string) (MediaInfo, error) {
-	dm := durationPattern.FindStringSubmatch(text)
-	if dm == nil {
-		return MediaInfo{}, errors.New("could not read video duration")
+func isStillImagePath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tga", ".tif", ".tiff":
+		return true
 	}
-	h, _ := strconv.Atoi(dm[1])
-	m, _ := strconv.Atoi(dm[2])
-	seconds, _ := strconv.ParseFloat(dm[3], 64)
+	return false
+}
+
+func isAudioFirstPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp3", ".flac", ".wav", ".ogg", ".opus", ".m4a", ".aac", ".wma", ".aiff", ".ape":
+		return true
+	}
+	return false
+}
+
+func parseMediaInfoForPath(text, path string) (MediaInfo, error) {
+	duration := 0.0
+	if dm := durationPattern.FindStringSubmatch(text); dm != nil {
+		h, _ := strconv.Atoi(dm[1])
+		m, _ := strconv.Atoi(dm[2])
+		seconds, _ := strconv.ParseFloat(dm[3], 64)
+		duration = float64(h*3600+m*60) + seconds
+	}
 	var videoLine string
 	var audioTracks []AudioTrackInfo
 	currentAudio := -1
+	beforeStreams := true
+	var metaTitle, metaArtist, metaAlbum string
 	for _, line := range strings.Split(text, "\n") {
-		if videoLine == "" && strings.Contains(line, " Video:") {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(line, " Video:") && videoLine == "" {
 			videoLine = line
 		}
-		if match := streamAudioPattern.FindStringSubmatch(strings.TrimSpace(line)); match != nil {
-			streamIndex, _ := strconv.Atoi(match[1])
-			track := AudioTrackInfo{
-				Index:       len(audioTracks),
-				StreamIndex: streamIndex,
-				Language:    strings.TrimSpace(match[2]),
-				Codec:       strings.TrimSpace(match[3]),
-				Channels:    parseAudioChannels(match[4]),
-				Default:     strings.Contains(strings.ToLower(match[4]), "(default)"),
+		if strings.HasPrefix(trimmed, "Stream #") {
+			beforeStreams = false
+		}
+		if beforeStreams {
+			lower := strings.ToLower(trimmed)
+			if i := strings.Index(lower, ":"); i > 0 {
+				key, val := strings.TrimSpace(lower[:i]), strings.TrimSpace(trimmed[i+1:])
+				switch key {
+				case "title":
+					metaTitle = val
+				case "artist":
+					metaArtist = val
+				case "album":
+					metaAlbum = val
+				}
 			}
+		}
+		if match := streamAudioPattern.FindStringSubmatch(trimmed); match != nil {
+			streamIndex, _ := strconv.Atoi(match[1])
+			track := AudioTrackInfo{Index: len(audioTracks), StreamIndex: streamIndex, Language: strings.TrimSpace(match[2]), Codec: strings.TrimSpace(match[3]), Channels: parseAudioChannels(match[4]), Default: strings.Contains(strings.ToLower(match[4]), "(default)")}
 			audioTracks = append(audioTracks, track)
 			currentAudio = len(audioTracks) - 1
 			continue
 		}
-		if streamAnyPattern.MatchString(strings.TrimSpace(line)) {
+		if streamAnyPattern.MatchString(trimmed) {
 			currentAudio = -1
 			continue
 		}
@@ -262,24 +300,40 @@ func parseMediaInfo(text string) (MediaInfo, error) {
 			}
 		}
 	}
-	if videoLine == "" {
-		return MediaInfo{}, errors.New("could not find a video stream")
+	width, height, fps := 0, 0, 0.0
+	if videoLine != "" {
+		if dims := dimensionsPattern.FindStringSubmatch(videoLine); dims != nil {
+			width, _ = strconv.Atoi(dims[1])
+			height, _ = strconv.Atoi(dims[2])
+		}
+		if fm := fpsPattern.FindStringSubmatch(videoLine); fm != nil {
+			fps, _ = strconv.ParseFloat(fm[1], 64)
+		}
 	}
-	dims := dimensionsPattern.FindStringSubmatch(videoLine)
-	if dims == nil {
-		return MediaInfo{}, errors.New("could not read video dimensions")
+	kind := "video"
+	if isAudioFirstPath(path) && len(audioTracks) > 0 {
+		kind = "audio"
+	} else if isStillImagePath(path) {
+		kind = "image"
+	} else if videoLine == "" && len(audioTracks) > 0 {
+		kind = "audio"
+	} else if videoLine == "" {
+		return MediaInfo{}, errors.New("could not find a supported video, audio, or image stream")
 	}
-	w, _ := strconv.Atoi(dims[1])
-	hg, _ := strconv.Atoi(dims[2])
-	fps := 0.0
-	if fm := fpsPattern.FindStringSubmatch(videoLine); fm != nil {
-		fps, _ = strconv.ParseFloat(fm[1], 64)
+	if kind == "video" && duration <= 0 {
+		return MediaInfo{}, errors.New("could not read video duration")
+	}
+	if kind == "audio" && duration <= 0 {
+		return MediaInfo{}, errors.New("could not read audio duration")
+	}
+	if kind == "image" {
+		duration = 0
+		fps = 0
 	}
 	var chapters []float64
 	for _, match := range chapterPattern.FindAllStringSubmatch(text, -1) {
-		chapterStart, parseErr := strconv.ParseFloat(match[1], 64)
-		if parseErr == nil && chapterStart > 0 {
-			chapters = append(chapters, chapterStart)
+		if v, e := strconv.ParseFloat(match[1], 64); e == nil && v > 0 {
+			chapters = append(chapters, v)
 		}
 	}
 	sort.Float64s(chapters)
@@ -287,19 +341,17 @@ func parseMediaInfo(text string) (MediaInfo, error) {
 	if len(audioTracks) > 0 {
 		audioChannels = audioTracks[0].Channels
 	}
-	return MediaInfo{
-		Duration: float64(h*3600+m*60) + seconds,
-		Width:    w, Height: hg, FPS: fps,
-		AudioStreams: len(audioTracks), AudioChannels: audioChannels, AudioTracks: audioTracks,
-		Chapters: chapters,
-	}, nil
+	return MediaInfo{Kind: kind, Duration: duration, Width: width, Height: height, FPS: fps, Title: metaTitle, Artist: metaArtist, Album: metaAlbum, AudioStreams: len(audioTracks), AudioChannels: audioChannels, AudioTracks: audioTracks, Chapters: chapters}, nil
 }
+
+// parseMediaInfo keeps the legacy parser contract used by tests and helpers.
+func parseMediaInfo(text string) (MediaInfo, error) { return parseMediaInfoForPath(text, "video.mp4") }
 
 func inspectMedia(ffmpegPath, path string) (MediaInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	output, _ := runCommandContext(ctx, ffmpegPath, "-hide_banner", "-i", path)
-	return parseMediaInfo(string(output))
+	return parseMediaInfoForPath(string(output), path)
 }
 
 func parseTime(value string) (float64, error) {
@@ -454,6 +506,79 @@ func extractFrames(opt ProjectOptions, input string, duration float64, path stri
 		return errors.New("converted video contains no usable frames")
 	}
 	return nil
+}
+
+func rgb24ToRGB555(src []byte) ([]byte, error) {
+	if len(src) != nativeImageWidth*nativeImageHeight*3 {
+		return nil, fmt.Errorf("native image has %d bytes, expected %d", len(src), nativeImageWidth*nativeImageHeight*3)
+	}
+	out := make([]byte, nativeImageBytes)
+	for i, j := 0, 0; i < len(src); i, j = i+3, j+2 {
+		r := uint16(src[i] >> 3)
+		g := uint16(src[i+1] >> 3)
+		b := uint16(src[i+2] >> 3)
+		v := r | (g << 5) | (b << 10)
+		out[j] = byte(v)
+		out[j+1] = byte(v >> 8)
+	}
+	return out, nil
+}
+
+func nativeImageFilter(fitMode string) string {
+	switch fitMode {
+	case "crop":
+		return "scale=240:160:force_original_aspect_ratio=increase,crop=240:160,format=rgb24"
+	case "stretch":
+		return "scale=240:160,format=rgb24"
+	default:
+		return "scale=240:160:force_original_aspect_ratio=decrease,pad=240:160:(ow-iw)/2:(oh-ih)/2:black,format=rgb24"
+	}
+}
+
+func extractNativeImage(ffmpegPath, input, fitMode, path string) error {
+	rawPath := path + ".rgb24"
+	defer os.Remove(rawPath)
+	output, err := runCommand(ffmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-i", input, "-frames:v", "1", "-an", "-vf", nativeImageFilter(fitMode), "-pix_fmt", "rgb24", "-f", "rawvideo", rawPath)
+	if err != nil {
+		return ffmpegVideoError("FFmpeg could not convert the image", output)
+	}
+	raw, err := os.ReadFile(rawPath)
+	if err != nil {
+		return err
+	}
+	data, err := rgb24ToRGB555(raw)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func fallbackAudioArtwork(path string) error {
+	data := make([]byte, nativeImageBytes)
+	for y := 0; y < nativeImageHeight; y++ {
+		for x := 0; x < nativeImageWidth; x++ {
+			// Dark blue/black GBA-safe background with a subtle centered panel.
+			r, g, b := uint16(2), uint16(4), uint16(8)
+			if x > 28 && x < 212 && y > 18 && y < 142 {
+				r, g, b = 3, 7, 13
+			}
+			if x > 56 && x < 184 && y > 42 && y < 118 {
+				r, g, b = 5, 10, 18
+			}
+			v := r | (g << 5) | (b << 10)
+			i := (y*nativeImageWidth + x) * 2
+			data[i] = byte(v)
+			data[i+1] = byte(v >> 8)
+		}
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func extractAudioArtwork(ffmpegPath, input, path string) error {
+	if err := extractNativeImage(ffmpegPath, input, "fit", path); err == nil {
+		return nil
+	}
+	return fallbackAudioArtwork(path)
 }
 
 type colorPoint struct {
@@ -1174,7 +1299,7 @@ func patchGBAHeader(rom []byte, title string) {
 	binary.LittleEndian.PutUint32(rom[0:4], 0xEA00002E)
 	copy(rom[4:0xA0], nintendoLogo)
 	copy(rom[0xA0:0xAC], safeRomTitle(title))
-	copy(rom[0xAC:0xB0], []byte("GV05"))
+	copy(rom[0xAC:0xB0], []byte("GM05"))
 	copy(rom[0xB0:0xB2], []byte("01"))
 	rom[0xB2] = 0x96
 	for i := 0xB3; i < 0xBD; i++ {
@@ -1200,6 +1325,10 @@ type convertedClip struct {
 	input                                                ClipInput
 	options                                              ProjectOptions
 	info                                                 MediaInfo
+	mediaKind                                            string
+	artist, album                                        string
+	mediaMetadata                                        bool
+	imageSeconds                                         float64
 	frameCount, paletteCount                             int
 	hasAudio                                             bool
 	audioCodec                                           string
@@ -1251,7 +1380,7 @@ func validateClipSettings(opt ProjectOptions, label string) error {
 
 func validateProject(opt ProjectOptions) error {
 	if len(opt.Inputs) == 0 {
-		return errors.New("at least one input video is required")
+		return errors.New("at least one input media file is required")
 	}
 	if opt.OutputPath == "" || opt.FFmpegPath == "" {
 		return errors.New("output and FFmpeg paths are required")
@@ -1304,17 +1433,38 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	if err != nil {
 		return convertedClip{}, fmt.Errorf("%s: %w", input.Name, err)
 	}
+	kind := info.Kind
+	if kind == "" {
+		kind = "video"
+	}
+	if input.MediaKind != "" {
+		kind = input.MediaKind
+	}
+	// Audio media must always retain an audio stream. Treat the legacy
+	// "none" setting as the default mono mix instead of generating a silent
+	// audio entry that the GBA runtime cannot meaningfully play.
+	if kind == "audio" && info.AudioStreams > 0 && opt.AudioMode == "none" {
+		opt.AudioMode = "mix"
+	}
 	if opt.AudioMode != "none" && info.AudioStreams > 0 && (opt.AudioTrack < 0 || opt.AudioTrack >= info.AudioStreams) {
 		return convertedClip{}, fmt.Errorf("%s: selected audio track %d is not available", input.Name, opt.AudioTrack+1)
 	}
 	end := opt.End
-	if end <= 0 || end > info.Duration {
-		end = info.Duration
+	if kind == "image" {
+		end = 0
+		opt.Start = 0
+	} else {
+		if end <= 0 || end > info.Duration {
+			end = info.Duration
+		}
+		if opt.Start < 0 || opt.Start >= end {
+			return convertedClip{}, fmt.Errorf("%s: start time must be before end time", input.Name)
+		}
 	}
-	if opt.Start < 0 || opt.Start >= end {
-		return convertedClip{}, fmt.Errorf("%s: start time must be before end time", input.Name)
+	duration := 0.0
+	if kind != "image" {
+		duration = end - opt.Start
 	}
-	duration := end - opt.Start
 	prefix := filepath.Join(tempDir, fmt.Sprintf("clip-%03d", index))
 	framesPath := prefix + ".rgb"
 	palettePath := prefix + ".pal"
@@ -1326,6 +1476,41 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	base := index * 80 / total
 	span := 80 / total
 	local := func(p int, msg string) { progress(base+p*span/100, fmt.Sprintf("%s — %s", input.Name, msg)) }
+	if kind == "image" {
+		local(20, "converting native 240×160 image")
+		if err := extractNativeImage(opt.FFmpegPath, input.InputPath, opt.FitMode, videoPath); err != nil {
+			return convertedClip{}, err
+		}
+		_ = os.WriteFile(palettePath, nil, 0644)
+		_ = os.WriteFile(paletteIndexPath, nil, 0644)
+		_ = os.WriteFile(videoIndexPath, nil, 0644)
+		_ = os.WriteFile(audioPath, nil, 0644)
+		seconds := input.ImageSeconds
+		if seconds < 0 {
+			seconds = 0
+		}
+		return convertedClip{input: input, options: opt, info: info, mediaKind: "image", imageSeconds: seconds, frameCount: 1, paletteCount: 0, video: videoPath, palette: palettePath, paletteIndex: paletteIndexPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: nativeImageBytes, storedVideo: nativeImageBytes, duration: seconds}, nil
+	}
+	if kind == "audio" {
+		local(20, "preparing album artwork")
+		if err := extractAudioArtwork(opt.FFmpegPath, input.InputPath, videoPath); err != nil {
+			return convertedClip{}, err
+		}
+		_ = os.WriteFile(palettePath, nil, 0644)
+		_ = os.WriteFile(paletteIndexPath, nil, 0644)
+		_ = os.WriteFile(videoIndexPath, nil, 0644)
+		display := duration / opt.Speed
+		frameCount := int(math.Ceil(display * gbaRefresh / float64(opt.VBlanks)))
+		if frameCount < 1 {
+			frameCount = 1
+		}
+		local(60, "converting audio")
+		hasAudio, audioCodec, audioInfo, err := extractAudio(opt, info, input.InputPath, duration, frameCount, audioPath)
+		if err != nil {
+			return convertedClip{}, err
+		}
+		return convertedClip{input: input, options: opt, info: info, mediaKind: "audio", artist: info.Artist, album: info.Album, mediaMetadata: strings.TrimSpace(info.Artist) != "" || strings.TrimSpace(info.Album) != "", frameCount: frameCount, paletteCount: 0, hasAudio: hasAudio, audioCodec: audioCodec, audioSampleCount: audioInfo.SampleCount, audioBlockSamples: audioInfo.BlockSamples, audioBlockBytes: audioInfo.BlockBytes, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: nativeImageBytes, storedVideo: nativeImageBytes, duration: duration}, nil
+	}
 	local(5, "extracting frames")
 	if err := extractFrames(opt, input.InputPath, duration, framesPath, local); err != nil {
 		return convertedClip{}, err
@@ -1344,7 +1529,7 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	if err != nil {
 		return convertedClip{}, err
 	}
-	return convertedClip{input: input, options: opt, info: info, frameCount: frameCount, paletteCount: paletteCount, hasAudio: hasAudio, audioCodec: audioCodec, audioSampleCount: audioInfo.SampleCount, audioBlockSamples: audioInfo.BlockSamples, audioBlockBytes: audioInfo.BlockBytes, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: raw, storedVideo: stored, duration: duration}, nil
+	return convertedClip{input: input, options: opt, info: info, mediaKind: "video", frameCount: frameCount, paletteCount: paletteCount, hasAudio: hasAudio, audioCodec: audioCodec, audioSampleCount: audioInfo.SampleCount, audioBlockSamples: audioInfo.BlockSamples, audioBlockBytes: audioInfo.BlockBytes, palette: palettePath, paletteIndex: paletteIndexPath, video: videoPath, videoIndex: videoIndexPath, audio: audioPath, rawVideo: raw, storedVideo: stored, duration: duration}, nil
 }
 
 func appendFile(rom []byte, path string) ([]byte, int, error) {
@@ -1365,7 +1550,7 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 	if opt.Loop {
 		flags |= 2
 	}
-	if opt.Compression == "delta" {
+	if (c.mediaKind == "" || c.mediaKind == "video") && opt.Compression == "delta" {
 		flags |= 4
 	}
 	if c.paletteCount > 1 {
@@ -1374,15 +1559,31 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 	if c.audioCodec == audioCodecADPCM {
 		flags |= 16
 	}
-	if opt.AdaptiveKeyframes {
+	if opt.AdaptiveKeyframes && (c.mediaKind == "" || c.mediaKind == "video") {
 		flags |= 32
+	}
+	if c.mediaKind == "audio" {
+		flags |= 64
+	}
+	if c.mediaKind == "image" {
+		flags |= 128
+	}
+	if c.mediaMetadata {
+		flags |= 256
 	}
 	seekFrames := int(math.Round(float64(opt.SeekSeconds) * gbaRefresh / float64(opt.VBlanks)))
 	if seekFrames < 1 {
 		seekFrames = 1
 	}
 	binary.LittleEndian.PutUint32(dst[0:4], uint32(c.frameCount))
-	binary.LittleEndian.PutUint32(dst[4:8], frameBytes)
+	frameSize := uint32(frameBytes)
+	width, height := uint16(frameWidth), uint16(frameHeight)
+	if c.mediaKind == "audio" || c.mediaKind == "image" {
+		frameSize = nativeImageBytes
+		width = nativeImageWidth
+		height = nativeImageHeight
+	}
+	binary.LittleEndian.PutUint32(dst[4:8], frameSize)
 	binary.LittleEndian.PutUint32(dst[8:12], uint32(offsets["video"]))
 	binary.LittleEndian.PutUint32(dst[12:16], uint32(offsets["videoIndex"]))
 	binary.LittleEndian.PutUint32(dst[16:20], uint32(offsets["audio"]))
@@ -1393,8 +1594,8 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 	binary.LittleEndian.PutUint32(dst[36:40], audioRate)
 	binary.LittleEndian.PutUint32(dst[40:44], uint32(seekFrames))
 	binary.LittleEndian.PutUint16(dst[44:46], uint16(opt.VBlanks))
-	binary.LittleEndian.PutUint16(dst[46:48], frameWidth)
-	binary.LittleEndian.PutUint16(dst[48:50], frameHeight)
+	binary.LittleEndian.PutUint16(dst[46:48], width)
+	binary.LittleEndian.PutUint16(dst[48:50], height)
 	binary.LittleEndian.PutUint16(dst[50:52], flags)
 	binary.LittleEndian.PutUint16(dst[52:54], uint16(opt.SeekSeconds))
 	binary.LittleEndian.PutUint16(dst[54:56], uint16(c.paletteCount))
@@ -1414,9 +1615,24 @@ func writeClipDescriptor(dst []byte, c convertedClip, offsets map[string]int) {
 		}
 	}
 	binary.LittleEndian.PutUint32(dst[80:84], audioCodecID)
-	binary.LittleEndian.PutUint32(dst[84:88], uint32(c.audioSampleCount))
+	auxCount := uint32(c.audioSampleCount)
+	if c.mediaKind == "image" {
+		auxCount = uint32(math.Round(c.imageSeconds * 1000))
+	}
+	binary.LittleEndian.PutUint32(dst[84:88], auxCount)
 	binary.LittleEndian.PutUint32(dst[88:92], uint32(c.audioBlockSamples))
 	binary.LittleEndian.PutUint32(dst[92:96], uint32(c.audioBlockBytes))
+}
+
+const mediaMetadataMagic = 0x31444d4d // "MMD1"
+const mediaMetadataSize = 44
+
+func encodeMediaMetadata(artist, album string) []byte {
+	b := make([]byte, mediaMetadataSize)
+	binary.LittleEndian.PutUint32(b[0:4], mediaMetadataMagic)
+	copy(b[4:24], encodeGBATextFixed(artist, 20))
+	copy(b[24:44], encodeGBATextFixed(album, 20))
+	return b
 }
 
 func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progress ProgressFunc) (ConvertResult, error) {
@@ -1444,9 +1660,11 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 	for i, c := range clips {
 		offsets := map[string]int{}
 		var err error
-		rom, offsets["palette"], err = appendFile(rom, c.palette)
-		if err != nil {
-			return ConvertResult{}, err
+		if c.paletteCount > 0 {
+			rom, offsets["palette"], err = appendFile(rom, c.palette)
+			if err != nil {
+				return ConvertResult{}, err
+			}
 		}
 		if c.paletteCount > 1 {
 			rom, offsets["paletteIndex"], err = appendFile(rom, c.paletteIndex)
@@ -1454,11 +1672,15 @@ func assembleROM(opt ProjectOptions, clips []convertedClip, output string, progr
 				return ConvertResult{}, err
 			}
 		}
-		if c.options.Compression == "delta" {
+		if c.mediaKind == "video" && c.options.Compression == "delta" {
 			rom, offsets["videoIndex"], err = appendFile(rom, c.videoIndex)
 			if err != nil {
 				return ConvertResult{}, err
 			}
+		}
+		if c.mediaKind == "audio" && c.mediaMetadata {
+			offsets["videoIndex"] = len(rom)
+			rom = appendAligned(rom, encodeMediaMetadata(c.artist, c.album))
 		}
 		rom, offsets["video"], err = appendFile(rom, c.video)
 		if err != nil {
@@ -1748,9 +1970,9 @@ func splitRecoveryRoot() string {
 		return override
 	}
 	if cache, err := os.UserCacheDir(); err == nil && cache != "" {
-		return filepath.Join(cache, "GBA Video Maker", "long-video-recovery")
+		return filepath.Join(cache, "GBA Media Maker", "long-video-recovery")
 	}
-	return filepath.Join(os.TempDir(), "GBA Video Maker", "long-video-recovery")
+	return filepath.Join(os.TempDir(), "GBA Media Maker", "long-video-recovery")
 }
 
 func splitRecoveryIdentity(opt ProjectOptions, input ClipInput, info MediaInfo, start, end float64, budget int64) (string, error) {
@@ -1864,7 +2086,7 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 	}
 	recoveryDir := filepath.Join(splitRecoveryRoot(), fingerprint)
 	if !persistentRecovery {
-		recoveryDir, err = os.MkdirTemp("", "gba-video-maker-longsplit-")
+		recoveryDir, err = os.MkdirTemp("", "gba-media-maker-longsplit-")
 		if err != nil {
 			return ConvertResult{}, err
 		}
@@ -2120,7 +2342,7 @@ func convertLongVideoSplitWithBudget(opt ProjectOptions, budget int64, progress 
 	}
 
 	var manifest strings.Builder
-	manifest.WriteString("GBA Video Maker automatic long-video split\n")
+	manifest.WriteString("GBA Media Maker automatic long-video split\n")
 	manifest.WriteString("Source: " + input.Name + "\n")
 	fmt.Fprintf(&manifest, "Target data size per ROM: %.0f MiB\n", float64(budget)/1048576)
 	if maxPartSeconds > 0 {
@@ -2234,7 +2456,7 @@ func convertProjectExact(opt ProjectOptions, progress ProgressFunc) (ConvertResu
 	if opt.OutputMode == "longsplit" {
 		return convertLongVideoSplitWithBudget(opt, splitBudgetBytes(opt), progress)
 	}
-	tempDir, err := os.MkdirTemp("", "gba-video-maker-v090-")
+	tempDir, err := os.MkdirTemp("", "gba-media-maker-")
 	if err != nil {
 		return ConvertResult{}, err
 	}
@@ -2326,6 +2548,9 @@ func projectNeedsAutomaticSplit(opt ProjectOptions, budget int64) (bool, error) 
 	if err != nil {
 		return false, err
 	}
+	if info.Kind != "video" {
+		return false, nil
+	}
 	end := effective.End
 	if end <= 0 || end > info.Duration {
 		end = info.Duration
@@ -2355,7 +2580,17 @@ func convertProjectWithAutoSplitBudget(opt ProjectOptions, budget int64, progres
 	if progress == nil {
 		progress = func(int, string) {}
 	}
-	eligible := len(opt.Inputs) == 1 && (opt.OutputMode == "" || opt.OutputMode == "rom")
+	eligible := false
+	if len(opt.Inputs) == 1 && (opt.OutputMode == "" || opt.OutputMode == "rom") {
+		kind := opt.Inputs[0].MediaKind
+		if kind == "" {
+			effective := optionsForClip(opt, opt.Inputs[0])
+			if info, inspectErr := inspectMedia(effective.FFmpegPath, opt.Inputs[0].InputPath); inspectErr == nil {
+				kind = info.Kind
+			}
+		}
+		eligible = kind == "video"
+	}
 	if eligible {
 		needsSplit, preflightErr := projectNeedsAutomaticSplit(opt, budget)
 		if preflightErr == nil && needsSplit {

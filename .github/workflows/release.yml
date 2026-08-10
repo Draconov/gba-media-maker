@@ -6,23 +6,19 @@ run-name: >-
       || 'Publish release from VERSION' }}
 
 on:
-  # Every push to main publishes or updates the normal release named in VERSION.
   push:
     branches:
       - main
-
-  # A stable release can also be published manually from Actions > Release.
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag, for example v0.12.1"
+        description: "Version tag, for example v0.13.0"
         required: true
         type: string
 
 permissions:
   contents: write
 
-# Do not let two pushes publish the same release simultaneously.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -75,29 +71,26 @@ jobs:
           MANUAL_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             tag="$MANUAL_VERSION"
             [[ "$tag" == v* ]] || tag="v$tag"
           else
             base_version="$(tr -d '[:space:]' < VERSION)"
             if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::VERSION must contain a version such as 0.12.1"
+              echo "::error::VERSION must contain a version such as 0.13.0"
               exit 1
             fi
             tag="v${base_version}"
           fi
-
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Version must look like v0.12.1"
+            echo "::error::Version must look like v0.13.0"
             exit 1
           fi
 
           version="${tag#v}"
-          title="GBA Video Maker ${tag}"
-          folder="GBA_Video_Maker_v${version}_Portable"
+          title="GBA Media Maker ${tag}"
+          folder="GBA_Media_Maker_v${version}_Portable"
           zip_file="${folder}.zip"
-
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "title=$title" >> "$GITHUB_OUTPUT"
           echo "folder=$folder" >> "$GITHUB_OUTPUT"
@@ -109,16 +102,16 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 0
         run: |
-          rm -f "GBA Video Maker.exe"
+          rm -f "GBA Media Maker.exe"
           go build -trimpath \
             -buildvcs=false \
             -ldflags="-H windowsgui -s -w" \
-            -o "GBA Video Maker.exe" .
+            -o "GBA Media Maker.exe" .
 
       - name: Embed application icon
         run: >-
           go run ./tools/embedicon
-          -exe "GBA Video Maker.exe"
+          -exe "GBA Media Maker.exe"
           -ico "assets/app_icon.ico"
 
       - name: Fetch pinned FFmpeg for the portable package
@@ -132,10 +125,6 @@ jobs:
           curl --fail --location --retry 3 --retry-delay 2 \
             "${FFMPEG_BASE}/checksums.sha256" \
             --output _vendor/checksums.sha256
-
-          # Dated BtbN releases use build-specific archive names. The floating
-          # `latest` release is the one that has *-latest-* filenames, so discover
-          # the exact pinned non-shared win64 LGPL archive from this release's checksum list.
           archive_entry="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?ffmpeg-[^[:space:]]+-win64-lgpl\.zip$' \
             _vendor/checksums.sha256 | head -n 1 || true)"
           if [[ -z "${archive_entry}" ]]; then
@@ -144,7 +133,6 @@ jobs:
             grep -E 'win64.*lgpl.*\.zip$' _vendor/checksums.sha256 || true
             exit 1
           fi
-
           expected="$(printf '%s\n' "${archive_entry}" | awk '{print $1}')"
           FFMPEG_ARCHIVE="$(printf '%s\n' "${archive_entry}" | \
             sed -E 's/^[0-9a-fA-F]{64}[[:space:]]+\*?//')"
@@ -152,14 +140,12 @@ jobs:
             echo "::error::Invalid FFmpeg entry in the pinned release checksum list."
             exit 1
           fi
-
           echo "Using pinned FFmpeg asset: ${FFMPEG_ARCHIVE}"
           curl --fail --location --retry 3 --retry-delay 2 \
             "${FFMPEG_BASE}/${FFMPEG_ARCHIVE}" \
             --output "_vendor/${FFMPEG_ARCHIVE}"
 
           echo "${expected}  _vendor/${FFMPEG_ARCHIVE}" | sha256sum -c -
-
           unzip -q "_vendor/${FFMPEG_ARCHIVE}" -d _vendor/ffmpeg
           candidate="$(find _vendor/ffmpeg -type f -path '*/bin/ffmpeg.exe' -print -quit)"
           if [[ -z "${candidate}" ]]; then
@@ -170,7 +156,6 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
-
           path = Path("ffmpeg.exe")
           data = path.read_bytes()
           if data[:2] != b"MZ":
@@ -190,7 +175,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir "$FOLDER"
-          cp "GBA Video Maker.exe" ffmpeg.exe README.md LICENSE THIRD_PARTY_NOTICES.md "$FOLDER/"
+          cp "GBA Media Maker.exe" ffmpeg.exe README.md LICENSE THIRD_PARTY_NOTICES.md "$FOLDER/"
           zip -9 -r "$ZIP_FILE" "$FOLDER"
           sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
 
@@ -203,9 +188,6 @@ jobs:
           ZIP_FILE: ${{ steps.release.outputs.zip_file }}
         run: |
           set -euo pipefail
-
-          # A push to main updates the one normal release for the VERSION value.
-          # This avoids build-number tags and avoids creating prereleases.
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             git fetch --tags --force
             git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
@@ -215,7 +197,6 @@ jobs:
               "$ZIP_FILE" \
               "${ZIP_FILE}.sha256" \
               --clobber
-
             gh release edit "$RELEASE_TAG" \
               --title "$RELEASE_TITLE" \
               --prerelease=false \

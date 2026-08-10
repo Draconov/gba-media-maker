@@ -5,7 +5,7 @@ const GBAText = window.GBAText;
 
 const DEFAULT_CLIP = Object.freeze({
   start: '0:00', end: '', speed: 1, fit: 'fit', audio: 'mix', volume: 100,
-  loop: false, paletteMode: 'shared', ditherMode: 'ordered'
+  loop: false, paletteMode: 'shared', ditherMode: 'ordered', imageSeconds: 5
 });
 const FPS_VBLANKS = {smooth: 4, balanced: 5, classic: 6, compact: 8};
 const FPS_ORDER = ['smooth', 'balanced', 'classic', 'compact'];
@@ -104,7 +104,7 @@ function clockValue(seconds) {
   return minutes + ':' + rest.toFixed(2).padStart(5, '0');
 }
 function titleFromFilename(name) {
-  return sanitizeMenuTitle(name.replace(/\.[^.]+$/, '')).value || 'GBA VIDEO';
+  return sanitizeMenuTitle(name.replace(/\.[^.]+$/, '')).value || 'GBA MEDIA';
 }
 function sanitizeMenuTitle(value) {
   const result = GBAText.sanitizeGBAText(value, 12);
@@ -112,6 +112,8 @@ function sanitizeMenuTitle(value) {
 }
 function selectedIndex() { return state?.videos?.findIndex(v => v.id === selectedID) ?? -1; }
 function selectedVideo() { return state?.videos?.find(v => v.id === selectedID) || state?.videos?.[0]; }
+function mediaKind(video=selectedVideo()){ return video?.info?.kind || 'video'; }
+function titleForVideo(video){ const meta=video?.info?.title; return titleFromFilename((meta && mediaKind(video)==='audio') ? meta : (video?.name || 'GBA MEDIA')); }
 function cloneClip(settings) { return {...DEFAULT_CLIP, ...settings}; }
 function effectiveClip(id) {
   const config = clipConfigs[id] || {title: 'GBA VIDEO', useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
@@ -124,7 +126,7 @@ function ensureClipConfigs() {
   for (const id of Object.keys(clipConfigs)) if (!valid.has(id)) delete clipConfigs[id];
   for (const video of state.videos) {
     if (!clipConfigs[video.id]) {
-      clipConfigs[video.id] = {title: titleFromFilename(video.name), useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
+      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, ...DEFAULT_CLIP};
     }
   }
   if (!selectedID || !valid.has(selectedID)) selectedID = state.videos[0]?.id || '';
@@ -149,9 +151,9 @@ function render() {
   }
   if (state.inspectStatus === 'waiting' || state.inspectStatus === 'inspecting') {
     show('loading');
-    $('loadingTitle').textContent = state.inspectStatus === 'waiting' ? 'Preparing the app…' : 'Opening videos…';
+    $('loadingTitle').textContent = state.inspectStatus === 'waiting' ? 'Preparing the app…' : 'Opening media…';
     $('loadingText').textContent = state.inspectStatus === 'waiting'
-      ? (state.engineMessage || 'Preparing FFmpeg') : 'Reading duration, dimensions and audio streams.';
+      ? (state.engineMessage || 'Preparing FFmpeg') : 'Reading media type, duration, dimensions and audio streams.';
     $('loadingFill').style.width = (state.engineProgress || 0) + '%';
   }
   if (state.engineStatus === 'missing' || state.engineStatus === 'error') {
@@ -162,8 +164,8 @@ function render() {
   }
   if (state.inspectStatus === 'error') {
     show('loading');
-    $('loadingTitle').textContent = 'Could not open videos';
-    $('loadingText').textContent = state.inspectError || 'A video could not be inspected.';
+    $('loadingTitle').textContent = 'Could not open media';
+    $('loadingText').textContent = state.inspectError || 'A media file could not be inspected.';
   }
   if (state.inspectStatus === 'ready') {
     show('editor');
@@ -197,7 +199,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
 }
@@ -287,46 +289,47 @@ function refreshAudioTrackSelector() {
 
 function renderClips() {
   if (!state?.videos) return;
+  const kindIcon={video:'🎬',audio:'🎵',image:'🖼'};
+  const kindName={video:'Video',audio:'Audio',image:'Image'};
   const html = state.videos.map((video, index) => {
     const info = video.info;
     const config = clipConfigs[video.id];
-    const status = info ? info.width + '×' + info.height + ' • ' + fmt(info.duration) + (info.audioStreams ? ' • audio' : ' • silent') : (video.error || video.status);
+    const kind=info?.kind || 'video';
+    let status=video.error || video.status;
+    if(info){
+      if(kind==='image') status=`${info.width}×${info.height} • Image`;
+      else if(kind==='audio') status=`${fmt(info.duration)} • ${info.audioStreams||1} audio track${(info.audioStreams||1)===1?'':'s'}${info.artist?' • '+info.artist:''}`;
+      else status=`${info.width}×${info.height} • ${fmt(info.duration)}${info.audioStreams?' • audio':' • silent'}`;
+    }
     const relink = video.needsRelink ? '<button class="clip-action relink" data-relink="' + index + '" title="Relink source file">↻</button>' : '';
     return '<div class="clip ' + (video.id === selectedID ? 'active' : '') + '" draggable="true" data-id="' + video.id + '">' +
-      '<span class="clip-handle" title="Drag to reorder">⋮⋮</span><div class="clip-info"><b>' + (index + 1) + '. ' + escapeHTML(video.name) + '</b><small>' + escapeHTML(status) + '</small>' +
+      '<span class="clip-handle" title="Drag to reorder">⋮⋮</span><div class="clip-info"><b>' + (index + 1) + '. <span class="media-kind">'+(kindIcon[kind]||'•')+' '+(kindName[kind]||'Media')+'</span> ' + escapeHTML(video.name) + '</b><small>' + escapeHTML(status) + '</small>' +
       '<span class="clip-badge ' + (config?.useProject ? '' : 'custom') + '">' + (config?.useProject ? 'Project' : 'Custom') + '</span></div>' + relink +
-      '<button class="clip-action remove" data-remove="' + index + '" title="Remove this video">×</button></div>';
+      '<button class="clip-action remove" data-remove="' + index + '" title="Remove this media item">×</button></div>';
   }).join('');
   $('clips').innerHTML = html;
   for (const element of $('clips').querySelectorAll('.clip')) {
     element.onclick = event => {
       if (event.target.closest('button')) return;
-      selectedID = element.dataset.id;
-      editScope = 'clip';
-      refreshScope(true);
-      renderClips();
-      syncTimeline(true);
+      selectedID = element.dataset.id; editScope = 'clip'; refreshScope(true); renderClips(); syncTimeline(true);
     };
     element.ondragstart = event => { draggedID = element.dataset.id; element.classList.add('dragging'); event.dataTransfer.effectAllowed = 'move'; };
     element.ondragend = () => { draggedID = ''; element.classList.remove('dragging'); document.querySelectorAll('.drop-before').forEach(x => x.classList.remove('drop-before')); };
     element.ondragover = event => { event.preventDefault(); if (draggedID && draggedID !== element.dataset.id) element.classList.add('drop-before'); };
     element.ondragleave = () => element.classList.remove('drop-before');
-    element.ondrop = async event => {
-      event.preventDefault();
-      element.classList.remove('drop-before');
-      if (!draggedID || draggedID === element.dataset.id) return;
-      const ids = state.videos.map(v => v.id);
-      const from = ids.indexOf(draggedID), to = ids.indexOf(element.dataset.id);
-      ids.splice(to, 0, ids.splice(from, 1)[0]);
-      await applyOrder(ids);
-    };
+    element.ondrop = async event => { event.preventDefault(); element.classList.remove('drop-before'); if (!draggedID || draggedID === element.dataset.id) return; const ids = state.videos.map(v => v.id); const from = ids.indexOf(draggedID), to = ids.indexOf(element.dataset.id); ids.splice(to, 0, ids.splice(from, 1)[0]); await applyOrder(ids); };
   }
   for (const button of $('clips').querySelectorAll('[data-remove]')) button.onclick = event => { event.stopPropagation(); removeVideo(+button.dataset.remove); };
   for (const button of $('clips').querySelectorAll('[data-relink]')) button.onclick = event => { event.stopPropagation(); relinkVideo(+button.dataset.relink); };
-  const video = selectedVideo();
-  $('clipInfo').textContent = video?.info ? 'Previewing ' + video.name + ' • ' + video.info.fps.toFixed(2) + ' source fps' : (video?.error || '');
+  const media = selectedVideo(),kind=mediaKind(media);
+  if(media?.info){
+    if(kind==='audio') $('clipInfo').textContent = [media.info.title||media.name,media.info.artist,media.info.album].filter(Boolean).join(' • ');
+    else if(kind==='image') $('clipInfo').textContent = `Previewing ${media.name} • native output 240×160 RGB555`;
+    else $('clipInfo').textContent = 'Previewing ' + media.name + ' • ' + Number(media.info.fps||0).toFixed(2) + ' source fps';
+  } else $('clipInfo').textContent=media?.error||'';
   refreshAudioTrackSelector();
-  if (romTitleAuto && state.videos[0]) $('romTitle').value = titleFromFilename(state.videos[0].name);
+  updateMediaSettingsVisibility();
+  if (romTitleAuto && state.videos[0]) $('romTitle').value = titleForVideo(state.videos[0]);
   $('moveUp').disabled = selectedIndex() <= 0 || state.converting;
   $('moveDown').disabled = selectedIndex() < 0 || selectedIndex() >= state.videos.length - 1 || state.converting;
 }
@@ -712,7 +715,7 @@ function setTitleCardPart(part, force = false) {
 function updateTitleCardSection(estimateResult) {
   const section = $('titleCardSection');
   const wasVisible = !section.classList.contains('hidden');
-  const visible = state?.videos?.length === 1 && Number(estimateResult?.estimatedParts || 1) > 1;
+  const visible = state?.videos?.length === 1 && mediaKind(state.videos[0]) === 'video' && Number(estimateResult?.estimatedParts || 1) > 1;
   section.classList.toggle('hidden', !visible);
   if (!visible) {
     titleCardSectionSignature = '';
@@ -741,11 +744,33 @@ function updateTitleCardSection(estimateResult) {
   updateTitleCardConditionalFields();
 }
 
+function updateMediaSettingsVisibility(){
+  const kind=mediaKind();
+  const isVideo=kind==='video',isAudio=kind==='audio',isImage=kind==='image';
+  $('imageSection')?.classList.toggle('hidden',!isImage);
+  $('colorSection')?.classList.toggle('hidden',!isVideo);
+  $('extremeSection')?.classList.toggle('media-hidden',!isVideo);
+  $('smartAnalyze')?.classList.toggle('hidden',!isVideo);
+  // Timing/framing is useful for video, audio trim, and image fit; video-only controls are muted below.
+  for(const id of ['fps','compression','paletteMode','ditherMode']) if($(id)){ const off=!isVideo; $(id).dataset.mediaDisabled=off?'1':'0'; $(id).disabled=off||!!state?.converting||$(id).dataset.scopeDisabled==='1'; }
+  for(const id of ['start','end','speed']) if($(id)){ const off=isImage; $(id).dataset.mediaDisabled=off?'1':'0'; $(id).disabled=off||!!state?.converting||$(id).dataset.scopeDisabled==='1'; }
+  if($('fit')) $('fit').disabled=!!state?.converting||$('fit').dataset.scopeDisabled==='1';
+  $('audioSection')?.classList.toggle('hidden',isImage);
+  $('timelinePanel')?.classList.toggle('hidden',isImage);
+  $('previewEnd')?.classList.toggle('hidden',isImage);
+  $('audioPreview')?.classList.toggle('hidden',isImage);
+  if(isAudio && $('audio')) $('audio').value=$('audio').value==='none'?'mix':$('audio').value;
+  if(isImage && $('imageSeconds') && !Number.isFinite(Number($('imageSeconds').value))) $('imageSeconds').value='5';
+}
+
 function updateSplitControls() {
   const single = state.videos.length === 1;
-  $('splitVideoRow').classList.toggle('hidden', !single);
-  $('longSplitControls').classList.toggle('hidden', !single || !$('splitVideo').checked);
+  const isVideo = single && mediaKind(state.videos[0]) === 'video';
+  $('splitVideoRow').classList.toggle('hidden', !isVideo);
+  $('longSplitControls').classList.toggle('hidden', !isVideo || !$('splitVideo').checked);
+  if(!isVideo) $('splitVideo').checked=false;
 }
+
 function updateOutputModes() {
   const select = $('outputMode');
   const current = select.value;
@@ -778,7 +803,7 @@ function refreshScope(force) {
     updateTitlePreview();
   }
   const source = editScope === 'project' ? projectDefaults : effectiveClip(selectedID);
-  for (const key of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode']) {
+  for (const key of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode','imageSeconds']) {
     const element = $(key);
     if (!element) continue;
     if (element.type === 'checkbox') element.checked = !!source[key]; else element.value = source[key];
@@ -787,6 +812,7 @@ function refreshScope(force) {
     element.disabled = disabled || !!state?.converting;
   }
   for (const element of document.querySelectorAll('.project-control')) element.classList.toggle('scope-muted', editScope === 'clip');
+  updateMediaSettingsVisibility();
   if (force) { syncTimeline(true); updatePreview(); }
 }
 $('editProjectDefaults').onclick = () => { editScope = 'project'; refreshScope(true); };
@@ -816,7 +842,7 @@ $('audioTrack').addEventListener('change', () => {
   config.audioTrack=Number($('audioTrack').value) || 0;
   if (audioURL) { URL.revokeObjectURL(audioURL); audioURL=''; $('audioPlayer').removeAttribute('src'); }
 });
-for (const id of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode']) $(id).addEventListener('input', () => savePerClipField(id));
+for (const id of ['start','end','speed','fit','audio','volume','loop','paletteMode','ditherMode','imageSeconds']) $(id).addEventListener('input', () => savePerClipField(id));
 for (const id of ['fps','seekSeconds','compression','normalize','limiter','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit']) $(id).addEventListener('input', () => { $('preset').value = 'custom'; estimate(); });
 $('splitVideo').addEventListener('change', () => { updateSplitControls(); $('preset').value = 'custom'; estimate(); });
 $('outputMode').onchange = () => { updateOutputModes(); estimate(); };
@@ -993,7 +1019,7 @@ function values() {
     ...global, ...projectDefaults,
     clips: state.videos.map(video => {
       const config = clipConfigs[video.id];
-      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode};
+      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number(config.imageSeconds)||0};
     })
   };
 }
@@ -1011,28 +1037,39 @@ function estimateModel(model) {
   let player = 32768 + state.videos.length * 96 + (model.global.outputMode === 'menu' ? menuThemeBytes() : 0), videoBytes = 0, audioBytes = 0, paletteBytes = 0, indexBytes = 0, frames = 0, sourceDuration = 0;
   for (const video of state.videos) {
     if (!video.info) continue;
-    const clip = modelEffective(model, video.id);
+    const info=video.info, kind=info.kind||'video', clip=modelEffective(model,video.id);
+    if(kind==='image'){
+      videoBytes += 240*160*2;
+      frames += 1;
+      sourceDuration += Math.max(0,Number(clip.imageSeconds)||0);
+      continue;
+    }
     const start = Math.max(0, parseClock(clip.start) || 0);
-    let end = clip.end?.trim() ? parseClock(clip.end) : video.info.duration;
-    if (!Number.isFinite(end)) end = video.info.duration;
-    end = Math.min(video.info.duration, end);
+    let end = clip.end?.trim() ? parseClock(clip.end) : info.duration;
+    if (!Number.isFinite(end)) end = info.duration;
+    end = Math.min(info.duration, end);
     if (end <= start || !Number.isFinite(Number(clip.speed)) || clip.speed <= 0) return {error:'Check trim settings.'};
     const sourceClipDuration = end - start;
     sourceDuration += sourceClipDuration;
     const displayDuration = sourceClipDuration / Number(clip.speed);
     const frameCount = Math.max(1, Math.ceil(displayDuration * fps));
     frames += frameCount;
-    const compressionFactor = model.global.compression === 'delta' ? (model.global.preset === 'extreme' ? 0.61 : 0.68) : 1;
-    videoBytes += frameCount * 9600 * compressionFactor;
-    if (model.global.compression === 'delta') indexBytes += frameCount * 8;
-    const palettes = clip.paletteMode === 'scene' ? Math.max(1, Math.ceil(frameCount / 60)) : 1;
-    paletteBytes += palettes * 512 + (palettes > 1 ? frameCount * 2 : 0);
-    if (clip.audio !== 'none' && video.info.audioStreams) {
+    if(kind==='audio'){
+      videoBytes += 240*160*2 + 44;
+      indexBytes += frameCount*4; // audio seek table
+    }else{
+      const compressionFactor = model.global.compression === 'delta' ? (model.global.preset === 'extreme' ? 0.61 : 0.68) : 1;
+      videoBytes += frameCount * 9600 * compressionFactor;
+      if (model.global.compression === 'delta') indexBytes += frameCount * 8;
+      const palettes = clip.paletteMode === 'scene' ? Math.max(1, Math.ceil(frameCount / 60)) : 1;
+      paletteBytes += palettes * 512 + (palettes > 1 ? frameCount * 2 : 0);
+    }
+    if (clip.audio !== 'none' && info.audioStreams) {
       const requested = model.global.preset === 'extreme' ? model.global.audioQuality : 'pcm';
       const pcmBytes = displayDuration * 16384;
       const targetBytes = Math.max(1, Math.min(32, Number(model.global.smartTargetMiB) || 32)) * MIB;
       const codec = requested === 'auto' && model.global.preset === 'extreme' && pcmBytes > targetBytes / 3 ? 'adpcm' : (requested === 'adpcm' ? 'adpcm' : 'pcm');
-      audioBytes += pcmBytes * (codec === 'adpcm' ? 0.505 : 1) + frameCount * 4;
+      audioBytes += pcmBytes * (codec === 'adpcm' ? 0.505 : 1) + (kind==='video'?frameCount*4:0);
     }
   }
   const bytes = Math.ceil(player + videoBytes + audioBytes + paletteBytes + indexBytes);
@@ -1045,7 +1082,8 @@ function estimate() {
   const result = estimateModel(model);
   if (result.error) { $('estimate').textContent = result.error; $('titleCardSection')?.classList.add('hidden'); return result; }
   const single = state.videos.length === 1;
-  const manualSplit = single && !!model.global.splitVideo;
+  const singleVideo = single && mediaKind(state.videos[0]) === 'video';
+  const manualSplit = singleVideo && !!model.global.splitVideo;
   const budgetMiB = manualSplit ? Math.max(1, Math.min(32, Number(model.global.splitBudgetMiB) || 31)) : 32;
   const budgetBytes = budgetMiB * MIB;
   const overhead = 32768 + 96 + 512;
@@ -1055,7 +1093,7 @@ function estimate() {
   const maxPartSeconds = manualSplit ? parsePartDuration(model.global.maxPartDuration) : 0;
   if (!Number.isFinite(maxPartSeconds)) { $('estimate').innerHTML = '<b class="estimate-over">Maximum duration must be 0 or MM:SS, for example 1:05.</b>'; return {...result,error:'invalid maximum part duration'}; }
   if (single && maxPartSeconds > 0) estimatedParts = Math.max(estimatedParts, Math.ceil(result.sourceDuration / maxPartSeconds));
-  let automaticSplit = single && estimatedParts > 1;
+  let automaticSplit = singleVideo && estimatedParts > 1;
   if (automaticSplit && $('partTitleScreens')?.checked && window.TitleCardTools) {
     for (let pass=0; pass<2; pass++) {
       const withCards=payload + window.TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
@@ -1063,8 +1101,9 @@ function estimate() {
     }
     result.bytes += window.TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
   }
-  automaticSplit = single && estimatedParts > 1;
-  $('optimize').classList.toggle('hidden', automaticSplit);
+  automaticSplit = singleVideo && estimatedParts > 1;
+  const hasNonVideo=state.videos.some(v=>mediaKind(v)!=='video');
+  $('optimize').classList.toggle('hidden', automaticSplit || hasNonVideo);
   const over = result.bytes > ROM_LIMIT;
   const headline = automaticSplit
     ? '<b>Estimated output: ' + estimatedParts + ' ROM parts</b>'
@@ -1075,7 +1114,7 @@ function estimate() {
     : (manualSplit ? '<br>Split rules are enabled; this video currently fits one part.' : '');
   $('estimate').innerHTML = headline +
     '<br>Estimated data: ' + (result.bytes/MIB).toFixed(2) + ' MiB • ' + result.frames + ' frames • ' + result.fps.toFixed(2) + ' fps' +
-    '<br>Video ' + (result.breakdown.video/MIB).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/MIB).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/MIB).toFixed(2) + ' MiB' + splitNote;
+    '<br>Visual media ' + (result.breakdown.video/MIB).toFixed(2) + ' MiB • Audio ' + (result.breakdown.audio/MIB).toFixed(2) + ' MiB • Palettes/indexes ' + ((result.breakdown.palettes+result.breakdown.indexes)/MIB).toFixed(2) + ' MiB' + splitNote;
   result.estimatedParts = estimatedParts;
   result.splitBudgetMiB = budgetMiB;
   updateTitleCardSection(result);
@@ -1223,7 +1262,7 @@ $('audioQuality').addEventListener('change', () => { smartAnalysis = null; if ($
 function applyPendingProject() {
   const settings = pendingProject;
   pendingProject = null;
-  projectDefaults = cloneClip({start:settings.start,end:settings.end,speed:settings.speed,fit:settings.fit || 'fit',audio:settings.audio,volume:settings.volume,loop:settings.loop,paletteMode:settings.paletteMode,ditherMode:settings.ditherMode});
+  projectDefaults = cloneClip({start:settings.start,end:settings.end,speed:settings.speed,fit:settings.fit || 'fit',audio:settings.audio,volume:settings.volume,loop:settings.loop,paletteMode:settings.paletteMode,ditherMode:settings.ditherMode,imageSeconds:Number(settings.imageSeconds)||5});
   for (const key of ['fps','compression','outputMode']) if (settings[key]) $(key).value = settings[key];
   $('preset').value = settings.preset || 'custom';
   $('audioQuality').value = settings.audioQuality || 'pcm';
@@ -1250,7 +1289,7 @@ function applyPendingProject() {
     rebuildMenuTheme();
   }
   clipConfigs = {};
-  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered'};
+  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(clip.imageSeconds)?clip.imageSeconds:5};
   ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
 }
 async function saveProject() {

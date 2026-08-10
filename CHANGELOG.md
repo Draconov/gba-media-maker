@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.13.0] - 2026-08-10
+
+### Added
+- Renamed the application experience to **GBA Media Maker** and added first-class Video, Audio, and Image media types.
+- Added audio-only conversion, native 240×160 cover artwork, title/artist/album metadata, GBA Now Playing UI, seeking, pause, volume, mute, playlist navigation, and SRAM resume integration.
+- Added native 240×160 RGB555 image entries with manual viewer/gallery navigation and configurable slideshow timing.
+- Added mixed-media playlist/menu ROMs with media-type tags and media-aware desktop controls.
+- Added `.gbamedia` v2 projects while retaining `.gbavideo` v1 project loading.
+- Added media conversion regression tests covering a mixed MP4 + WAV + PNG ROM.
+
+### Changed
+- Kept the GBV5 container version and extended clip descriptor flags for audio-only, image, and media metadata records.
+- Renamed Add Video/clip-facing UI to Add Media and hide settings that do not apply to the selected media type.
+- Long-video autosplitting is now strictly video-only.
+- Rebuilt `assets/player_stub.bin` with the v0.13 media runtime.
+
+### Compatibility
+- Existing video conversion remains on the legacy 120×80 indexed playback path.
+- Existing video project files remain loadable.
+
 ## [0.12.2] - 2026-08-07
 
 - Added custom video menu backgrounds for menu ROMs in both desktop and web editions. Videos are center-cropped to 120×80, sampled to at most 16 looping MTH1 frames, support configurable start time and 1–32 second sample duration, and ignore source audio.
