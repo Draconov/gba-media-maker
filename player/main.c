@@ -26,12 +26,16 @@ typedef signed short s16;
 #define REG_BLDCNT REG16(0x04000050)
 #define REG_BLDY REG16(0x04000054)
 #define PALRAM ((volatile u16 *)0x05000000)
+#define OBJ_PALRAM ((volatile u16 *)0x05000200)
+#define OBJ_TILE_VRAM ((volatile u16 *)0x06014000)
+#define OAM ((volatile u16 *)0x07000000)
 #define VRAM0 ((volatile u16 *)0x06000000)
 #define VRAM1 ((volatile u16 *)0x0600A000)
 #define SRAM ((volatile u8 *)0x0E000000)
 #define ROM_BASE 0x08000000u
 #define MODE3 0x0403u
 #define MODE4 0x0404u
+#define MODE4_OBJ (MODE4|0x1040u)
 #define PAGE 0x0010u
 #define FORCE_BLANK 0x0080u
 
@@ -68,6 +72,16 @@ typedef signed short s16;
 #define AUDIO_CODEC_ADPCM 2u
 #define GBV5_MAGIC 0x35564247u
 #define MENU_THEME_MAGIC 0x3148544Du
+#define MENU_THEME_STATIC 0u
+#define MENU_THEME_SHIMMER 1u
+#define MENU_THEME_FRAMES 2u
+#define MENU_THEME_FLAG_OUTLINE 0x0001u
+#define MENU_ARROW_BLINK_VBLANKS 24u
+#define MENU_ROWS 10u
+#define MENU_ARROW_OAM_INDEX 0u
+#define MENU_ARROW_TILE_INDEX 512u
+#define OBJ_DISABLE 0x0200u
+#define OBJ_SIZE_16 0x4000u
 #define TITLE_CARD_MAGIC 0x31444354u
 #define TITLE_CARD_FLAG_WAIT_A 1u
 #define TITLE_CARD_FLAG_SKIP 2u
@@ -84,6 +98,8 @@ typedef signed short s16;
 #define UI_GREEN 255u
 #define SRAM_MAGIC 0x394D4247u /* GBM9 */
 #define SRAM_XOR 0xA5A50000u
+
+#include "menu_background_data.h"
 
 #define ACTION_NONE 0
 #define ACTION_RESTART 1
@@ -126,6 +142,9 @@ struct TitleCardHeader { u32 magic; u16 version, flags; u32 pixel_bytes, duratio
 struct PlayerUI { int muted, volume_level, hud_mode, hud_last_visible; u16 hud_timer,mute_timer,volume_timer; int seek_hold_direction; u16 seek_hold_counter; int help_combo_latched,hud_combo_latched,clip_combo_latched,pause_button_latched,start_pending,select_pending; int shoulder_pending_direction; u16 shoulder_pending_counter; };
 struct PlaybackClock { u32 next_deadline, step_whole, step_remainder, remainder_accum; };
 extern const struct GlobalMetadata gba_video_metadata;
+
+static const struct MenuThemeHeader *active_menu_theme;
+static int active_menu_outline;
 
 static u8 frame_a[FRAME_BYTES], frame_b[FRAME_BYTES];
 #define ADPCM_HALF 4096u
@@ -233,13 +252,47 @@ static int load_position(const struct GlobalMetadata*m,u32 clip,u32*f){u32 v,d;i
 static const struct TitleCardHeader *title_card(const struct GlobalMetadata*m){const struct TitleCardHeader*c;if(!m->reserved[1])return 0;c=(const struct TitleCardHeader*)rom_ptr(m->reserved[1]);return c->magic==TITLE_CARD_MAGIC?c:0;}
 static void show_title_card(const struct GlobalMetadata*m){const struct TitleCardHeader*c=title_card(m);u32 i,t=0;u16 k;if(!c)return;REG_DISPCNT=FORCE_BLANK;audio_stop();copy16(VRAM0,(const u16*)(c+1),NATIVE_PIXELS);wait_vblank();REG_DISPCNT=MODE3;while(keys_down())wait_vblank();if(c->flags&TITLE_CARD_FLAG_WAIT_A){while(!(keys_down()&KEY_A))wait_vblank();}else while(t<c->duration_vblanks){wait_vblank();t++;k=keys_down();if((c->flags&TITLE_CARD_FLAG_SKIP)&&(k&KEY_A))break;}while(keys_down())wait_vblank();if(c->flags&TITLE_CARD_FLAG_FADE){REG_BLDCNT=0x00FF;for(i=0;i<=16;i++){REG_BLDY=i;wait_vblank();}REG_BLDCNT=REG_BLDY=0;}REG_DISPCNT=FORCE_BLANK;}
 
-static const struct MenuThemeHeader *menu_theme(const struct GlobalMetadata*m){const struct MenuThemeHeader*t;if(!m->reserved[0])return 0;t=(const struct MenuThemeHeader*)rom_ptr(m->reserved[0]);if(t->magic!=MENU_THEME_MAGIC||t->version!=1||t->frame_bytes!=FRAME_BYTES)return 0;return t;}
-static void menu_background(volatile u16*d,const struct GlobalMetadata*m,u32 frame){const struct MenuThemeHeader*t=menu_theme(m);u32 i;if(t&&t->frames_offset&&t->frame_count){const u8*s=rom_ptr(t->frames_offset+(frame%t->frame_count)*FRAME_BYTES);render_pixels(s,d);copy_palette((const u16*)rom_ptr(t->palette_offset));PALRAM[UI_WHITE]=t->ui_colour;PALRAM[UI_YELLOW]=t->selected_colour;PALRAM[UI_DARK]=t->outline_colour;}else{clear4(d);set_ui_palette();for(i=0;i<80;i+=8)rect4(d,0,i,120,1,(i&8)?UI_DARK:UI_BLACK);}}
-static char media_letter(const struct ClipDescriptor*c){return (c->flags&CLIP_FLAG_MEDIA_AUDIO)?'A':((c->flags&CLIP_FLAG_MEDIA_IMAGE)?'I':'V');}
-static u32 menu_total_seconds(const struct GlobalMetadata*m,const struct ClipDescriptor*c){u32 i,t=0;for(i=0;i<m->clip_count;i++){if(c[i].flags&CLIP_FLAG_MEDIA_IMAGE){t+=udiv(c[i].audio_sample_count,1000);}else t+=seconds_for_frame(c[i].frame_count,c[i].vblanks_per_frame);}return t;}
+static const struct MenuThemeHeader *menu_theme(const struct GlobalMetadata*m){
+ const struct MenuThemeHeader*t;if(!m->reserved[0])return 0;t=(const struct MenuThemeHeader*)rom_ptr(m->reserved[0]);
+ if(t->magic!=MENU_THEME_MAGIC||t->version!=1u||t->frame_bytes!=FRAME_BYTES||!t->frame_count)return 0;return t;
+}
+static void set_menu_palette(const struct GlobalMetadata*m){
+ active_menu_theme=menu_theme(m);active_menu_outline=0;
+ if(active_menu_theme){copy_palette((const u16*)rom_ptr(active_menu_theme->palette_offset));PALRAM[UI_WHITE]=active_menu_theme->ui_colour;PALRAM[UI_YELLOW]=active_menu_theme->selected_colour;PALRAM[UI_DARK]=active_menu_theme->outline_colour;active_menu_outline=(active_menu_theme->flags&MENU_THEME_FLAG_OUTLINE)!=0;}
+ else copy_palette(menu_background_palette);
+}
+#define MENU_SHIMMER_FIRST_COLOUR 17u
+#define MENU_SHIMMER_LAST_COLOUR 45u
+#define MENU_SHIMMER_LOWER_COPY_BASE 46u
+#define MENU_SHIMMER_CREST_COPY_BASE 75u
+#define MENU_SHIMMER_PHASES 4u
+#define MENU_SHIMMER_LOWER_VBLANKS 12u
+#define MENU_SHIMMER_CREST_VBLANKS 30u
+static void step_menu_shimmer_range(const u16*palette,u32 source,u32 count,u32 target,u32 phases,u32 phase){u32 i;for(i=0;i<count;i++){u16 c=palette[source+i];if(((source+i+phase)&(phases-1u))==0)c=(u16)(c+0x0420u);PALRAM[target+i]=c;}}
+static void step_menu_shimmer(const struct MenuThemeHeader*t,u32 target,u32 phase){if(t)step_menu_shimmer_range((const u16*)rom_ptr(t->palette_offset),t->shimmer_source_start,t->shimmer_count,target,t->shimmer_phases,phase);}
+static void step_fallback_lower_shimmer(u32 phase){step_menu_shimmer_range(menu_background_palette,MENU_SHIMMER_FIRST_COLOUR,MENU_SHIMMER_LAST_COLOUR-MENU_SHIMMER_FIRST_COLOUR+1u,MENU_SHIMMER_LOWER_COPY_BASE,MENU_SHIMMER_PHASES,phase);}
+static void step_fallback_crest_shimmer(u32 phase){step_menu_shimmer_range(menu_background_palette,MENU_SHIMMER_FIRST_COLOUR,MENU_SHIMMER_LAST_COLOUR-MENU_SHIMMER_FIRST_COLOUR+1u,MENU_SHIMMER_CREST_COPY_BASE,MENU_SHIMMER_PHASES,phase);}
+static void draw_menu_char(volatile u16*d,u32 x,u32 y,u8 c,u8 col){u16 bits=glyph_bits(c);u32 r,k;if(active_menu_outline)for(r=0;r<5;r++)for(k=0;k<3;k++)if(bits&(1u<<(14u-(r*3u+k)))){int ox,oy;for(oy=-1;oy<=1;oy++)for(ox=-1;ox<=1;ox++){int px=(int)x+(int)k+ox,py=(int)y+(int)r+oy;if(px>=0&&py>=0&&px<120&&py<80)p4(d,(u32)px,(u32)py,UI_DARK);}}for(r=0;r<5;r++)for(k=0;k<3;k++)if(bits&(1u<<(14u-(r*3u+k))))p4(d,x+k,y+r,col);}
+static void draw_menu_text_n(volatile u16*d,u32 x,u32 y,const char*t,u32 n,u8 col){u32 i=0;while(i<n&&t[i]){draw_menu_char(d,x+i*4u,y,(u8)t[i],col);i++;}}
+static void draw_menu_text(volatile u16*d,u32 x,u32 y,const char*t,u8 col){u32 n=0;while(t[n])n++;draw_menu_text_n(d,x,y,t,n,col);}
+static void menu_arrow_tile_pixel(u32 x,u32 y,u8 color){u32 tile=udiv(y,8u)*2u+udiv(x,8u),ix=x&7u,iy=y&7u,bo=tile*32u+iy*4u+udiv(ix,2u),hi=bo>>1,shift=(bo&1u)*8u;u16 hw=OBJ_TILE_VRAM[hi];u8 v=(u8)(hw>>shift);if(ix&1u)v=(u8)((v&0x0Fu)|(u8)(color<<4));else v=(u8)((v&0xF0u)|color);hw=(u16)((hw&(u16)~(0x00FFu<<shift))|((u16)v<<shift));OBJ_TILE_VRAM[hi]=hw;}
+static void menu_arrow_init(void){static const u8 widths[5]={2u,3u,4u,3u,2u};u32 i,r,x,sy;for(i=0;i<128u;i++){OAM[i*4u]=OBJ_DISABLE;OAM[i*4u+1u]=0;OAM[i*4u+2u]=0;OAM[i*4u+3u]=0;}for(i=0;i<64u;i++)OBJ_TILE_VRAM[i]=0;if(active_menu_outline)for(r=0;r<5;r++){sy=3u+r*2u;for(x=0;x<widths[r]*2u;x++){int ox,oy;for(oy=-1;oy<=1;oy++)for(ox=-1;ox<=1;ox++){int px=(int)x+ox,py=(int)sy+oy;if(px>=0&&py>=0&&px<16&&py<16){menu_arrow_tile_pixel((u32)px,(u32)py,2u);if(py+1<16)menu_arrow_tile_pixel((u32)px,(u32)(py+1),2u);}}}}for(r=0;r<5;r++){sy=3u+r*2u;for(x=0;x<widths[r]*2u;x++){menu_arrow_tile_pixel(x,sy,1u);menu_arrow_tile_pixel(x,sy+1u,1u);}}OBJ_PALRAM[0]=0;OBJ_PALRAM[1]=active_menu_theme?active_menu_theme->selected_colour:0x037Fu;OBJ_PALRAM[2]=active_menu_theme?active_menu_theme->outline_colour:0;OAM[0]=OBJ_DISABLE;OAM[1]=OBJ_SIZE_16;OAM[2]=MENU_ARROW_TILE_INDEX;}
+static void menu_arrow_set(u32 x,u32 y,int visible){OAM[MENU_ARROW_OAM_INDEX*4u]=(u16)((y&0xFFu)|(visible?0u:OBJ_DISABLE));OAM[MENU_ARROW_OAM_INDEX*4u+1u]=(u16)((x&0x1FFu)|OBJ_SIZE_16);OAM[MENU_ARROW_OAM_INDEX*4u+2u]=MENU_ARROW_TILE_INDEX;}
+static void menu_arrow_hide(void){OAM[MENU_ARROW_OAM_INDEX*4u]|=OBJ_DISABLE;}
+static void draw_menu_background(volatile u16*d,u32 frame){const u8*p=menu_background_pixels;if(active_menu_theme){if(frame>=active_menu_theme->frame_count)frame=0;p=rom_ptr(active_menu_theme->frames_offset+frame*FRAME_BYTES);}render_pixels(p,d);if(active_menu_outline){rect4(d,0,13,120,1,UI_DARK);rect4(d,0,15,120,1,UI_DARK);}rect4(d,0,14,120,1,UI_WHITE);}
+static u32 fixed_text_length(const char*t,u32 max){u32 n=0;while(n<max&&t[n])n++;return n;}
+static u32 append_decimal(char*out,u32 pos,u32 v){char tmp[5];u32 n=0,i;if(v>999)v=999;do{tmp[n++]=(char)('0'+v%10u);v=udiv(v,10u);}while(v&&n<4u);for(i=0;i<n;i++)out[pos++]=tmp[n-i-1u];return pos;}
+static void make_duration_text(char out[6],u32 sec){u32 min=udiv(sec,60u),rem=sec%60u;if(min>99)min=99;out[0]=(char)('0'+udiv(min,10u));out[1]=(char)('0'+min%10u);out[2]=':';out[3]=(char)('0'+udiv(rem,10u));out[4]=(char)('0'+rem%10u);out[5]=0;}
+static void make_clip_position_text(char out[16],u32 count,u32 selected){u32 pos=0,i;const char pfx[]="CLIP ";for(i=0;i<5;i++)out[pos++]=pfx[i];pos=append_decimal(out,pos,selected+1u);out[pos++]='/';pos=append_decimal(out,pos,count);out[pos]=0;}
+static void make_total_text(char out[16],u32 sec){u32 pos=0,i;char d[6];const char pfx[]="TOTAL ";make_duration_text(d,sec);for(i=0;i<6;i++)out[pos++]=pfx[i];for(i=0;i<5;i++)out[pos++]=d[i];out[pos]=0;}
+static u32 menu_total_seconds(const struct GlobalMetadata*m,const struct ClipDescriptor*c){u32 i,t=0;for(i=0;i<m->clip_count;i++){if(c[i].flags&CLIP_FLAG_MEDIA_IMAGE)t+=udiv(c[i].audio_sample_count,1000u);else t+=seconds_for_frame(c[i].frame_count,c[i].vblanks_per_frame);}return t;}
+static u32 menu_column_count(u32 count){if(count<=MENU_ROWS)return 1u;if(count<=MENU_ROWS*2u)return 2u;return 3u;}
+static void draw_clip_menu(volatile u16*d,const struct GlobalMetadata*m,const struct ClipDescriptor*c,u32 selected,u32 total,u32 bg){char pos[16],tot[16];u32 cols=menu_column_count(m->clip_count),page_size=cols*MENU_ROWS,page_start=udiv(selected,page_size)*page_size,colw=udiv(120u,cols),maxchars=cols>=3u?8u:12u,col,row;draw_menu_background(d,bg);draw_menu_text(d,36,2,"SELECT MEDIA",UI_WHITE);make_clip_position_text(pos,m->clip_count,selected);make_total_text(tot,total);draw_menu_text(d,2,8,pos,UI_WHITE);draw_menu_text(d,74,8,tot,UI_WHITE);for(col=0;col<cols;col++){u32 x=col*colw;for(row=0;row<MENU_ROWS;row++){u32 idx=page_start+col*MENU_ROWS+row,y=17u+row*6u;if(idx>=m->clip_count)break;draw_menu_text_n(d,x+8u,y,c[idx].title,fixed_text_length(c[idx].title,maxchars),idx==selected?UI_YELLOW:UI_WHITE);}}}
+static void menu_arrow_position(u32 selected,u32 count,u32*x,u32*y){u32 cols=menu_column_count(count),page_size=cols*MENU_ROWS,page_start=udiv(selected,page_size)*page_size,rel=selected-page_start,col=udiv(rel,MENU_ROWS),row=rel-col*MENU_ROWS,colw=udiv(120u,cols),textx=(col*colw+8u)*2u;*x=textx-10u;*y=(17u+row*6u)*2u-3u;}
+static u32 menu_move_up(u32 selected,u32 count){u32 cols=menu_column_count(count),ps=cols*MENU_ROWS,start=udiv(selected,ps)*ps,col=udiv(selected-start,MENU_ROWS),first=start+col*MENU_ROWS,last=first+MENU_ROWS-1u;if(last>=count)last=count-1u;return selected>first?selected-1u:last;}
+static u32 menu_move_down(u32 selected,u32 count){u32 cols=menu_column_count(count),ps=cols*MENU_ROWS,start=udiv(selected,ps)*ps,col=udiv(selected-start,MENU_ROWS),first=start+col*MENU_ROWS,last=first+MENU_ROWS-1u;if(last>=count)last=count-1u;return selected<last?selected+1u:first;}
 static void show_menu_help_screen(u16*page){volatile u16*d=*page?VRAM0:VRAM1;clear4(d);set_ui_palette();text4(d,38,4,"MENU CONTROLS",UI_YELLOW);text4(d,3,18,"UP DOWN WITHIN COLUMN",UI_WHITE);text4(d,3,28,"LEFT RIGHT COLUMNS",UI_WHITE);text4(d,3,38,"A PLAY SELECTED MEDIA",UI_WHITE);text4(d,3,54,"START+SELECT HELP",UI_DARK);wait_vblank();*page^=1;REG_DISPCNT=MODE4|(*page?PAGE:0);while(keys_down())wait_vblank();while(!keys_down())wait_vblank();while(keys_down())wait_vblank();}
-static u32 menu_column_length(const struct GlobalMetadata*m,u32 start){u32 left=m->clip_count>start?m->clip_count-start:0;return left>10?10:left;}
-static u32 select_clip_menu(const struct GlobalMetadata*m,const struct ClipDescriptor*c,u32 sel){u16 prev=keys_down();u16 page=1;u32 anim=0,total=menu_total_seconds(m,c);int help_latched=0;if(m->clip_count<=1)return 0;for(;;){volatile u16*d=page?VRAM0:VRAM1;u32 page_start=(sel/20u)*20u,col,row;char tm[6];menu_background(d,m,anim);text4(d,34,3,"SELECT MEDIA",UI_WHITE);time5(tm,total);text4n(d,96,3,tm,5,UI_DARK);for(col=0;col<2;col++)for(row=0;row<10;row++){u32 idx=page_start+col*10u+row;if(idx<m->clip_count){char tag[4]={'[',media_letter(&c[idx]),']',0};u32 x=3u+col*60u,y=16u+row*6u;text4(d,x,y,tag,idx==sel?UI_YELLOW:UI_DARK);text4n(d,x+15u,y,c[idx].title,10,idx==sel?UI_YELLOW:UI_WHITE);}}wait_vblank();page^=1;REG_DISPCNT=MODE4|(page?PAGE:0);for(;;){u16 now=keys_down(),p=now&~prev;u32 page_start=(sel/20u)*20u,local=sel-page_start,col=local/10u,row=local%10u,col_start=page_start+col*10u,col_len=menu_column_length(m,col_start);prev=now;if((now&(KEY_START|KEY_SELECT))==(KEY_START|KEY_SELECT)){if(!help_latched){help_latched=1;show_menu_help_screen(&page);prev=keys_down();break;}}else help_latched=0;if((p&KEY_UP)&&col_len){row=row?row-1u:col_len-1u;sel=col_start+row;break;}if((p&KEY_DOWN)&&col_len){row=(row+1u)%col_len;sel=col_start+row;break;}if(p&KEY_LEFT){u32 target_start,target_len;if(col==1u)target_start=page_start;else if(page_start>=20u)target_start=page_start-10u;else target_start=col_start;target_len=menu_column_length(m,target_start);if(target_len&&target_start!=col_start){if(row>=target_len)row=target_len-1u;sel=target_start+row;}break;}if(p&KEY_RIGHT){u32 target_start,target_len;if(col==0u&&page_start+10u<m->clip_count)target_start=page_start+10u;else if(col==1u&&page_start+20u<m->clip_count)target_start=page_start+20u;else target_start=col_start;target_len=menu_column_length(m,target_start);if(target_len&&target_start!=col_start){if(row>=target_len)row=target_len-1u;sel=target_start+row;}break;}if(p&KEY_A){save_menu_selection(m,sel);while(keys_down())wait_vblank();return sel;}wait_vblank();anim++;if((anim&15)==0)break;}}}
+static u32 select_clip_menu(const struct GlobalMetadata*m,const struct ClipDescriptor*c,u32 initial){u32 selected=initial<m->clip_count?initial:0u,total=menu_total_seconds(m,c),blink=0,lowerc=0,lowerp=0,crestc=0,crestp=0,animc=0,bg=0,ax=0,ay=0;int anim_ready=0,arrow=1,help_latched=0;u16 page=1,prev=keys_down();if(m->clip_count<=1)return 0;REG_DISPCNT=FORCE_BLANK;set_menu_palette(m);menu_arrow_init();for(;;){volatile u16*d=page?VRAM0:VRAM1;draw_clip_menu(d,m,c,selected,total,bg);menu_arrow_position(selected,m->clip_count,&ax,&ay);menu_arrow_set(ax,ay,1);arrow=1;blink=0;wait_vblank();page^=1;REG_DISPCNT=(u16)(MODE4_OBJ|(page?PAGE:0));anim_ready=0;for(;;){u16 now,p;wait_vblank();if(anim_ready){page^=1;REG_DISPCNT=(u16)(MODE4_OBJ|(page?PAGE:0));anim_ready=0;}if(active_menu_theme&&active_menu_theme->kind==MENU_THEME_SHIMMER&&active_menu_theme->shimmer_phases){if(++lowerc>=active_menu_theme->shimmer_interval1){lowerc=0;lowerp=(lowerp+1u)&(active_menu_theme->shimmer_phases-1u);step_menu_shimmer(active_menu_theme,active_menu_theme->shimmer_target1,lowerp);}if(++crestc>=active_menu_theme->shimmer_interval2){crestc=0;crestp=(crestp+1u)&(active_menu_theme->shimmer_phases-1u);step_menu_shimmer(active_menu_theme,active_menu_theme->shimmer_target2,crestp);}}else if(!active_menu_theme){if(++lowerc>=MENU_SHIMMER_LOWER_VBLANKS){lowerc=0;lowerp=(lowerp+1u)&(MENU_SHIMMER_PHASES-1u);step_fallback_lower_shimmer(lowerp);}if(++crestc>=MENU_SHIMMER_CREST_VBLANKS){crestc=0;crestp=(crestp+1u)&(MENU_SHIMMER_PHASES-1u);step_fallback_crest_shimmer(crestp);}}else if(active_menu_theme->kind==MENU_THEME_FRAMES&&active_menu_theme->frame_count>1u&&active_menu_theme->frame_vblanks){if(++animc>=active_menu_theme->frame_vblanks){volatile u16*back;animc=0;bg++;if(bg>=active_menu_theme->frame_count)bg=0;back=page?VRAM0:VRAM1;draw_clip_menu(back,m,c,selected,total,bg);anim_ready=1;}}now=keys_down();p=now&~prev;prev=now;if(++blink>=MENU_ARROW_BLINK_VBLANKS){blink=0;arrow=!arrow;menu_arrow_set(ax,ay,arrow);}if((now&(KEY_START|KEY_SELECT))==(KEY_START|KEY_SELECT)){if(!help_latched){help_latched=1;menu_arrow_hide();show_menu_help_screen(&page);set_menu_palette(m);menu_arrow_init();prev=keys_down();break;}}else help_latched=0;if(p&KEY_UP){menu_arrow_hide();selected=menu_move_up(selected,m->clip_count);save_menu_selection(m,selected);break;}if(p&KEY_DOWN){menu_arrow_hide();selected=menu_move_down(selected,m->clip_count);save_menu_selection(m,selected);break;}if(p&KEY_LEFT){u32 next=selected>=MENU_ROWS?selected-MENU_ROWS:m->clip_count-1u;menu_arrow_hide();selected=next;save_menu_selection(m,selected);break;}if(p&KEY_RIGHT){u32 next=selected+MENU_ROWS<m->clip_count?selected+MENU_ROWS:0u;menu_arrow_hide();selected=next;save_menu_selection(m,selected);break;}if(p&KEY_A){menu_arrow_hide();save_menu_selection(m,selected);while(keys_down())wait_vblank();return selected;}}}}
 
 static const u8*media_metadata(const struct ClipDescriptor*c){const u8*m;if(!(c->flags&CLIP_FLAG_MEDIA_META)||!c->video_index_offset)return 0;m=rom_ptr(c->video_index_offset);return (rd32(m)==MEDIA_META_MAGIC_V1||rd32(m)==MEDIA_META_MAGIC_V2)?m:0;}
 static const char*media_title(const struct ClipDescriptor*c){const u8*m=media_metadata(c);if(m&&rd32(m)==MEDIA_META_MAGIC_V2)return (const char*)(m+4);return c->title;}

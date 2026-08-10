@@ -175,21 +175,41 @@ func TestPlayerUsesUnifiedV013Controls(t *testing.T) {
 	}
 }
 
-func TestPlayerMenuUsesColumnNavigation(t *testing.T) {
+func TestPlayerMenuUsesStableColumnNavigation(t *testing.T) {
 	src := compactSource(playerSource(t))
 	for _, want := range []string{
-		"page_start=(sel/20u)*20u",
-		"for(col=0;col<2;col++)",
-		"for(row=0;row<10;row++)",
-		"menu_column_length",
-		"if((p&KEY_UP)&&col_len)",
-		"if((p&KEY_DOWN)&&col_len)",
+		"#defineMENU_ROWS10u",
+		"menu_column_count",
+		"page_size=cols*MENU_ROWS",
+		"for(col=0;col<cols;col++)",
+		"for(row=0;row<MENU_ROWS;row++)",
+		"menu_move_up",
+		"menu_move_down",
 		"if(p&KEY_LEFT)",
 		"if(p&KEY_RIGHT)",
 		"if(p&KEY_A)",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("column menu navigation missing %q", want)
+			t.Fatalf("stable column menu navigation missing %q", want)
+		}
+	}
+}
+
+func TestPlayerMenuRestoresStableThemeRuntime(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"#include\"menu_background_data.h\"",
+		"MENU_THEME_SHIMMER",
+		"MENU_THEME_FRAMES",
+		"step_menu_shimmer",
+		"menu_arrow_init",
+		"MENU_ARROW_BLINK_VBLANKS",
+		"active_menu_outline",
+		"draw_menu_char",
+		"SELECTMEDIA",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("stable menu runtime missing %q", want)
 		}
 	}
 }
