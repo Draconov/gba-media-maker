@@ -61,7 +61,7 @@ func TestPlayerTracksPreparedNextFrameValidity(t *testing.T) {
 		"intnext_frame_valid=0",
 		"if(has_next&&!next_frame_valid)",
 		"next_frame_valid=1",
-		"if(frame+1<clip->frame_count&&!next_frame_valid){state=PLAYBACK_PAUSED;continue;}",
+		"intadvance=frame+1<clip->frame_count&&next_frame_valid",
 		"++frame;next_frame_valid=0;playback_clock_advance(&clock)",
 	} {
 		if !strings.Contains(src, want) {
@@ -82,9 +82,11 @@ func TestPlayerResumeArmedUsesPreparedFrame(t *testing.T) {
 	}
 	branch := src[start : start+end]
 	ordered := []string{
+		"intadvance=frame+1<clip->frame_count&&next_frame_valid",
 		"state!=PLAYBACK_RESUME_ARMED",
 		"audio_start_for_frame(clip,resume_frame,1,ui)",
 		"wait_vblank()",
+		"if(advance)",
 		"show_rendered_page(&displayed_page,palette_for_frame(clip,resume_frame))",
 		"playback_timer_reset()",
 		"audio_resume()",
@@ -221,5 +223,55 @@ func TestRestartClearsResumeOutsideMenu(t *testing.T) {
 	}
 	if !strings.Contains(src, "if(is_menu_mode(m)){save_position(m,idx,f);returnPLAY_RESULT_RETURN_MENU;}clear_position(m,idx);returnPLAY_RESULT_RESTART_CURRENT") {
 		t.Fatal("audio B restart must clear the resume position outside menu ROMs")
+	}
+}
+
+func TestVideoInputIsPolledBeforeFrameDeadline(t *testing.T) {
+	src := compactSource(playerSource(t))
+	start := strings.Index(src, "staticintwait_frame_period(")
+	if start < 0 {
+		t.Fatal("wait_frame_period missing")
+	}
+	end := strings.Index(src[start:], "staticinttick_ui_timers(")
+	if end < 0 {
+		t.Fatal("could not isolate wait_frame_period")
+	}
+	fn := src[start : start+end]
+	keyPos := strings.Index(fn, "now=keys_down()")
+	deadlinePos := strings.Index(fn, "if(playback_timer_read()>=deadline)returnACTION_NONE")
+	if keyPos < 0 || deadlinePos < 0 {
+		t.Fatal("wait_frame_period missing key/deadline checks")
+	}
+	if keyPos > deadlinePos {
+		t.Fatal("video input must be polled before returning for an elapsed frame deadline")
+	}
+}
+
+func TestSelectShoulderNavigationWorksForAnyMultiMediaROM(t *testing.T) {
+	src := compactSource(playerSource(t))
+	if !strings.Contains(src, "(void)playlist;if((now&(KEY_START|KEY_SELECT))") {
+		t.Fatal("legacy playlist flag should not gate shared multi-media controls")
+	}
+	if !strings.Contains(src, "if(can_change&&(now&KEY_SELECT))") {
+		t.Fatal("SELECT+L/R must be available for any multi-item ROM")
+	}
+}
+
+func TestPlaybackHUDRestoresVideoAndAudioFeedback(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"frame6(fr,f+1u)",
+		"text4n(d,51,69,fr,6,UI_WHITE)",
+		"seek_badge4(d,ui->seek_direction",
+		"seek_badge3(VRAM0,ui->seek_direction",
+		"ui->paused_ui=1;returnACTION_UI_REFRESH",
+		"if((ui->hud_timer||ui->paused_ui)&&mode<2)mode=2",
+		"ui->mute_timer=HUD_HOLD_VBLANKS",
+		"ui->volume_timer=VOLUME_HOLD_VBLANKS",
+		"if(c->flags&CLIP_FLAG_MEDIA_AUDIO){ui->hud_mode=2;ui->hud_last_visible=2",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("playback HUD feedback missing %q", want)
+		}
 	}
 }
