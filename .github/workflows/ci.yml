@@ -27,13 +27,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg clang lld llvm
 
-      - name: Verify committed GBA player stubs
+      - name: Verify committed GBA player stub
         shell: bash
         run: |
           set -euo pipefail
+          test -f assets/player_stub.bin
           test "$(stat -c%s assets/player_stub.bin)" -eq 32768
-          test "$(stat -c%s website/public/player_stub.bin)" -eq 32768
-          cmp assets/player_stub.bin website/public/player_stub.bin
 
           expected="$(tr -d '[:space:]' < player/stub-source.sha256)"
           actual="$(sha256sum \
@@ -44,11 +43,21 @@ jobs:
             player/linker.ld \
             player/build.sh | sha256sum | awk '{print $1}')"
           if [[ "$actual" != "$expected" ]]; then
-            echo "::error::GBA player source changed without refreshing player/stub-source.sha256 and the committed player stubs."
+            echo "::error::GBA player source changed without refreshing player/stub-source.sha256 and assets/player_stub.bin."
             echo "Expected source fingerprint: $expected"
             echo "Actual source fingerprint:   $actual"
             exit 1
           fi
+
+      - name: Verify website player sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f website/public/player_stub.bin
+          node website/scripts/sync-player.mjs
+          test -f website/public/player_stub.bin
+          test "$(stat -c%s website/public/player_stub.bin)" -eq 32768
+          cmp assets/player_stub.bin website/public/player_stub.bin
 
       - name: Rebuild GBA player smoke test
         shell: bash
@@ -57,6 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           bash player/build.sh
+          test -f "$PLAYER_STUB_OUT"
           test "$(stat -c%s "$PLAYER_STUB_OUT")" -eq 32768
 
       - name: Check formatting
