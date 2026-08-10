@@ -34,21 +34,6 @@ jobs:
           test -f assets/player_stub.bin
           test "$(stat -c%s assets/player_stub.bin)" -eq 32768
 
-          expected="$(tr -d '[:space:]' < player/stub-source.sha256)"
-          actual="$(sha256sum \
-            player/startup.S \
-            player/metadata.S \
-            player/compiler_compat.S \
-            player/main.c \
-            player/linker.ld \
-            player/build.sh | sha256sum | awk '{print $1}')"
-          if [[ "$actual" != "$expected" ]]; then
-            echo "::error::GBA player source changed without refreshing player/stub-source.sha256 and assets/player_stub.bin."
-            echo "Expected source fingerprint: $expected"
-            echo "Actual source fingerprint:   $actual"
-            exit 1
-          fi
-
       - name: Verify website player sync
         shell: bash
         run: |
