@@ -13,7 +13,7 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD"
 mkdir -p "$(dirname -- "$OUTPUT")"
 
-COMMON="--target=arm-none-eabi -mcpu=arm7tdmi -marm -ffreestanding -fno-builtin -fno-stack-protector -Oz -fno-inline-functions -Wall -Wextra"
+COMMON="--target=arm-none-eabi -mcpu=arm7tdmi -marm -ffreestanding -fno-builtin -fno-stack-protector -Oz -Wall -Wextra"
 $CLANG $COMMON -c "$PLAYER/startup.S" -o "$BUILD/startup.o"
 $CLANG $COMMON -c "$PLAYER/metadata.S" -o "$BUILD/metadata.o"
 $CLANG $COMMON -c "$PLAYER/compiler_compat.S" -o "$BUILD/compiler_compat.o"
