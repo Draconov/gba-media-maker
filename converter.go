@@ -91,21 +91,24 @@ type ClipInput struct {
 
 	// Custom selects the per-clip overrides below. When false, the project
 	// defaults in ProjectOptions are used.
-	Custom       bool
-	Start        float64
-	End          float64
-	Speed        float64
-	FitMode      string
-	AudioMode    string
-	AudioTrack   int
-	Volume       float64
-	Loop         bool
-	PaletteMode  string
-	DitherMode   string
-	MediaKind    string
-	ImageSeconds float64
-	MusicTitle   string
-	MusicArtist  string
+	Custom             bool
+	Start              float64
+	End                float64
+	Speed              float64
+	FitMode            string
+	AudioMode          string
+	AudioTrack         int
+	Volume             float64
+	Loop               bool
+	PaletteMode        string
+	DitherMode         string
+	MediaKind          string
+	ImageSeconds       float64
+	MusicTitle         string
+	MusicArtist        string
+	MusicArtworkMode   string
+	MusicArtworkPreset string
+	MusicArtworkCustom string
 }
 
 type ProjectOptions struct {
@@ -1521,8 +1524,30 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 	}
 	if kind == "audio" {
 		local(20, "preparing album artwork")
-		if err := extractAudioArtwork(opt.FFmpegPath, input.InputPath, videoPath); err != nil {
-			return convertedClip{}, err
+		artworkMode := strings.ToLower(strings.TrimSpace(input.MusicArtworkMode))
+		if artworkMode == "" {
+			artworkMode = "embedded"
+		}
+		artworkPreset := normalizeAudioArtworkPreset(input.MusicArtworkPreset)
+		switch artworkMode {
+		case "default":
+			if err := writePresetAudioArtwork(artworkPreset, videoPath); err != nil {
+				return convertedClip{}, err
+			}
+		case "custom":
+			if err := writeCustomAudioArtwork(input.MusicArtworkCustom, videoPath); err != nil {
+				return convertedClip{}, fmt.Errorf("%s: %w", input.Name, err)
+			}
+		case "embedded":
+			if err := extractNativeImage(opt.FFmpegPath, input.InputPath, "fit", videoPath); err != nil {
+				// Embedded artwork is optional. Fall back to the chosen built-in preset
+				// instead of leaving the audio player blank.
+				if fallbackErr := writePresetAudioArtwork(artworkPreset, videoPath); fallbackErr != nil {
+					return convertedClip{}, fallbackErr
+				}
+			}
+		default:
+			return convertedClip{}, fmt.Errorf("%s: invalid audio artwork mode %q", input.Name, artworkMode)
 		}
 		_ = os.WriteFile(palettePath, nil, 0644)
 		_ = os.WriteFile(paletteIndexPath, nil, 0644)

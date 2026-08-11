@@ -1,5 +1,6 @@
 const TOKEN = document.querySelector('meta[name="gbavm-session-token"]').content;
-const BASE = '/' + TOKEN + '/api';
+const APP_BASE = '/' + TOKEN;
+const BASE = APP_BASE + '/api';
 const $ = id => document.getElementById(id);
 const GBAText = window.GBAText;
 
@@ -11,6 +12,7 @@ const FPS_VBLANKS = {smooth: 4, balanced: 5, classic: 6, compact: 8};
 const FPS_ORDER = ['smooth', 'balanced', 'classic', 'compact'];
 const ROM_LIMIT = 32 * 1024 * 1024;
 const MIB = 1024 * 1024;
+const AUDIO_ARTWORK_PRESETS = Array.from({length:20}, (_,index) => 'preset-' + String(index + 1).padStart(2,'0'));
 
 let state = null;
 let pollTimer = null;
@@ -117,6 +119,18 @@ function isGIF(video=selectedVideo()){ return /\.gif$/i.test(video?.name || '');
 function rawFilenameTitle(name){ return String(name || '').replace(/\.[^.]+$/, '').trim(); }
 function defaultMusicTitle(video){ return String(video?.info?.title || rawFilenameTitle(video?.name) || 'UNTITLED').trim().slice(0,28); }
 function defaultMusicArtist(video){ return String(video?.info?.artist || '').trim().slice(0,28); }
+function normalizeMusicArtworkPreset(value){ return AUDIO_ARTWORK_PRESETS.includes(value) ? value : AUDIO_ARTWORK_PRESETS[0]; }
+function musicArtworkPresetURL(value){ return APP_BASE + '/audio-artwork/' + normalizeMusicArtworkPreset(value) + '.png'; }
+function musicArtworkPreviewSource(video=selectedVideo()) {
+  if (!video || mediaKind(video) !== 'audio') return '';
+  const config=clipConfigs[video.id] || {};
+  const mode=['default','embedded','custom'].includes(config.musicArtworkMode) ? config.musicArtworkMode : 'embedded';
+  const preset=normalizeMusicArtworkPreset(config.musicArtworkPreset);
+  if(mode==='custom' && /^data:image\/png;base64,/i.test(config.musicArtworkCustom || '')) return config.musicArtworkCustom;
+  if(mode==='default') return musicArtworkPresetURL(preset);
+  const index=state?.videos?.findIndex(item=>item.id===video.id) ?? 0;
+  return BASE + '/preview?index=' + Math.max(0,index) + '&time=0&fit=fit&artworkFallback=' + encodeURIComponent(preset) + '&artwork=embedded';
+}
 function titleForVideo(video){ const meta=video?.info?.title; return titleFromFilename((meta && mediaKind(video)==='audio') ? meta : (video?.name || 'GBA MEDIA')); }
 function cloneClip(settings) { return {...DEFAULT_CLIP, ...settings}; }
 function effectiveClip(id) {
@@ -132,10 +146,13 @@ function ensureClipConfigs() {
   for (const id of Object.keys(clipConfigs)) if (!valid.has(id)) delete clipConfigs[id];
   for (const video of state.videos) {
     if (!clipConfigs[video.id]) {
-      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, musicTitle: defaultMusicTitle(video), musicArtist: defaultMusicArtist(video), ...DEFAULT_CLIP};
+      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, musicTitle: defaultMusicTitle(video), musicArtist: defaultMusicArtist(video), musicArtworkMode:'embedded', musicArtworkPreset:AUDIO_ARTWORK_PRESETS[0], musicArtworkCustom:'', ...DEFAULT_CLIP};
     }
     if (clipConfigs[video.id].musicTitle == null) clipConfigs[video.id].musicTitle = defaultMusicTitle(video);
     if (clipConfigs[video.id].musicArtist == null) clipConfigs[video.id].musicArtist = defaultMusicArtist(video);
+    if (!['default','embedded','custom'].includes(clipConfigs[video.id].musicArtworkMode)) clipConfigs[video.id].musicArtworkMode = 'embedded';
+    clipConfigs[video.id].musicArtworkPreset = normalizeMusicArtworkPreset(clipConfigs[video.id].musicArtworkPreset);
+    if (clipConfigs[video.id].musicArtworkCustom == null) clipConfigs[video.id].musicArtworkCustom = '';
     if (isGIF(video)) clipConfigs[video.id].loop = true;
   }
   if (!selectedID || !valid.has(selectedID)) selectedID = state.videos[0]?.id || '';
@@ -208,9 +225,10 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds','imageSlideshow','imageFit','musicTitle','musicArtist','musicStart','musicEnd','musicSpeed'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds','imageSlideshow','imageFit','musicTitle','musicArtist','musicStart','musicEnd','musicSpeed','musicArtworkMode','musicArtworkCustom'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
+  for (const button of document.querySelectorAll('.music-artwork-preset')) button.disabled = busy;
   if(!busy && state?.videos?.length) syncMediaAliasControls();
 }
 
@@ -789,6 +807,24 @@ function syncMediaAliasControls(){
     const config=clipConfigs[selectedID];
     if($('musicTitle')) { $('musicTitle').value=config?.musicTitle ?? defaultMusicTitle(selectedVideo()); $('musicTitle').disabled=!!state?.converting; }
     if($('musicArtist')) { $('musicArtist').value=config?.musicArtist ?? defaultMusicArtist(selectedVideo()); $('musicArtist').disabled=!!state?.converting; }
+    if($('musicArtworkMode')) {
+      const mode=['default','embedded','custom'].includes(config?.musicArtworkMode) ? config.musicArtworkMode : 'embedded';
+      const preset=normalizeMusicArtworkPreset(config?.musicArtworkPreset);
+      $('musicArtworkMode').value=mode;
+      $('musicArtworkMode').disabled=!!state?.converting;
+      $('musicArtworkPresetRow')?.classList.toggle('hidden',mode==='custom');
+      $('musicArtworkCustomRow')?.classList.toggle('hidden',mode!=='custom');
+      for(const button of document.querySelectorAll('.music-artwork-preset')) {
+        button.setAttribute('aria-checked',button.dataset.preset===preset?'true':'false');
+        button.disabled=!!state?.converting;
+      }
+      if($('musicArtworkInfo')) $('musicArtworkInfo').textContent = mode==='default'
+        ? 'The selected built-in artwork will be stored with this track.'
+        : mode==='embedded'
+          ? 'Embedded artwork is used when available. If none is present, the selected default preset is used.'
+          : 'Your custom image is stored with this track after being cropped to the GBA screen.';
+      if($('musicArtworkCustomStatus') && mode==='custom') $('musicArtworkCustomStatus').textContent = config?.musicArtworkCustom ? 'Custom artwork ready — 240×160.' : 'Choose an image. It will be cropped to 240×160 for the GBA.';
+    }
     for(const [id,key] of [['musicStart','start'],['musicEnd','end'],['musicSpeed','speed']]) if($(id)){ $(id).value=source[key] ?? ''; $(id).disabled=locked; }
   }
   if(kind==='image'){
@@ -867,7 +903,7 @@ $('useProject').onchange = () => {
   const config = clipConfigs[selectedID];
   if (!config) return;
   if (!config.useProject && $('useProject').checked) config.useProject = true;
-  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack,musicTitle=config.musicTitle,musicArtist=config.musicArtist; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack, musicTitle, musicArtist}); }
+  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack,musicTitle=config.musicTitle,musicArtist=config.musicArtist,musicArtworkMode=config.musicArtworkMode,musicArtworkPreset=config.musicArtworkPreset,musicArtworkCustom=config.musicArtworkCustom; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack, musicTitle, musicArtist, musicArtworkMode, musicArtworkPreset, musicArtworkCustom}); }
   refreshScope(true); renderClips(); estimate();
 };
 function savePerClipField(id) {
@@ -903,6 +939,48 @@ function saveAliasField(id,key){
 for(const [id,key] of [['musicStart','start'],['musicEnd','end'],['musicSpeed','speed'],['imageFit','fit']]) $(id)?.addEventListener('input',()=>saveAliasField(id,key));
 $('musicTitle')?.addEventListener('input',()=>{ const config=clipConfigs[selectedID]; if(config){ config.musicTitle=$('musicTitle').value.slice(0,28); estimate(); } });
 $('musicArtist')?.addEventListener('input',()=>{ const config=clipConfigs[selectedID]; if(config){ config.musicArtist=$('musicArtist').value.slice(0,28); estimate(); } });
+function initializeMusicArtworkPresets(){
+  const host=$('musicArtworkPresets');
+  if(!host || host.children.length) return;
+  host.innerHTML=AUDIO_ARTWORK_PRESETS.map((preset,index)=>'<button type="button" class="music-artwork-preset" role="radio" aria-checked="false" data-preset="'+preset+'" title="Preset '+String(index+1).padStart(2,'0')+'"><img alt="Preset '+String(index+1).padStart(2,'0')+'" src="'+musicArtworkPresetURL(preset)+'"><span>'+String(index+1).padStart(2,'0')+'</span></button>').join('');
+  for(const button of host.querySelectorAll('.music-artwork-preset')) button.addEventListener('click',()=>{
+    const config=clipConfigs[selectedID]; if(!config || mediaKind()!=='audio' || state?.converting) return;
+    config.musicArtworkPreset=normalizeMusicArtworkPreset(button.dataset.preset);
+    syncMediaAliasControls(); lastPreviewKey=''; lastThumbKey=''; updatePreview(); renderTimelineThumbs(); estimate();
+  });
+}
+async function customArtworkToDataURL(file){
+  if(!file) throw new Error('Choose an image first.');
+  if(file.size > 32*1024*1024) throw new Error('Custom artwork image is too large.');
+  const url=URL.createObjectURL(file);
+  try {
+    const image=await new Promise((resolve,reject)=>{ const img=new Image(); img.onload=()=>resolve(img); img.onerror=()=>reject(new Error('Could not decode custom artwork image.')); img.src=url; });
+    const canvas=document.createElement('canvas'); canvas.width=240; canvas.height=160;
+    const ctx=canvas.getContext('2d',{alpha:false});
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,240,160);
+    const width=image.naturalWidth||image.width,height=image.naturalHeight||image.height;
+    if(!width||!height) throw new Error('Custom artwork image has invalid dimensions.');
+    const scale=Math.max(240/width,160/height),drawW=width*scale,drawH=height*scale;
+    ctx.drawImage(image,(240-drawW)/2,(160-drawH)/2,drawW,drawH);
+    return canvas.toDataURL('image/png');
+  } finally { URL.revokeObjectURL(url); }
+}
+$('musicArtworkMode')?.addEventListener('change',()=>{
+  const config=clipConfigs[selectedID]; if(!config || mediaKind()!=='audio') return;
+  config.musicArtworkMode=$('musicArtworkMode').value;
+  syncMediaAliasControls(); lastPreviewKey=''; lastThumbKey=''; updatePreview(); renderTimelineThumbs(); estimate();
+});
+$('musicArtworkCustom')?.addEventListener('change',async()=>{
+  const file=$('musicArtworkCustom').files?.[0]; if(!file) return;
+  const config=clipConfigs[selectedID]; if(!config || mediaKind()!=='audio') return;
+  try {
+    $('musicArtworkCustomStatus').textContent='Preparing '+file.name+'…';
+    config.musicArtworkCustom=await customArtworkToDataURL(file);
+    config.musicArtworkMode='custom';
+    $('musicArtworkCustom').value='';
+    syncMediaAliasControls(); lastPreviewKey=''; lastThumbKey=''; updatePreview(); renderTimelineThumbs(); estimate();
+  } catch(error) { $('musicArtworkCustomStatus').textContent=error.message; alert(error.message); }
+});
 $('imageSlideshow')?.addEventListener('change',()=>{
   if(settingsAreLocked()) return;
   const source=currentSettingsSource();
@@ -995,11 +1073,14 @@ function renderTimelineThumbs() {
   if (!video?.info) return;
   const index = selectedIndex();
   const fit = currentTimelineSettings().fit;
-  const key = video.id + '|' + fit + '|' + video.info.duration.toFixed(3);
+  const artSource = mediaKind(video)==='audio' ? musicArtworkPreviewSource(video) : '';
+  const artKey = mediaKind(video)==='audio' ? '|' + (clipConfigs[video.id]?.musicArtworkMode || 'embedded') + '|' + normalizeMusicArtworkPreset(clipConfigs[video.id]?.musicArtworkPreset) + '|' + (clipConfigs[video.id]?.musicArtworkCustom || '').length : '';
+  const key = video.id + '|' + fit + '|' + video.info.duration.toFixed(3) + artKey;
   if (key === lastThumbKey) return;
   lastThumbKey = key;
   const count = 6;
   $('timelineThumbs').innerHTML = Array.from({length:count}, (_,i) => {
+    if (artSource) return '<img alt="" src="' + artSource.replace(/&/g,'&amp;').replace(/"/g,'&quot;') + '">';
     const time = video.info.duration * (i + .5) / count;
     return '<img alt="" src="' + BASE + '/preview?index=' + index + '&time=' + encodeURIComponent(time) + '&fit=' + fit + '&thumb=' + i + '">';
   }).join('');
@@ -1013,12 +1094,14 @@ function updatePreview(time = playheads[selectedID]) {
   playheads[selectedID] = time;
   $('timelinePlay').value = time;
   updateTimelineLabels();
-  const key = [video.id,time.toFixed(3),fit].join('|');
+  const artworkSource = mediaKind(video)==='audio' ? musicArtworkPreviewSource(video) : '';
+  const artworkKey = mediaKind(video)==='audio' ? [(clipConfigs[video.id]?.musicArtworkMode||'embedded'),normalizeMusicArtworkPreset(clipConfigs[video.id]?.musicArtworkPreset),(clipConfigs[video.id]?.musicArtworkCustom||'').length].join('|') : '';
+  const key = [video.id,time.toFixed(3),fit,artworkKey].join('|');
   if (key === lastPreviewKey && $('previewImage').src) return;
   lastPreviewKey = key;
   const image = $('previewImage');
   image.onerror = () => image.removeAttribute('src');
-  image.src = BASE + '/preview?index=' + index + '&time=' + encodeURIComponent(time) + '&fit=' + fit + '&key=' + encodeURIComponent(key);
+  image.src = artworkSource || (BASE + '/preview?index=' + index + '&time=' + encodeURIComponent(time) + '&fit=' + fit + '&key=' + encodeURIComponent(key));
 }
 $('timelinePlay').oninput = () => updatePreview(Number($('timelinePlay').value));
 $('timelineStart').oninput = () => {
@@ -1095,7 +1178,7 @@ function values() {
     ...global, ...projectDefaults,
     clips: state.videos.map(video => {
       const config = clipConfigs[video.id];
-      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:isGIF(video)||!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number.isFinite(Number(config.imageSeconds))?Number(config.imageSeconds):5,musicTitle:config.musicTitle||'',musicArtist:config.musicArtist||''};
+      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:isGIF(video)||!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number.isFinite(Number(config.imageSeconds))?Number(config.imageSeconds):5,musicTitle:config.musicTitle||'',musicArtist:config.musicArtist||'',musicArtworkMode:config.musicArtworkMode||'embedded',musicArtworkPreset:normalizeMusicArtworkPreset(config.musicArtworkPreset),musicArtworkCustom:config.musicArtworkCustom||''};
     })
   };
 }
@@ -1365,7 +1448,7 @@ function applyPendingProject() {
     rebuildMenuTheme();
   }
   clipConfigs = {};
-  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(Number(clip.imageSeconds))?Number(clip.imageSeconds):5,musicTitle:clip.musicTitle ?? null,musicArtist:clip.musicArtist ?? null};
+  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(Number(clip.imageSeconds))?Number(clip.imageSeconds):5,musicTitle:clip.musicTitle ?? null,musicArtist:clip.musicArtist ?? null,musicArtworkMode:['default','embedded','custom'].includes(clip.musicArtworkMode)?clip.musicArtworkMode:'embedded',musicArtworkPreset:normalizeMusicArtworkPreset(clip.musicArtworkPreset),musicArtworkCustom:clip.musicArtworkCustom||''};
   ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
 }
 async function saveProject() {
@@ -1384,6 +1467,7 @@ async function openProject() {
     await poll();
   } catch (error) { alert(error.message); }
 }
+initializeMusicArtworkPresets();
 $('saveProject').onclick = saveProject;
 $('openProject').onclick = openProject;
 $('openProjectWelcome').onclick = event => { event.stopPropagation(); openProject(); };
@@ -1453,7 +1537,7 @@ $('convert').onclick = async () => {
 $('download').onclick = () => { const link = document.createElement('a'); link.href = BASE + '/download'; link.download = state.downloadName || 'GBA_Video_Maker_output'; link.click(); };
 $('retryEngine').onclick = () => api('/engine/retry', {method:'POST'});
 $('resetTop').onclick = async () => {
-  await api('/reset', {method:'POST'}); resetTitleCardPreviewCache(); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; titleCardProject=null; titleCardProjectSource=''; titleCardPart=1; titleCardSectionSignature=''; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; romTitleAuto=true; smartAnalysis=null; $('romTitle').value=''; show('welcome');
+  await api('/reset', {method:'POST'}); resetTitleCardPreviewCache(); state=null; selectedID=''; clipConfigs={}; scopeInitialized=false; titleCardProject=null; titleCardProjectSource=''; titleCardPart=1; titleCardSectionSignature=''; projectDefaults={...DEFAULT_CLIP}; playheads={}; lastPreviewKey=''; lastThumbKey=''; if($('musicArtworkCustom')) $('musicArtworkCustom').value=''; romTitleAuto=true; smartAnalysis=null; $('romTitle').value=''; show('welcome');
 };
 setInterval(() => fetch(BASE + '/heartbeat', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}), 5000);
 window.addEventListener('pagehide', () => fetch(BASE + '/close-intent', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}));

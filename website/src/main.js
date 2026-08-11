@@ -1,6 +1,6 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
-import { AUDIO_RATE, GBA_REFRESH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.js";
+import { AUDIO_RATE, GBA_REFRESH, NATIVE_IMAGE_HEIGHT, NATIVE_IMAGE_RGB_BYTES, NATIVE_IMAGE_WIDTH, RGB_FRAME_BYTES, ROM_LIMIT } from "./rom-core.js";
 import { buildStoredZip } from "./zip-store.js";
 import { chooseChapterEnd, formatClock, parseClock } from "./split-utils.js";
 import { canonicalProjectFromBrowser, normalizeBrowserProjectDocument } from "./project-format.js";
@@ -14,6 +14,11 @@ import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
 const MAX_RAW_FRAME_BYTES = 384 * 1024 * 1024;
+const AUDIO_ARTWORK_PRESETS = Array.from({ length: 20 }, (_, index) => `preset-${String(index + 1).padStart(2, "0")}`);
+const AUDIO_EXTENSIONS = /\.(mp3|flac|wav|ogg|opus|m4a|aac|wma|aiff|aif|ape)$/i;
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|bmp|tga|tiff?)$/i;
+const VIDEO_EXTENSIONS = /\.(mp4|mov|mkv|webm|avi|m4v|mpeg|mpg|gif)$/i;
+
 
 const elements = {
   fileInput: document.querySelector("#fileInput"),
@@ -61,6 +66,8 @@ const elements = {
   defaultSpeed: document.querySelector("#defaultSpeed"),
   defaultVolume: document.querySelector("#defaultVolume"),
   defaultLoop: document.querySelector("#defaultLoop"),
+  defaultImageSlideshow: document.querySelector("#defaultImageSlideshow"),
+  defaultImageSeconds: document.querySelector("#defaultImageSeconds"),
   romTitle: document.querySelector("#romTitle"),
   normalize: document.querySelector("#normalize"),
   limiter: document.querySelector("#limiter"),
@@ -84,6 +91,7 @@ const elements = {
   previewCard: document.querySelector("#previewCard"),
   selectedClipName: document.querySelector("#selectedClipName"),
   previewVideo: document.querySelector("#previewVideo"),
+  previewImage: document.querySelector("#previewImage"),
   titleEditor: document.querySelector("#titleEditor"),
   titlePreview: document.querySelector("#titlePreview"),
   titlePreviewInput: document.querySelector("#titlePreviewInput"),
@@ -197,6 +205,7 @@ let ffmpegMetadataQueue = Promise.resolve();
 let selectedEntryId = "";
 let previewURL = "";
 let audioPreviewURL = "";
+let artworkPreviewURL = "";
 let pendingProject = null;
 let lastEstimate = null;
 let thumbRenderToken = 0;
@@ -526,7 +535,7 @@ function setTitleCardPart(part, force = false) {
 }
 function updateTitleCardVisibility(estimate = lastEstimate) {
   const wasVisible = !elements.titleCardGroup.hidden;
-  const visible = entries.length === 1 && elements.outputMode.value === "rom" && (Number(estimate?.parts || 1) > 1 || elements.splitVideo.checked);
+  const visible = entries.length === 1 && mediaKind(entries[0]) === "video" && elements.outputMode.value === "rom" && (Number(estimate?.parts || 1) > 1 || elements.splitVideo.checked);
   elements.titleCardGroup.hidden = !visible;
   if (!visible) {
     titleCardVisibilitySignature = "";
@@ -576,16 +585,61 @@ function clampNumber(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, numericOr(value, minimum)));
 }
 
+function rawFileTitle(file) {
+  return String(file?.name || "").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+}
+
+function guessMediaKind(file) {
+  const name = String(file?.name || "");
+  if (/\.gif$/i.test(name)) return "video";
+  if (AUDIO_EXTENSIONS.test(name) || String(file?.type || "").startsWith("audio/")) return "audio";
+  if (IMAGE_EXTENSIONS.test(name) || String(file?.type || "").startsWith("image/")) return "image";
+  return "video";
+}
+
+function isGIFEntry(entry) {
+  return /\.gif$/i.test(String(entry?.file?.name || ""));
+}
+
+function mediaKind(entry) {
+  return entry?.kind || guessMediaKind(entry?.file);
+}
+
+function mediaKindLabel(entry) {
+  if (isGIFEntry(entry)) return "GIF";
+  const kind = mediaKind(entry);
+  return kind === "audio" ? "Audio" : kind === "image" ? "Image" : "Video";
+}
+
 function titleFromFile(file) {
-  const base = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-  return sanitizeMenuTitle(base) || "VIDEO";
+  return sanitizeMenuTitle(rawFileTitle(file)) || "MEDIA";
+}
+
+function musicTitleFromEntry(entry) {
+  return String(entry?.metadataTitle || rawFileTitle(entry?.file) || "UNTITLED").trim().slice(0, 28);
+}
+
+function musicArtistFromEntry(entry) {
+  return String(entry?.metadataArtist || "").trim().slice(0, 28);
+}
+
+function normalizeArtworkPreset(value) {
+  return AUDIO_ARTWORK_PRESETS.includes(value) ? value : AUDIO_ARTWORK_PRESETS[0];
+}
+
+function normalizeArtworkMode(value) {
+  return ["embedded", "default", "custom"].includes(value) ? value : "embedded";
+}
+
+function artworkPresetURL(preset) {
+  return new URL(`audio-artwork/${normalizeArtworkPreset(preset)}.png`, document.baseURI).href;
 }
 
 function romTitleFromFile(file) {
-  return sanitizeGBAText(String(file?.name || "").replace(/\.[^.]+$/, ""), 12).text || "GBA VIDEO";
+  return sanitizeGBAText(String(file?.name || "").replace(/\.[^.]+$/, ""), 12).text || "GBA MEDIA";
 }
 
-function cleanFileBase(value, fallback = "GBA_VIDEO") {
+function cleanFileBase(value, fallback = "GBA_MEDIA") {
   return String(value || fallback)
     .trim()
     .replace(/[^A-Za-z0-9_-]+/g, "_")
@@ -593,47 +647,48 @@ function cleanFileBase(value, fallback = "GBA_VIDEO") {
 }
 
 function makeEntry(file) {
-  return {
-    id: crypto.randomUUID(),
-    file,
-    title: titleFromFile(file),
-    useProject: true,
-    start: 0,
-    end: 0,
-    speed: 1,
-    fitMode: "fit",
-    audioMode: "mix",
-    audioTrack: 0,
-    audioTracks: [],
-    audioTracksKnown: false,
-    volume: 1,
-    loop: false,
-    paletteMode: "shared",
-    ditherMode: "ordered",
-    duration: 0,
-    hasAudio: true,
-    channels: 0,
-    chapters: [],
+  const kind = guessMediaKind(file);
+  const entry = {
+    id: crypto.randomUUID(), file, kind,
+    title: titleFromFile(file), useProject: true,
+    start: 0, end: 0, speed: 1, fitMode: "fit",
+    audioMode: "mix", audioTrack: 0, audioTracks: [], audioTracksKnown: false,
+    volume: 1, loop: /\.gif$/i.test(file.name), paletteMode: "shared", ditherMode: "ordered",
+    imageSeconds: 5,
+    musicTitle: "", musicArtist: "", musicArtworkMode: "embedded", musicArtworkPreset: "preset-01", musicArtworkCustom: "",
+    embeddedArtworkRGB: null, embeddedArtworkPreview: "",
+    metadataTitle: "", metadataArtist: "", metadataAlbum: "",
+    duration: 0, hasAudio: kind === "audio" ? true : undefined, channels: 0, chapters: [],
   };
+  entry.musicTitle = musicTitleFromEntry(entry);
+  entry.musicArtist = musicArtistFromEntry(entry);
+  return entry;
+}
+
+function isSupportedMediaFile(file) {
+  const type = String(file?.type || "");
+  if (type.startsWith("video/") || type.startsWith("audio/") || type.startsWith("image/")) return true;
+  return VIDEO_EXTENSIONS.test(file?.name || "") || AUDIO_EXTENSIONS.test(file?.name || "") || IMAGE_EXTENSIONS.test(file?.name || "");
 }
 
 function addFiles(fileList) {
   const existing = new Set(entries.map((entry) => `${entry.file.name}:${entry.file.size}:${entry.file.lastModified}`));
+  let added = 0;
   for (const file of fileList) {
-    if (!file.type.startsWith("video/") && !/\.(mp4|mov|mkv|webm|avi|m4v|mpeg|mpg)$/i.test(file.name)) continue;
+    if (!isSupportedMediaFile(file)) continue;
     const key = `${file.name}:${file.size}:${file.lastModified}`;
     if (existing.has(key)) continue;
     const entry = makeEntry(file);
     entries.push(entry);
+    added += 1;
     if (romTitleAuto && entries.length === 1) elements.romTitle.value = romTitleFromFile(file);
     if (!selectedEntryId) selectedEntryId = entry.id;
     existing.add(key);
     hydrateEntryMetadata(entry).then(() => { applyPendingProjectMatches(); renderFiles(); updateEstimate(); }).catch(() => {});
   }
-  if (fileList.length) resetResult();
+  if (added) resetResult();
   renderFiles();
 }
-
 
 
 function sanitizeMenuTitle(value) {
@@ -642,6 +697,7 @@ function sanitizeMenuTitle(value) {
 
 async function hydrateEntryMetadata(entry) {
   if (!entry?.file) return;
+  if (mediaKind(entry) === "image") { entry.duration = 0; entry.hasAudio = false; return; }
   const duration = await readBrowserDuration(entry.file);
   if (duration > 0) entry.duration = duration;
 }
@@ -652,6 +708,7 @@ function selectedEntry() {
 
 function durationForEntry(entry, project = currentOptions(false)) {
   const clip = effectiveClipOptions(entry, project);
+  if (mediaKind(entry) === "image") return Math.max(0, Number(clip.imageSeconds) || 0);
   const full = Math.max(0, entry.duration || 0);
   const start = clampNumber(clip.start, 0, full || 86400);
   const end = clip.end > start ? Math.min(clip.end, full || clip.end) : full;
@@ -662,7 +719,7 @@ function updateOutputModes() {
   const previous = elements.outputMode.value || preferredOutputMode;
   const choices = entries.length <= 1
     ? [["rom", "Single ROM"]]
-    : [["playlist", "One ROM — play clips in order"], ["menu", "One ROM — clip menu"], ["batch", "Separate ROMs in ZIP"]];
+    : [["menu", "One ROM — media menu"], ["batch", "Separate ROMs in ZIP"]];
   elements.outputMode.replaceChildren();
   for (const [value, text] of choices) {
     const option = document.createElement("option");
@@ -670,21 +727,28 @@ function updateOutputModes() {
     option.textContent = text;
     elements.outputMode.append(option);
   }
-  const desired = choices.some(([value]) => value === previous) ? previous : (choices.some(([value]) => value === preferredOutputMode) ? preferredOutputMode : choices[0][0]);
+  let desired;
+  if (entries.length > 1) desired = previous === "batch" || preferredOutputMode === "batch" ? "batch" : "menu";
+  else desired = "rom";
   elements.outputMode.value = desired;
   preferredOutputMode = desired;
-  const single = entries.length === 1 && elements.outputMode.value === "rom";
-  elements.splitVideoRow.hidden = !single;
-  if (!single) elements.splitVideo.checked = false;
+  const singleVideo = entries.length === 1 && mediaKind(entries[0]) === "video" && elements.outputMode.value === "rom";
+  elements.splitVideoRow.hidden = !singleVideo;
+  if (!singleVideo) elements.splitVideo.checked = false;
   if (elements.menuSettingsGroup) elements.menuSettingsGroup.hidden = !(entries.length > 1 && elements.outputMode.value === "menu");
-  if (elements.titleCardGroup && !single) elements.titleCardGroup.hidden = true;
+  if (elements.titleCardGroup && !singleVideo) elements.titleCardGroup.hidden = true;
   updateSplitVisibility();
 }
 
 function updateSplitVisibility() {
-  const visible = entries.length === 1 && elements.outputMode.value === "rom" && elements.splitVideo.checked;
+  const visible = entries.length === 1 && mediaKind(entries[0]) === "video" && elements.outputMode.value === "rom" && elements.splitVideo.checked;
   elements.splitOptions.hidden = !visible;
   elements.splitBudgetValue.textContent = `${elements.splitBudget.value} MiB`;
+}
+
+function updateImageDefaultsUI() {
+  if (!elements.defaultImageSlideshow || !elements.defaultImageSeconds) return;
+  elements.defaultImageSeconds.disabled = conversionRunning || !elements.defaultImageSlideshow.checked;
 }
 
 function projectSettingsSnapshot(includeMenuTheme = true) {
@@ -718,10 +782,10 @@ function saveProject() {
   const data = canonicalProjectFromBrowser({
     settings: projectSettingsSnapshot(),
     entries,
-    appVersion: "0.12.2",
+    appVersion: "0.13.0",
   });
-  const base = cleanFileBase(elements.romTitle.value || "GBA_VIDEO", "GBA_VIDEO");
-  downloadBlob(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" }), `${base}.gbavideo`);
+  const base = cleanFileBase(elements.romTitle.value || "GBA_MEDIA", "GBA_MEDIA");
+  downloadBlob(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" }), `${base}.gbamedia`);
 }
 
 function applySettings(settings = {}) {
@@ -748,7 +812,9 @@ function applySettings(settings = {}) {
     const savedVolume = Number(settings.defaultVolume);
     elements.defaultVolume.value = String(savedVolume <= 2 ? Math.round(savedVolume * 100) : savedVolume);
   } else elements.defaultVolume.value = "100";
-  assign(elements.romTitle, "romTitle", "GBA VIDEO");
+  assign(elements.romTitle, "romTitle", "GBA MEDIA");
+  if (elements.defaultImageSeconds) elements.defaultImageSeconds.value = String(Math.max(0.5, Number(settings.defaultImageSeconds ?? 5) || 5));
+  if (elements.defaultImageSlideshow) elements.defaultImageSlideshow.checked = Number(settings.defaultImageSeconds ?? 5) > 0;
   romTitleAuto = false;
   elements.defaultLoop.checked = Boolean(settings.defaultLoop);
   elements.normalize.checked = Boolean(settings.normalize);
@@ -779,6 +845,7 @@ function applySettings(settings = {}) {
   elements.smartResults.hidden = true;
   elements.smartStatus.textContent = "Not analyzed";
   updateExtremeVisibility();
+  updateImageDefaultsUI();
 }
 
 function applyPendingProjectMatches() {
@@ -797,27 +864,34 @@ function applyPendingProjectMatches() {
     const match = candidates.find((entry) => savedModified && entry.file.lastModified === savedModified) || candidates[0];
     if (!match) { unmatched.push(saved); continue; }
     used.add(match.id);
+    const kind = mediaKind(match);
     Object.assign(match, {
       title: sanitizeMenuTitle(saved.title || titleFromFile(match.file)),
       useProject: saved.useProject !== false,
       start: numericOr(saved.start, 0),
       end: numericOr(saved.end, 0),
       speed: numericOr(saved.speed, 1),
-      fitMode: saved.fitMode || "fit",
-      audioMode: saved.audioMode || "mix",
+      fitMode: saved.fitMode || saved.fit || "fit",
+      audioMode: saved.audioMode || saved.audio || (kind === "audio" ? "mix" : "mix"),
       audioTrack: Number.isInteger(saved.audioTrack) ? saved.audioTrack : 0,
       volume: numericOr(saved.volume, 1),
-      loop: Boolean(saved.loop),
+      loop: kind === "video" && /\.gif$/i.test(match.file.name) ? true : Boolean(saved.loop),
       paletteMode: saved.paletteMode || "shared",
       ditherMode: saved.ditherMode || "ordered",
+      imageSeconds: Number.isFinite(Number(saved.imageSeconds)) ? Math.max(0, Number(saved.imageSeconds)) : 5,
+      musicTitle: saved.musicTitle ?? match.musicTitle,
+      musicArtist: saved.musicArtist ?? match.musicArtist,
+      musicArtworkMode: normalizeArtworkMode(saved.musicArtworkMode),
+      musicArtworkPreset: normalizeArtworkPreset(saved.musicArtworkPreset),
+      musicArtworkCustom: typeof saved.musicArtworkCustom === "string" ? saved.musicArtworkCustom : "",
     });
     orderedMatches.push(match);
   }
   if (orderedMatches.length) entries = [...orderedMatches, ...entries.filter((entry) => !used.has(entry.id))];
   pendingProject.clips = unmatched;
   elements.projectNotice.textContent = unmatched.length
-    ? `Project loaded. Select ${unmatched.length} missing source video${unmatched.length === 1 ? "" : "s"}.`
-    : "Project loaded and source videos relinked.";
+    ? `Project loaded. Select ${unmatched.length} missing source media item${unmatched.length === 1 ? "" : "s"}.`
+    : "Project loaded and source media relinked.";
   if (!unmatched.length) pendingProject = null;
 }
 
@@ -831,41 +905,55 @@ async function openProjectFile(file) {
   renderFiles();
   updateEstimate();
   syncSelectedPreview(true);
-  if (pendingProject) elements.projectNotice.textContent = `Project loaded. Select ${pendingProject.clips.length} source video${pendingProject.clips.length === 1 ? "" : "s"} to relink.`;
+  if (pendingProject) elements.projectNotice.textContent = `Project loaded. Select ${pendingProject.clips.length} source media item${pendingProject.clips.length === 1 ? "" : "s"} to relink.`;
 }
 
 function estimateProject(project = currentOptions(false)) {
   const fps = GBA_REFRESH / project.vblanks;
-  let frames = 0;
-  let videoBytes = 0;
-  let audioBytes = 0;
-  let paletteBytes = 0;
-  let totalDuration = 0;
+  let frames = 0, videoBytes = 0, audioBytes = 0, paletteBytes = 0, metadataBytes = 0, totalDuration = 0;
   for (const entry of entries) {
+    const kind = mediaKind(entry);
     const clip = effectiveClipOptions(entry, project);
     const duration = durationForEntry(entry, project);
+    if (kind === "image") {
+      frames += 1;
+      videoBytes += 240 * 160 * 2;
+      totalDuration += duration;
+      continue;
+    }
     const clipFrames = Math.max(1, Math.ceil(duration * fps));
+    frames += clipFrames;
+    if (kind === "audio") {
+      videoBytes += 240 * 160 * 2;
+      metadataBytes += 80 + clipFrames * 4;
+      const pcmBytes = duration * AUDIO_RATE;
+      const codec = resolveAudioCodec(project.audioQuality, project.extremeOptimization, pcmBytes, project.smartTargetMiB);
+      audioBytes += codec === "adpcm" ? pcmBytes * 0.505 + 20 : pcmBytes;
+      totalDuration += duration;
+      continue;
+    }
     const raw = clipFrames * 120 * 80;
     const ratio = project.compression === "none" ? 1 : (clip.paletteMode === "scene" ? 0.43 : 0.34);
-    frames += clipFrames;
     const adaptiveFactor = project.extremeOptimization && project.adaptiveKeyframes ? 0.91 : 1;
     videoBytes += (raw * ratio + (project.compression === "delta" ? clipFrames * 12 : 0)) * adaptiveFactor;
     if (clip.audioMode !== "none" && entry.hasAudio !== false) {
       const pcmBytes = duration * AUDIO_RATE;
       const codec = resolveAudioCodec(project.audioQuality, project.extremeOptimization, pcmBytes, project.smartTargetMiB);
       audioBytes += codec === "adpcm" ? pcmBytes * 0.505 + 20 : pcmBytes;
+      metadataBytes += clipFrames * 4;
     }
     paletteBytes += (clip.paletteMode === "scene" ? Math.max(1, Math.ceil(duration / 30)) : 1) * 512 + clipFrames * (clip.paletteMode === "scene" ? 2 : 0);
     totalDuration += duration;
   }
-  const metadataBytes = 0x8000 + entries.length * 96 + frames * 8 + (project.outputMode === "menu" ? menuThemeBytes() : 0);
+  metadataBytes += 0x8000 + entries.length * 96 + (project.outputMode === "menu" ? menuThemeBytes() : 0);
   let totalBytes = metadataBytes + videoBytes + audioBytes + paletteBytes;
-  const budgetMiB = elements.splitVideo.checked ? Number(elements.splitBudget.value) : 32;
+  const canSplit = entries.length === 1 && mediaKind(entries[0]) === "video" && project.outputMode === "rom";
+  const budgetMiB = canSplit && elements.splitVideo.checked ? Number(elements.splitBudget.value) : 32;
   const budget = Math.max(1, Math.min(32, budgetMiB)) * 1048576;
-  const maxPartSeconds = elements.splitVideo.checked ? parsePartDuration(elements.maxPartDuration.value) : 0;
+  const maxPartSeconds = canSplit && elements.splitVideo.checked ? parsePartDuration(elements.maxPartDuration.value) : 0;
   let partsBySize = Math.max(1, Math.ceil(totalBytes / budget));
   let partsByDuration = Number.isFinite(maxPartSeconds) && maxPartSeconds > 0 ? Math.max(1, Math.ceil(totalDuration / maxPartSeconds)) : 1;
-  const needsSplit = entries.length === 1 && elements.outputMode.value === "rom" && (elements.splitVideo.checked || totalBytes > ROM_LIMIT);
+  const needsSplit = canSplit && (elements.splitVideo.checked || totalBytes > ROM_LIMIT);
   let parts = needsSplit ? Math.max(partsBySize, partsByDuration) : 1;
   if (needsSplit && elements.partTitleScreens.checked) {
     for (let pass = 0; pass < 2; pass += 1) {
@@ -877,26 +965,35 @@ function estimateProject(project = currentOptions(false)) {
   return { fps, frames, videoBytes, audioBytes, paletteBytes, metadataBytes, totalBytes, totalDuration, parts, needsSplit, budget };
 }
 
+function projectOutputEstimateLabel() {
+  const mode = entries.length > 1 ? (elements.outputMode.value === "batch" ? "Separate ROMs" : "1 media-menu ROM") : "1 ROM";
+  return `Estimated output: ${mode}`;
+}
+
 function updateEstimate() {
   if (!entries.length) {
     lastEstimate = null;
-    elements.estimateArea.textContent = "Add a video to see an output estimate.";
+    elements.estimateArea.textContent = "Add media to see an output estimate.";
     elements.optimizerButton.disabled = true;
     if (elements.titleCardGroup) elements.titleCardGroup.hidden = true;
     return;
   }
-  const durationError = elements.splitVideo.checked && !Number.isFinite(parsePartDuration(elements.maxPartDuration.value));
+  const singleVideo = entries.length === 1 && mediaKind(entries[0]) === "video";
+  const durationError = singleVideo && elements.splitVideo.checked && !Number.isFinite(parsePartDuration(elements.maxPartDuration.value));
   if (durationError) {
     elements.estimateArea.textContent = "Maximum duration must be 0 or MM:SS, for example 1:05.";
-    elements.optimizerButton.disabled = false;
+    elements.optimizerButton.disabled = true;
     return;
   }
   lastEstimate = estimateProject();
-  const firstLine = lastEstimate.parts > 1 ? `Estimated output: ${lastEstimate.parts} ROM parts` : `Estimated output: 1 ROM`;
+  const firstLine = lastEstimate.parts > 1 ? `Estimated output: ${lastEstimate.parts} ROM parts` : projectOutputEstimateLabel();
+  const nativeCount = entries.filter((entry) => mediaKind(entry) !== "video").length;
   elements.estimateArea.innerHTML = `<strong>${firstLine}</strong> · Cartridge target: ${formatBytes(lastEstimate.budget)}<br>` +
-    `Estimated data: ${formatBytes(lastEstimate.totalBytes)} · ${lastEstimate.frames.toLocaleString()} frames · ${lastEstimate.fps.toFixed(2)} fps<br>` +
-    `Video ${formatBytes(lastEstimate.videoBytes)} · Audio ${formatBytes(lastEstimate.audioBytes)} · Palettes/indexes ${formatBytes(lastEstimate.paletteBytes)}`;
-  elements.optimizerButton.disabled = conversionRunning || !entries.length;
+    `Estimated data: ${formatBytes(lastEstimate.totalBytes)} · ${lastEstimate.frames.toLocaleString()} timeline frame${lastEstimate.frames === 1 ? "" : "s"} · ${lastEstimate.fps.toFixed(2)} video fps<br>` +
+    `Visual ${formatBytes(lastEstimate.videoBytes)} · Audio ${formatBytes(lastEstimate.audioBytes)} · Palettes/indexes ${formatBytes(lastEstimate.paletteBytes)}${nativeCount ? ` · ${nativeCount} native media item${nativeCount === 1 ? "" : "s"}` : ""}`;
+  const allVideo = entries.every((entry) => mediaKind(entry) === "video");
+  elements.optimizerButton.disabled = conversionRunning || !allVideo;
+  elements.optimizerButton.title = allVideo ? "" : "Optimize to fit currently applies to video-only projects.";
   updateTitleCardVisibility(lastEstimate);
 }
 
@@ -980,32 +1077,20 @@ function applyOptimizerModel(model) {
 
 function optimizeToFit() {
   if (!entries.length) return;
-  const metadata = entries.map((entry) => ({
-    id: entry.id,
-    name: entry.file.name,
-    duration: Number(entry.duration) || 0,
-    hasAudio: entry.hasAudio !== false,
-  }));
-  const proposal = buildOptimizerProposal(optimizerSnapshot(), metadata, selectedEntryId, {
-    romLimit: ROM_LIMIT,
-    menuThemeBytes: elements.outputMode.value === "menu" ? menuThemeBytes() : 0,
-    audioRate: AUDIO_RATE,
-  });
-  if (proposal.noop) {
-    elements.projectNotice.textContent = proposal.before?.error || "The current estimate already fits one 32 MiB ROM.";
+  if (entries.some((entry) => mediaKind(entry) !== "video")) {
+    elements.projectNotice.textContent = "Optimize to fit is currently available for video-only projects; audio and images already use their native media encoders.";
     return;
   }
+  const metadata = entries.map((entry) => ({ id: entry.id, name: entry.file.name, duration: Number(entry.duration) || 0, hasAudio: entry.hasAudio !== false }));
+  const proposal = buildOptimizerProposal(optimizerSnapshot(), metadata, selectedEntryId, {
+    romLimit: ROM_LIMIT, menuThemeBytes: elements.outputMode.value === "menu" ? menuThemeBytes() : 0, audioRate: AUDIO_RATE,
+  });
+  if (proposal.noop) { elements.projectNotice.textContent = proposal.before?.error || "The current estimate already fits one 32 MiB ROM."; return; }
   const result = proposal.after;
   const message = `${proposal.changes.length ? proposal.changes.map((change) => `• ${change}`).join("\n") : "No smaller settings remain."}\n\nEstimated result: ${formatBytes(result.bytes)}.${result.bytes > ROM_LIMIT ? " Automatic splitting will still be needed." : ""}\n\nApply these changes?`;
   if (!proposal.changes.length || !confirm(message)) return;
-  applyOptimizerModel(proposal.model);
-  resetResult();
-  renderFiles();
-  updateEstimate();
-  syncSelectedPreview(true);
-  elements.projectNotice.textContent = result.bytes <= ROM_LIMIT
-    ? "Applied the reviewed optimizer proposal."
-    : "Applied the smallest reviewed proposal; automatic splitting is still required.";
+  applyOptimizerModel(proposal.model); resetResult(); renderFiles(); updateEstimate(); syncSelectedPreview(true);
+  elements.projectNotice.textContent = result.bytes <= ROM_LIMIT ? "Applied the reviewed optimizer proposal." : "Applied the smallest reviewed proposal; automatic splitting is still required.";
 }
 
 function updateTitlePreview() {
@@ -1050,12 +1135,19 @@ function revokePreviewURLs() {
   previewURL = "";
   if (audioPreviewURL) URL.revokeObjectURL(audioPreviewURL);
   audioPreviewURL = "";
+  if (artworkPreviewURL) URL.revokeObjectURL(artworkPreviewURL);
+  artworkPreviewURL = "";
 }
 
 function applyPreviewFraming(fitMode) {
   const mode = fitMode === "crop" || fitMode === "stretch" ? fitMode : "fit";
+  const objectFit = mode === "crop" ? "cover" : mode === "stretch" ? "fill" : "contain";
   elements.previewVideo.dataset.fitMode = mode;
-  elements.previewVideo.style.objectFit = mode === "crop" ? "cover" : mode === "stretch" ? "fill" : "contain";
+  elements.previewVideo.style.objectFit = objectFit;
+  if (elements.previewImage) {
+    elements.previewImage.dataset.fitMode = mode;
+    elements.previewImage.style.objectFit = objectFit;
+  }
 }
 
 function drawFittedPreviewFrame(context, video, fitMode, width = 120, height = 80) {
@@ -1074,30 +1166,55 @@ function syncSelectedPreview(force = false) {
   const entry = selectedEntry();
   elements.previewCard.hidden = !entry;
   if (!entry) { revokePreviewURLs(); return; }
-  elements.selectedClipName.textContent = entry.file.name;
-  if (force || elements.previewVideo.dataset.entryId !== entry.id) {
-    if (previewURL) URL.revokeObjectURL(previewURL);
-    previewURL = URL.createObjectURL(entry.file);
-    elements.previewVideo.src = previewURL;
-    elements.previewVideo.dataset.entryId = entry.id;
-    elements.previewVideo.muted = true;
-  }
-  const duration = Math.max(0.01, entry.duration || elements.previewVideo.duration || 1);
+  const kind = mediaKind(entry);
+  elements.selectedClipName.textContent = `${entry.file.name} · ${mediaKindLabel(entry)}`;
   const project = currentOptions(false);
   const clip = effectiveClipOptions(entry, project);
   applyPreviewFraming(clip.fitMode);
-  const start = clampNumber(clip.start, 0, duration);
-  const end = clip.end > start ? Math.min(clip.end, duration) : duration;
-  for (const control of [elements.timelinePlay, elements.timelineStart, elements.timelineEnd]) {
-    control.max = String(duration);
-    control.step = "0.04";
+
+  const isVideo = kind === "video";
+  elements.previewVideo.hidden = !isVideo;
+  elements.previewImage.hidden = isVideo;
+  elements.inlineTimeline.hidden = !isVideo;
+  elements.audioPreviewButton.hidden = kind === "image";
+
+  if (isVideo) {
+    if (force || elements.previewVideo.dataset.entryId !== entry.id) {
+      if (previewURL) URL.revokeObjectURL(previewURL);
+      previewURL = URL.createObjectURL(entry.file);
+      elements.previewVideo.src = previewURL;
+      elements.previewVideo.dataset.entryId = entry.id;
+      elements.previewVideo.muted = true;
+    }
+    const duration = Math.max(0.01, entry.duration || elements.previewVideo.duration || 1);
+    const start = clampNumber(clip.start, 0, duration);
+    const end = clip.end > start ? Math.min(clip.end, duration) : duration;
+    for (const control of [elements.timelinePlay, elements.timelineStart, elements.timelineEnd]) {
+      control.max = String(duration); control.step = "0.04";
+    }
+    elements.timelineStart.value = String(start);
+    elements.timelineEnd.value = String(end);
+    if (Number(elements.timelinePlay.value) < start || Number(elements.timelinePlay.value) > end) elements.timelinePlay.value = String(start);
+    updateTimelineLabels();
+    renderTimelineThumbnails(entry);
+  } else {
+    thumbRenderToken += 1;
+    elements.timelineThumbs.replaceChildren();
+    let source = "";
+    if (kind === "image") {
+      if (force || elements.previewImage.dataset.entryId !== entry.id) {
+        if (previewURL) URL.revokeObjectURL(previewURL);
+        previewURL = URL.createObjectURL(entry.file);
+        elements.previewImage.dataset.entryId = entry.id;
+      }
+      source = previewURL;
+    } else {
+      source = audioArtworkPreviewSource(entry);
+      ensureEntryAudioTracks(entry).catch(() => {});
+    }
+    if (source) elements.previewImage.src = source;
   }
-  elements.timelineStart.value = String(start);
-  elements.timelineEnd.value = String(end);
-  if (Number(elements.timelinePlay.value) < start || Number(elements.timelinePlay.value) > end) elements.timelinePlay.value = String(start);
-  updateTimelineLabels();
   updateTitlePreview();
-  renderTimelineThumbnails(entry);
 }
 
 function updateTimelineLabels() {
@@ -1189,12 +1306,10 @@ function nudgeTimeline(kind, direction) {
 async function renderTimelineThumbnails(entry) {
   const token = ++thumbRenderToken;
   elements.timelineThumbs.replaceChildren();
-  if (!entry?.duration || entry.duration <= 0) return;
+  if (!entry?.duration || entry.duration <= 0 || mediaKind(entry) !== "video") return;
   const video = document.createElement("video");
   const url = URL.createObjectURL(entry.file);
-  video.src = url;
-  video.muted = true;
-  video.preload = "auto";
+  video.src = url; video.muted = true; video.preload = "auto";
   try {
     await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = reject; });
     for (let index = 0; index < 10; index += 1) {
@@ -1205,13 +1320,8 @@ async function renderTimelineThumbnails(entry) {
         video.addEventListener("seeked", done);
         video.currentTime = Math.min(Math.max(0, time), Math.max(0, entry.duration - 0.05));
       });
-      const canvas = document.createElement("canvas");
-      canvas.width = 120;
-      canvas.height = 80;
-      const context = canvas.getContext("2d");
-      const project = currentOptions(false);
-      const clip = effectiveClipOptions(entry, project);
-      drawFittedPreviewFrame(context, video, clip.fitMode, 120, 80);
+      const canvas = document.createElement("canvas"); canvas.width = 120; canvas.height = 80;
+      drawFittedPreviewFrame(canvas.getContext("2d"), video, effectiveClipOptions(entry, currentOptions(false)).fitMode, 120, 80);
       elements.timelineThumbs.append(canvas);
     }
   } catch { /* thumbnail preview is optional */ }
@@ -1280,6 +1390,7 @@ function audioTrackChannels(probe, index) {
 }
 
 function populateAudioTrackSelect(select, entry, loading = false) {
+  if (!select) return;
   select.replaceChildren();
   const tracks = entry.audioTracks || [];
   const showSelector = entry.audioTracksKnown && tracks.length > 1;
@@ -1293,7 +1404,6 @@ function populateAudioTrackSelect(select, entry, loading = false) {
     select.disabled = true;
     return;
   }
-
   if (entry.audioTracksKnown && tracks.length <= 1) {
     entry.audioTrack = 0;
     const option = document.createElement("option");
@@ -1303,7 +1413,6 @@ function populateAudioTrackSelect(select, entry, loading = false) {
     select.disabled = true;
     return;
   }
-
   const count = tracks.length || Math.max(1, (Number(entry.audioTrack) || 0) + 1);
   for (let index = 0; index < count; index += 1) {
     const option = document.createElement("option");
@@ -1324,32 +1433,55 @@ function queueMetadataTask(task) {
   return run;
 }
 
-async function ensureEntryAudioTracks(entry, select) {
-  if (!entry?.file || entry.audioTracksKnown || entry.audioTrackProbePromise || conversionRunning) {
+async function ensureEntryAudioTracks(entry, select = null) {
+  if (!entry?.file || entry.audioTrackProbePromise || conversionRunning) {
     populateAudioTrackSelect(select, entry);
     return;
   }
+  const needsProbe = !entry.audioTracksKnown || (mediaKind(entry) === "audio" && !entry.metadataProbed);
+  if (!needsProbe) { populateAudioTrackSelect(select, entry); return; }
   populateAudioTrackSelect(select, entry, true);
   entry.audioTrackProbePromise = queueMetadataTask(async () => {
     await ensureFFmpeg();
-    const inputName = `track-probe-${entry.id.replace(/[^A-Za-z0-9]/g, "").slice(0, 12)}${entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".mp4"}`;
+    const ext = entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".bin";
+    const inputName = `media-probe-${entry.id.replace(/[^A-Za-z0-9]/g, "").slice(0, 12)}${ext}`;
     await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
     try {
       const probe = await readProbe(inputName, `track-${entry.id}`, entry.file);
+      entry.kind = probe.kind || entry.kind;
       entry.duration = probe.duration || entry.duration;
       entry.hasAudio = probe.hasAudio;
       entry.audioTracks = probe.audioTracks || [];
       entry.audioTracksKnown = !probe.audioUnknown;
       entry.channels = audioTrackChannels(probe, entry.audioTrack);
       entry.chapters = probe.chapters || entry.chapters || [];
+      entry.metadataTitle = probe.title || entry.metadataTitle || "";
+      entry.metadataArtist = probe.artist || entry.metadataArtist || "";
+      entry.metadataAlbum = probe.album || entry.metadataAlbum || "";
+      entry.metadataProbed = true;
+      if (mediaKind(entry) === "audio") {
+        if (!entry.musicTitle || entry.musicTitle === rawFileTitle(entry.file)) entry.musicTitle = musicTitleFromEntry(entry);
+        if (!entry.musicArtist) entry.musicArtist = musicArtistFromEntry(entry);
+        if (!entry.embeddedArtworkRGB && probe.hasVideoStream) {
+          const artwork = await extractNativeRGB(inputName, `art-${entry.id}`, "fit", { mapVideo: true, allowFailure: true });
+          if (artwork) {
+            entry.embeddedArtworkRGB = artwork.slice();
+            entry.embeddedArtworkPreview = rgbToDataURL(artwork);
+          }
+        }
+      }
       if (entry.audioTracksKnown && entry.audioTrack >= entry.audioTracks.length) entry.audioTrack = 0;
     } finally {
       try { await ffmpeg.deleteFile(inputName); } catch { /* already removed */ }
     }
   });
   try { await entry.audioTrackProbePromise; }
-  catch (error) { appendLog(`Audio-track detection warning: ${error instanceof Error ? error.message : String(error)}`); }
-  finally { entry.audioTrackProbePromise = null; populateAudioTrackSelect(select, entry); }
+  catch (error) { appendLog(`Media metadata warning: ${error instanceof Error ? error.message : String(error)}`); }
+  finally {
+    entry.audioTrackProbePromise = null;
+    populateAudioTrackSelect(select, entry);
+    if (entry.id === selectedEntryId) syncSelectedPreview(true);
+  }
 }
 
 function moveEntry(index, direction) {
@@ -1365,141 +1497,173 @@ function renderFiles() {
   elements.fileArea.hidden = entries.length === 0;
   elements.convertButton.disabled = entries.length === 0 || conversionRunning;
   const totalBytes = entries.reduce((sum, entry) => sum + entry.file.size, 0);
-  elements.fileSummary.textContent = `${entries.length} video${entries.length === 1 ? "" : "s"} · ${formatBytes(totalBytes)}`;
+  elements.fileSummary.textContent = `${entries.length} media item${entries.length === 1 ? "" : "s"} · ${formatBytes(totalBytes)}`;
   if (entries.length && !entries.some((entry) => entry.id === selectedEntryId)) selectedEntryId = entries[0].id;
   updateOutputModes();
 
+  const dirty = () => { resetResult(); updateEstimate(); syncSelectedPreview(true); };
+  const addCheck = (grid, text, checked, onChange, disabled = false) => {
+    const label = document.createElement("label"); label.className = "clip-loop clip-option-check";
+    const input = document.createElement("input"); input.type = "checkbox"; input.checked = checked; input.disabled = disabled;
+    const span = document.createElement("span"); span.textContent = text;
+    input.addEventListener("change", () => { onChange(input.checked); dirty(); });
+    label.append(input, span); grid.append(label); return input;
+  };
+
   entries.forEach((entry, index) => {
+    const kind = mediaKind(entry);
+    const gif = kind === "video" && /\.gif$/i.test(entry.file.name);
     const row = document.createElement("div");
     row.className = `file-row${entry.id === selectedEntryId ? " selected" : ""}`;
+    row.dataset.mediaKind = kind;
     row.addEventListener("click", (event) => {
       if (event.target.closest("button, input, select, summary, label")) return;
-      selectedEntryId = entry.id;
-      renderFiles();
+      selectedEntryId = entry.id; renderFiles();
     });
 
-    const fileName = document.createElement("div");
-    fileName.className = "file-name";
-    const strong = document.createElement("strong");
-    strong.textContent = entry.file.name;
+    const fileName = document.createElement("div"); fileName.className = "file-name";
+    const strong = document.createElement("strong"); strong.textContent = entry.file.name;
+    const badge = document.createElement("span"); badge.className = `media-kind-badge ${kind}`; badge.textContent = gif ? "GIF" : mediaKindLabel(entry);
     const small = document.createElement("small");
-    small.textContent = `${formatBytes(entry.file.size)}${entry.duration ? ` · ${formatClock(entry.duration)}` : " · inspecting…"}`;
-    fileName.append(strong, small);
+    small.textContent = `${formatBytes(entry.file.size)}${kind !== "image" && entry.duration ? ` · ${formatClock(entry.duration)}` : kind === "image" ? " · native image" : " · inspecting…"}`;
+    fileName.append(strong, badge, small);
     fileName.addEventListener("click", () => { selectedEntryId = entry.id; renderFiles(); });
 
     const titleLabel = document.createElement("label");
-    const titleText = document.createElement("span");
-    titleText.textContent = "Clip-menu title";
-    const titleInput = document.createElement("input");
-    titleInput.type = "text";
-    titleInput.maxLength = 12;
-    titleInput.value = entry.title;
+    const titleText = document.createElement("span"); titleText.textContent = "Media-menu title";
+    const titleInput = document.createElement("input"); titleInput.type = "text"; titleInput.maxLength = 12; titleInput.value = entry.title;
     titleInput.addEventListener("input", () => {
-      const cleaned = sanitizeMenuTitle(titleInput.value);
-      titleInput.value = cleaned;
-      entry.title = cleaned || "VIDEO";
-      selectedEntryId = entry.id;
-      resetResult();
-      updateTitlePreview();
-      updateEstimate();
+      const cleaned = sanitizeMenuTitle(titleInput.value); titleInput.value = cleaned; entry.title = cleaned || "MEDIA";
+      selectedEntryId = entry.id; resetResult(); updateTitlePreview(); updateEstimate();
     });
     titleLabel.append(titleText, titleInput);
 
-    const moveGroup = document.createElement("div");
-    moveGroup.className = "move-buttons";
-    const up = document.createElement("button");
-    up.type = "button";
-    up.className = "secondary compact-button";
-    up.textContent = "↑";
-    up.title = "Move clip up";
-    up.disabled = index === 0;
-    up.addEventListener("click", () => moveEntry(index, -1));
-    const down = document.createElement("button");
-    down.type = "button";
-    down.className = "secondary compact-button";
-    down.textContent = "↓";
-    down.title = "Move clip down";
-    down.disabled = index + 1 === entries.length;
-    down.addEventListener("click", () => moveEntry(index, 1));
-    moveGroup.append(up, down);
-
-    const remove = document.createElement("button");
-    remove.className = "icon-button";
-    remove.type = "button";
-    remove.title = `Remove ${entry.file.name}`;
-    remove.setAttribute("aria-label", remove.title);
-    remove.textContent = "×";
+    const moveGroup = document.createElement("div"); moveGroup.className = "move-buttons";
+    for (const [text, direction, title] of [["↑", -1, "Move media up"], ["↓", 1, "Move media down"]]) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "secondary compact-button"; button.textContent = text; button.title = title;
+      button.disabled = direction < 0 ? index === 0 : index + 1 === entries.length;
+      button.addEventListener("click", () => moveEntry(index, direction)); moveGroup.append(button);
+    }
+    const remove = document.createElement("button"); remove.className = "icon-button"; remove.type = "button"; remove.title = `Remove ${entry.file.name}`; remove.setAttribute("aria-label", remove.title); remove.textContent = "×";
     remove.addEventListener("click", () => {
       entries = entries.filter((candidate) => candidate.id !== entry.id);
       if (selectedEntryId === entry.id) selectedEntryId = entries[0]?.id || "";
-      resetResult();
-      renderFiles();
-      updateEstimate();
+      resetResult(); renderFiles(); updateEstimate();
     });
 
-    const details = document.createElement("details");
-    details.className = "clip-options";
-    const summary = document.createElement("summary");
-    summary.textContent = entry.useProject ? "Using project settings" : "Custom clip settings";
-    const optionsGrid = document.createElement("div");
-    optionsGrid.className = "clip-options-grid";
+    const details = document.createElement("details"); details.className = "clip-options";
+    const summary = document.createElement("summary"); summary.textContent = entry.useProject ? "Using project settings" : "Custom media settings";
+    const optionsGrid = document.createElement("div"); optionsGrid.className = "clip-options-grid";
+    const useProjectLabel = document.createElement("label"); useProjectLabel.className = "clip-use-project";
+    const useProject = document.createElement("input"); useProject.type = "checkbox"; useProject.checked = entry.useProject;
+    const useProjectText = document.createElement("span"); useProjectText.textContent = "Use project settings for this media item";
+    useProject.addEventListener("change", () => { entry.useProject = useProject.checked; resetResult(); renderFiles(); updateEstimate(); });
+    useProjectLabel.append(useProject, useProjectText); optionsGrid.append(useProjectLabel);
 
-    const useProjectLabel = document.createElement("label");
-    useProjectLabel.className = "clip-use-project";
-    const useProject = document.createElement("input");
-    useProject.type = "checkbox";
-    useProject.checked = entry.useProject;
-    const useProjectText = document.createElement("span");
-    useProjectText.textContent = "Use project settings for this clip";
-    useProject.addEventListener("change", () => {
-      entry.useProject = useProject.checked;
-      resetResult();
-      renderFiles();
-      updateEstimate();
-    });
-    useProjectLabel.append(useProject, useProjectText);
-    optionsGrid.append(useProjectLabel);
+    const inheritedControls = [];
+    if (kind === "video" || kind === "audio") {
+      const start = makeNumberControl("Start (seconds)", entry.start, 0, 86400, 0.1, (value) => { entry.start = numericOr(value, 0); }, "0");
+      const end = makeNumberControl(kind === "audio" ? "End (blank = full song)" : "End (blank = full video)", entry.end, 0, 86400, 0.1, (value) => { entry.end = numericOr(value, 0); }, "Full media");
+      const speed = makeNumberControl("Playback speed", entry.speed, 0.5, 3, 0.05, (value) => { entry.speed = value === "" ? 1 : numericOr(value, 1); });
+      optionsGrid.append(start.label, end.label, speed.label); inheritedControls.push(start.input, end.input, speed.input);
+    }
 
-    const controls = [];
-    const start = makeNumberControl("Start (seconds)", entry.start, 0, 86400, 0.1, (value) => { entry.start = numericOr(value, 0); }, "0");
-    const end = makeNumberControl("End (blank = full)", entry.end, 0, 86400, 0.1, (value) => { entry.end = numericOr(value, 0); }, "Full video");
-    const speed = makeNumberControl("Speed", entry.speed, 0.5, 3, 0.05, (value) => { entry.speed = value === "" ? 1 : numericOr(value, 1); });
-    const volume = makeNumberControl("Volume %", Math.round(entry.volume * 100), 0, 200, 5, (value) => { entry.volume = clampNumber(value, 0, 200) / 100; });
-    const fit = makeSelectControl("Screen framing", entry.fitMode, [["fit", "Fit with bars"], ["crop", "Crop to fill"], ["stretch", "Stretch"]], (value) => { entry.fitMode = value; });
-    const audio = makeSelectControl("Audio channel", entry.audioMode, [["mix", "Mix to mono"], ["left", "Left channel"], ["right", "Right channel"], ["none", "No audio"]], (value) => { entry.audioMode = value; });
-    const audioTrack = makeSelectControl("Input audio track", String(Number(entry.audioTrack) || 0), [], (value) => { entry.audioTrack = Number(value) || 0; if (audioPreviewURL) { URL.revokeObjectURL(audioPreviewURL); audioPreviewURL = ""; elements.audioPreviewPlayer.removeAttribute("src"); elements.audioPreviewPlayer.hidden = true; } });
-    populateAudioTrackSelect(audioTrack.select, entry);
-    const palette = makeSelectControl("Palette", entry.paletteMode, [["shared", "Shared palette"], ["scene", "Per-scene palette"]], (value) => { entry.paletteMode = value; });
-    const dither = makeSelectControl("Dithering", entry.ditherMode, [["off", "Off"], ["ordered", "Ordered"], ["error", "Error diffusion"]], (value) => { entry.ditherMode = value; });
+    if (kind === "video" || kind === "image") {
+      const fit = makeSelectControl("Screen framing", entry.fitMode, [["fit", "Fit with bars"], ["crop", "Crop to fill"], ["stretch", "Stretch"]], (value) => { entry.fitMode = value; });
+      optionsGrid.append(fit.label); inheritedControls.push(fit.select);
+    }
 
-    controls.push(start.input, end.input, speed.input, volume.input, fit.select, audio.select, palette.select, dither.select);
-    optionsGrid.append(start.label, end.label, speed.label, fit.label, audioTrack.label, audio.label, volume.label, palette.label, dither.label);
+    let audioTrackSelect = null;
+    if (kind === "video" || kind === "audio") {
+      const audioTrack = makeSelectControl("Input audio track", String(Number(entry.audioTrack) || 0), [], (value) => {
+        entry.audioTrack = Number(value) || 0;
+        if (audioPreviewURL) { URL.revokeObjectURL(audioPreviewURL); audioPreviewURL = ""; elements.audioPreviewPlayer.removeAttribute("src"); elements.audioPreviewPlayer.hidden = true; }
+      });
+      audioTrackSelect = audioTrack.select; populateAudioTrackSelect(audioTrackSelect, entry); optionsGrid.append(audioTrack.label);
+      const choices = kind === "audio" ? [["mix", "Mix to mono"], ["left", "Left channel"], ["right", "Right channel"]] : [["mix", "Mix to mono"], ["left", "Left channel"], ["right", "Right channel"], ["none", "No audio"]];
+      const audio = makeSelectControl("Audio channel", kind === "audio" && entry.audioMode === "none" ? "mix" : entry.audioMode, choices, (value) => { entry.audioMode = value; });
+      const volume = makeNumberControl("Volume %", Math.round(entry.volume * 100), 0, 200, 5, (value) => { entry.volume = clampNumber(value, 0, 200) / 100; });
+      optionsGrid.append(audio.label, volume.label); inheritedControls.push(audio.select, volume.input);
+    }
 
-    const loopLabel = document.createElement("label");
-    loopLabel.className = "clip-loop clip-option-check";
-    const loopInput = document.createElement("input");
-    loopInput.type = "checkbox";
-    loopInput.checked = entry.loop;
-    loopInput.addEventListener("change", () => {
-      entry.loop = loopInput.checked;
-      resetResult();
-      updateEstimate();
-    });
-    const loopText = document.createElement("span");
-    loopText.textContent = "Loop playback";
-    loopLabel.append(loopInput, loopText);
-    optionsGrid.append(loopLabel);
-    controls.push(loopInput);
+    if (kind === "video") {
+      const palette = makeSelectControl("Palette", entry.paletteMode, [["shared", "Shared palette"], ["scene", "Per-scene palette"]], (value) => { entry.paletteMode = value; });
+      const dither = makeSelectControl("Dithering", entry.ditherMode, [["off", "Off"], ["ordered", "Ordered"], ["error", "Error diffusion"]], (value) => { entry.ditherMode = value; });
+      optionsGrid.append(palette.label, dither.label); inheritedControls.push(palette.select, dither.select);
+      const loop = addCheck(optionsGrid, gif ? "Loop playback (required for GIF)" : "Loop playback", gif ? true : entry.loop, (checked) => { entry.loop = gif ? true : checked; }, gif || conversionRunning);
+      if (!gif) inheritedControls.push(loop);
+    } else if (kind === "audio") {
+      const loop = addCheck(optionsGrid, "Loop playback", entry.loop, (checked) => { entry.loop = checked; }, conversionRunning); inheritedControls.push(loop);
 
-    for (const control of controls) control.disabled = entry.useProject || conversionRunning;
-    audioTrack.select.disabled = conversionRunning || (entry.audioTracksKnown && entry.audioTracks.length === 0);
-    details.addEventListener("toggle", () => { if (details.open) ensureEntryAudioTracks(entry, audioTrack.select); });
+      const identity = document.createElement("div"); identity.className = "audio-identity-settings wide-field";
+      const title = document.createElement("label"); title.innerHTML = "<span>Song title <small>(Now Playing)</small></span>";
+      const titleField = document.createElement("input"); titleField.type = "text"; titleField.maxLength = 28; titleField.value = entry.musicTitle || musicTitleFromEntry(entry);
+      titleField.addEventListener("input", () => { entry.musicTitle = titleField.value.slice(0, 28); dirty(); }); title.append(titleField);
+      const artist = document.createElement("label"); artist.innerHTML = "<span>Artist(s)</span>";
+      const artistField = document.createElement("input"); artistField.type = "text"; artistField.maxLength = 28; artistField.value = entry.musicArtist || musicArtistFromEntry(entry);
+      artistField.addEventListener("input", () => { entry.musicArtist = artistField.value.slice(0, 28); dirty(); }); artist.append(artistField);
+      identity.append(title, artist); optionsGrid.append(identity);
+
+      const artMode = makeSelectControl("Artwork source", normalizeArtworkMode(entry.musicArtworkMode), [["embedded", "Embedded artwork"], ["default", "Default artwork"], ["custom", "Custom image"]], (value) => { entry.musicArtworkMode = value; renderFiles(); });
+      artMode.label.classList.add("wide-field"); optionsGrid.append(artMode.label);
+
+      const mode = normalizeArtworkMode(entry.musicArtworkMode);
+      if (mode !== "custom") {
+        const presetWrap = document.createElement("div"); presetWrap.className = "artwork-preset-field wide-field";
+        const presetCaption = document.createElement("span"); presetCaption.className = "artwork-preset-caption";
+        presetCaption.textContent = mode === "embedded" ? "Fallback artwork preset (used if embedded cover is missing)" : "Default artwork preset";
+        const grid = document.createElement("div"); grid.className = "music-artwork-presets"; grid.setAttribute("role", "radiogroup");
+        for (let presetIndex = 0; presetIndex < AUDIO_ARTWORK_PRESETS.length; presetIndex += 1) {
+          const preset = AUDIO_ARTWORK_PRESETS[presetIndex];
+          const button = document.createElement("button"); button.type = "button"; button.className = `music-artwork-preset${normalizeArtworkPreset(entry.musicArtworkPreset) === preset ? " selected" : ""}`;
+          button.setAttribute("aria-checked", normalizeArtworkPreset(entry.musicArtworkPreset) === preset ? "true" : "false"); button.title = `Preset ${String(presetIndex + 1).padStart(2, "0")}`;
+          const img = document.createElement("img"); img.src = artworkPresetURL(preset); img.alt = button.title;
+          const n = document.createElement("span"); n.textContent = String(presetIndex + 1).padStart(2, "0"); button.append(img, n);
+          button.addEventListener("click", () => { entry.musicArtworkPreset = preset; dirty(); renderFiles(); }); grid.append(button);
+        }
+        presetWrap.append(presetCaption, grid); optionsGrid.append(presetWrap);
+      } else {
+        const customWrap = document.createElement("label"); customWrap.className = "custom-artwork-field wide-field";
+        const caption = document.createElement("span"); caption.textContent = "Custom artwork";
+        const input = document.createElement("input"); input.type = "file"; input.accept = "image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp";
+        const status = document.createElement("small"); status.textContent = entry.musicArtworkCustom ? "Custom artwork ready — 240×160." : "Choose an image; it will be center-cropped to 240×160.";
+        input.addEventListener("change", async () => {
+          const file = input.files?.[0]; if (!file) return;
+          try { status.textContent = `Preparing ${file.name}…`; entry.musicArtworkCustom = await customArtworkToDataURL(file); entry.musicArtworkMode = "custom"; dirty(); renderFiles(); }
+          catch (error) { status.textContent = error instanceof Error ? error.message : String(error); }
+        });
+        customWrap.append(caption, input, status); optionsGrid.append(customWrap);
+      }
+      const artInfo = document.createElement("small"); artInfo.className = "wide-field artwork-info";
+      artInfo.textContent = mode === "embedded" ? (entry.embeddedArtworkPreview ? "Embedded artwork found." : "Embedded artwork will be used when available; otherwise the selected preset is used.") : mode === "default" ? "This preset will be stored as the track artwork." : "The custom image will be stored as the track artwork.";
+      optionsGrid.append(artInfo);
+    } else if (kind === "image") {
+      const displayedImageSeconds = entry.useProject ? currentOptions(false).defaultImageSeconds : entry.imageSeconds;
+      const enabled = Number(displayedImageSeconds) > 0;
+      const slideshow = addCheck(optionsGrid, "Enable slideshow", enabled, (checked) => {
+        if (checked) entry.imageSeconds = Number(entry.lastImageSeconds) > 0 ? Number(entry.lastImageSeconds) : 5;
+        else { if (Number(entry.imageSeconds) > 0) entry.lastImageSeconds = entry.imageSeconds; entry.imageSeconds = 0; }
+        renderFiles();
+      }, conversionRunning);
+      inheritedControls.push(slideshow);
+      if (enabled) {
+        const seconds = makeNumberControl("Show image for (seconds)", displayedImageSeconds, 0.5, 3600, 0.5, (value) => { entry.imageSeconds = clampNumber(value, 0.5, 3600); entry.lastImageSeconds = entry.imageSeconds; });
+        optionsGrid.append(seconds.label); inheritedControls.push(seconds.input);
+      }
+      const note = document.createElement("small"); note.className = "wide-field artwork-info"; note.textContent = enabled ? "A pauses/resumes the slideshow; L/R moves between media." : "Manual viewer: A does nothing; use L/R to move between media."; optionsGrid.append(note);
+    }
+
+    for (const control of inheritedControls) {
+      if (control === useProject) continue;
+      if (!control.disabled) control.disabled = entry.useProject || conversionRunning;
+    }
+    if (audioTrackSelect) audioTrackSelect.disabled = conversionRunning || (entry.audioTracksKnown && entry.audioTracks.length === 0);
+    details.addEventListener("toggle", () => { if (details.open && (kind === "video" || kind === "audio")) ensureEntryAudioTracks(entry, audioTrackSelect); });
     details.append(summary, optionsGrid);
     row.append(fileName, titleLabel, moveGroup, remove, details);
     elements.fileList.append(row);
   });
-  syncSelectedPreview();
-  updateEstimate();
+  syncSelectedPreview(); updateEstimate();
 }
 
 function resetResult() {
@@ -1527,6 +1691,12 @@ function appendLog(message) {
 }
 
 function currentOptions(includeMenuTheme = true) {
+  const imageSeconds = elements.defaultImageSlideshow?.checked
+    ? clampNumber(elements.defaultImageSeconds?.value, 0.5, 3600)
+    : 0;
+  let outputMode = elements.outputMode.value;
+  if (entries.length <= 1) outputMode = "rom";
+  else if (outputMode !== "batch") outputMode = "menu";
   return {
     preset: elements.preset.value,
     extremeOptimization: elements.preset.value === "extreme",
@@ -1535,7 +1705,7 @@ function currentOptions(includeMenuTheme = true) {
     enhancedSceneDetection: elements.preset.value === "extreme",
     smartTargetMiB: Number(elements.smartTarget?.value || 32),
     smartPriority: elements.smartPriority?.value || "balanced",
-    outputMode: elements.outputMode.value,
+    outputMode,
     vblanks: Number(elements.vblanks.value),
     fitMode: elements.fitMode.value,
     paletteMode: elements.paletteMode.value,
@@ -1548,7 +1718,8 @@ function currentOptions(includeMenuTheme = true) {
     defaultSpeed: clampNumber(elements.defaultSpeed.value, 0.5, 3),
     defaultVolume: clampNumber(elements.defaultVolume.value, 0, 200) / 100,
     defaultLoop: elements.defaultLoop.checked,
-    romTitle: elements.romTitle.value || "GBA VIDEO",
+    defaultImageSeconds: imageSeconds,
+    romTitle: elements.romTitle.value || "GBA MEDIA",
     normalize: elements.normalize.checked,
     limiter: elements.limiter.checked,
     resume: elements.resume.checked,
@@ -1564,23 +1735,33 @@ function currentOptions(includeMenuTheme = true) {
     menuSelectionColor: elements.menuSelectionColor?.value || "#FFDE00",
     menuOutline: Boolean(elements.menuOutline?.checked),
     menuOutlineColor: elements.menuOutlineColor?.value || "#000000",
-    menuTheme: elements.outputMode.value === "menu" ? serializedMenuTheme() : null,
+    menuTheme: outputMode === "menu" ? serializedMenuTheme() : null,
   };
 }
 
 function effectiveClipOptions(entry, project) {
-  if (!entry.useProject) {
-    return {
-      start: entry.start, end: entry.end, speed: entry.speed,
-      fitMode: entry.fitMode, audioMode: entry.audioMode, audioTrack: Number(entry.audioTrack) || 0, volume: entry.volume,
-      loop: entry.loop, paletteMode: entry.paletteMode, ditherMode: entry.ditherMode,
-    };
-  }
-  return {
+  const kind = mediaKind(entry);
+  const custom = entry.useProject === false;
+  const result = custom ? {
+    start: entry.start, end: entry.end, speed: entry.speed,
+    fitMode: entry.fitMode, audioMode: entry.audioMode, audioTrack: Number(entry.audioTrack) || 0, volume: entry.volume,
+    loop: entry.loop, paletteMode: entry.paletteMode, ditherMode: entry.ditherMode,
+    imageSeconds: Number.isFinite(Number(entry.imageSeconds)) ? Math.max(0, Number(entry.imageSeconds)) : 5,
+  } : {
     start: project.defaultStart, end: project.defaultEnd, speed: project.defaultSpeed,
     fitMode: project.fitMode, audioMode: project.audioMode, audioTrack: Number(entry.audioTrack) || 0, volume: project.defaultVolume,
     loop: project.defaultLoop, paletteMode: project.paletteMode, ditherMode: project.ditherMode,
+    imageSeconds: Number.isFinite(Number(project.defaultImageSeconds)) ? Math.max(0, Number(project.defaultImageSeconds)) : 5,
   };
+  if (kind === "audio" && result.audioMode === "none") result.audioMode = "mix";
+  if (kind === "image") result.audioMode = "none";
+  if (kind === "video" && /\.gif$/i.test(entry.file?.name || "")) result.loop = true;
+  result.musicTitle = String(entry.musicTitle || musicTitleFromEntry(entry)).slice(0, 28);
+  result.musicArtist = String(entry.musicArtist || musicArtistFromEntry(entry)).slice(0, 28);
+  result.musicArtworkMode = normalizeArtworkMode(entry.musicArtworkMode);
+  result.musicArtworkPreset = normalizeArtworkPreset(entry.musicArtworkPreset);
+  result.musicArtworkCustom = entry.musicArtworkCustom || "";
+  return result;
 }
 
 function applyPreset(name) {
@@ -1672,7 +1853,7 @@ function renderSmartResults(result) {
 async function runSmartAnalysis() {
   if (smartAnalysisRunning || conversionRunning) return;
   if (elements.preset.value !== "extreme") return;
-  if (entries.length !== 1) { alert("Extreme analysis currently requires exactly one source video."); return; }
+  if (entries.length !== 1 || mediaKind(entries[0]) !== "video") { alert("Extreme analysis currently requires exactly one source video."); return; }
   smartAnalysisRunning = true;
   smartAnalysisCancelled = false;
   elements.smartAnalyze.disabled = true;
@@ -1740,7 +1921,7 @@ function setBusy(busy) {
     elements.paletteMode, elements.ditherMode, elements.compression, elements.audioMode, elements.audioQuality,
     elements.smartTarget, elements.smartPriority, elements.smartAnalyze, elements.smartCancel,
     elements.seekSeconds, elements.defaultStart, elements.defaultEnd, elements.defaultSpeed,
-    elements.defaultVolume, elements.defaultLoop, elements.romTitle, elements.normalize,
+    elements.defaultVolume, elements.defaultLoop, elements.defaultImageSlideshow, elements.defaultImageSeconds, elements.romTitle, elements.normalize,
     elements.limiter, elements.resume, elements.splitVideo, elements.splitBudget,
     elements.maxPartDuration, elements.chapterAware, elements.partTitleScreens, elements.resumeLongSplit,
     elements.saveProjectButton, elements.openProjectInput, elements.optimizerButton,
@@ -1755,7 +1936,7 @@ function setBusy(busy) {
   ];
   for (const control of settings) if (control) control.disabled = busy;
   for (const control of elements.fileList.querySelectorAll("input, select, button")) control.disabled = busy;
-  elements.optimizerButton.disabled = busy || !entries.length;
+  elements.optimizerButton.disabled = busy || !entries.length || entries.some((entry) => mediaKind(entry) !== "video");
   if (!elements.titleCardGroup.hidden && lastEstimate) updateTitleCardVisibility(lastEstimate);
   updateExtremeVisibility();
 }
@@ -1777,7 +1958,7 @@ function safeVirtualName(index, originalName) {
 
 async function ensureFFmpeg() {
   if (ffmpeg?.loaded) return;
-  updateProgress(1, "Loading the browser video engine…");
+  updateProgress(1, "Loading the browser media engine…");
   ffmpeg = new FFmpeg();
   ffmpeg.on("log", ({ message }) => {
     const clean = String(message || "").trim();
@@ -1827,27 +2008,29 @@ function runRomTask(action, payload, transfer = [], onProgress) {
 }
 
 function readBrowserDuration(file) {
+  const kind = guessMediaKind(file);
+  if (kind === "image") return Promise.resolve(0);
   return new Promise((resolve) => {
-    const video = document.createElement("video");
+    const media = document.createElement(kind === "audio" ? "audio" : "video");
     const url = URL.createObjectURL(file);
     const finish = (value) => {
       URL.revokeObjectURL(url);
-      video.removeAttribute("src");
-      video.load();
+      media.removeAttribute("src");
+      media.load();
       resolve(value);
     };
     const timer = setTimeout(() => finish(0), 8000);
-    video.preload = "metadata";
-    video.muted = true;
-    video.onloadedmetadata = () => {
+    media.preload = "metadata";
+    if (kind === "video") media.muted = true;
+    media.onloadedmetadata = () => {
       clearTimeout(timer);
-      finish(Number.isFinite(video.duration) ? video.duration : 0);
+      finish(Number.isFinite(media.duration) ? media.duration : 0);
     };
-    video.onerror = () => {
+    media.onerror = () => {
       clearTimeout(timer);
       finish(0);
     };
-    video.src = url;
+    media.src = url;
   });
 }
 
@@ -1863,7 +2046,7 @@ async function readProbe(inputName, index, file) {
   try {
     const exitCode = await ffmpeg.ffprobe([
       "-v", "error",
-      "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels:stream_tags=language,title:chapter=start_time,end_time",
+      "-show_entries", "format=duration:format_tags=title,artist,album:stream=index,codec_type,codec_name,channels,width,height:stream_tags=language,title:stream_disposition=default:chapter=start_time,end_time",
       "-of", "json",
       inputName,
       "-o", outputName,
@@ -1871,19 +2054,46 @@ async function readProbe(inputName, index, file) {
     if (exitCode === 0) {
       const raw = await ffmpeg.readFile(outputName, "utf8");
       const probe = JSON.parse(decodeText(raw));
-      const duration = Number(probe?.format?.duration);
-      if (Number.isFinite(duration) && duration > 0) {
-        const audioTracks = (Array.isArray(probe.streams) ? probe.streams : [])
-          .filter((stream) => stream.codec_type === "audio")
-          .map((stream, audioIndex) => ({
-            index: audioIndex, streamIndex: Number(stream.index) || 0, codec: String(stream.codec_name || ""),
-            channels: Number(stream.channels) || 0, language: String(stream.tags?.language || ""), title: String(stream.tags?.title || ""),
-          }));
-        const audioStream = audioTracks[0] || null;
-        const chapters = Array.isArray(probe.chapters)
-          ? probe.chapters.map((chapter) => Number(chapter.start_time)).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b)
-          : [];
-        return { duration, hasAudio: Boolean(audioStream), channels: Number(audioStream?.channels) || 0, audioTracks, audioUnknown: false, chapters };
+      const streams = Array.isArray(probe.streams) ? probe.streams : [];
+      const audioTracks = streams.filter((stream) => stream.codec_type === "audio").map((stream, audioIndex) => ({
+        index: audioIndex,
+        streamIndex: Number(stream.index) || 0,
+        codec: String(stream.codec_name || ""),
+        channels: Number(stream.channels) || 0,
+        language: String(stream.tags?.language || ""),
+        title: String(stream.tags?.title || ""),
+        default: Boolean(stream.disposition?.default),
+      }));
+      const videoStreams = streams.filter((stream) => stream.codec_type === "video");
+      const firstVideo = videoStreams[0] || null;
+      const durationRaw = Number(probe?.format?.duration);
+      const duration = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : await browserDurationPromise;
+      const extKind = guessMediaKind(file);
+      let kind = "video";
+      if (extKind === "image") kind = "image";
+      else if (extKind === "audio" && audioTracks.length) kind = "audio";
+      else if (!videoStreams.length && audioTracks.length) kind = "audio";
+      else if (/\.gif$/i.test(file?.name || "")) kind = "video";
+      const chapters = Array.isArray(probe.chapters)
+        ? probe.chapters.map((chapter) => Number(chapter.start_time)).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b)
+        : [];
+      const tags = probe?.format?.tags || {};
+      if (kind === "image" || duration > 0) {
+        return {
+          kind,
+          duration: kind === "image" ? 0 : duration,
+          hasAudio: audioTracks.length > 0,
+          channels: Number(audioTracks[0]?.channels) || 0,
+          audioTracks,
+          audioUnknown: false,
+          chapters,
+          title: String(tags.title || ""),
+          artist: String(tags.artist || ""),
+          album: String(tags.album || ""),
+          width: Number(firstVideo?.width) || 0,
+          height: Number(firstVideo?.height) || 0,
+          hasVideoStream: videoStreams.length > 0,
+        };
       }
     }
   } catch (error) {
@@ -1893,13 +2103,17 @@ async function readProbe(inputName, index, file) {
   }
 
   const browserDuration = await browserDurationPromise;
+  const fallbackKind = guessMediaKind(file);
+  if (fallbackKind === "image") {
+    return { kind: "image", duration: 0, hasAudio: false, channels: 0, audioTracks: [], audioUnknown: false, chapters: [], title: "", artist: "", album: "", width: 0, height: 0, hasVideoStream: true };
+  }
   if (browserDuration > 0) {
-    appendLog("ffprobe could not inspect this file; using browser metadata and testing audio during conversion.");
-    return { duration: browserDuration, hasAudio: true, channels: 0, audioTracks: [], audioUnknown: true, chapters: [] };
+    appendLog("ffprobe could not fully inspect this file; using browser metadata and testing streams during conversion.");
+    return { kind: fallbackKind, duration: browserDuration, hasAudio: true, channels: 0, audioTracks: [], audioUnknown: true, chapters: [], title: "", artist: "", album: "", width: 0, height: 0, hasVideoStream: fallbackKind === "video" };
   }
 
   const detail = recentFFmpegLogs.slice(-3).join(" | ");
-  throw new Error(`Could not inspect the selected video.${detail ? ` FFmpeg: ${detail}` : ""}`);
+  throw new Error(`Could not inspect the selected media.${detail ? ` FFmpeg: ${detail}` : ""}`);
 }
 
 function clipTiming(clipOptions, sourceDuration) {
@@ -1943,6 +2157,110 @@ function titleCardVideoFilter(fitMode) {
   if (fitMode === "stretch") return "scale=240:160,format=rgb24";
   return "scale=240:160:force_original_aspect_ratio=decrease,pad=240:160:(ow-iw)/2:(oh-ih)/2:black,format=rgb24";
 }
+
+async function extractNativeRGB(inputName, index, fitMode = "fit", { mapVideo = false, allowFailure = false } = {}) {
+  const outputName = `native-${String(index).replace(/[^A-Za-z0-9_-]/g, "")}.rgb`;
+  try { await ffmpeg.deleteFile(outputName); } catch { /* absent */ }
+  const args = ["-hide_banner", "-loglevel", "error", "-i", inputName];
+  if (mapVideo) args.push("-map", "0:v:0");
+  args.push("-frames:v", "1", "-an", "-vf", titleCardVideoFilter(fitMode), "-pix_fmt", "rgb24", "-f", "rawvideo", outputName);
+  const exitCode = await ffmpeg.exec(args);
+  if (exitCode !== 0) {
+    try { await ffmpeg.deleteFile(outputName); } catch { /* absent */ }
+    if (allowFailure) return null;
+    throw new Error(`FFmpeg could not decode the 240×160 image. ${recentFFmpegLogs.slice(-1)[0] || ""}`.trim());
+  }
+  const rgb = await ffmpeg.readFile(outputName);
+  await ffmpeg.deleteFile(outputName);
+  if (!(rgb instanceof Uint8Array) || rgb.length !== NATIVE_IMAGE_RGB_BYTES) {
+    if (allowFailure) return null;
+    throw new Error(`The converted image contains ${rgb?.length || 0} bytes; expected ${NATIVE_IMAGE_RGB_BYTES}.`);
+  }
+  return rgb;
+}
+
+function imageElementFromSource(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not decode the selected artwork image."));
+    image.src = source;
+  });
+}
+
+function cropImageToRGB(image, width = NATIVE_IMAGE_WIDTH, height = NATIVE_IMAGE_HEIGHT) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, width, height);
+  const sw = image.naturalWidth || image.width || width;
+  const sh = image.naturalHeight || image.height || height;
+  const scale = Math.max(width / sw, height / sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  context.drawImage(image, (width - dw) / 2, (height - dh) / 2, dw, dh);
+  const rgba = context.getImageData(0, 0, width, height).data;
+  const rgb = new Uint8Array(width * height * 3);
+  for (let src = 0, dst = 0; src < rgba.length; src += 4) {
+    rgb[dst++] = rgba[src]; rgb[dst++] = rgba[src + 1]; rgb[dst++] = rgba[src + 2];
+  }
+  return rgb;
+}
+
+async function sourceToNativeRGB(source) {
+  return cropImageToRGB(await imageElementFromSource(source));
+}
+
+async function presetArtworkRGB(preset) {
+  const response = await fetch(artworkPresetURL(preset));
+  if (!response.ok) throw new Error(`Could not load ${preset}.png.`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try { return await sourceToNativeRGB(url); }
+  finally { URL.revokeObjectURL(url); }
+}
+
+async function customArtworkToDataURL(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await imageElementFromSource(url);
+    const canvas = document.createElement("canvas");
+    canvas.width = NATIVE_IMAGE_WIDTH;
+    canvas.height = NATIVE_IMAGE_HEIGHT;
+    const context = canvas.getContext("2d");
+    const sw = image.naturalWidth || image.width;
+    const sh = image.naturalHeight || image.height;
+    const scale = Math.max(NATIVE_IMAGE_WIDTH / sw, NATIVE_IMAGE_HEIGHT / sh);
+    const dw = sw * scale, dh = sh * scale;
+    context.drawImage(image, (NATIVE_IMAGE_WIDTH - dw) / 2, (NATIVE_IMAGE_HEIGHT - dh) / 2, dw, dh);
+    return canvas.toDataURL("image/png");
+  } finally { URL.revokeObjectURL(url); }
+}
+
+function audioArtworkPreviewSource(entry) {
+  if (!entry || mediaKind(entry) !== "audio") return "";
+  const mode = normalizeArtworkMode(entry.musicArtworkMode);
+  const preset = normalizeArtworkPreset(entry.musicArtworkPreset);
+  if (mode === "custom" && /^data:image\/png;base64,/i.test(entry.musicArtworkCustom || "")) return entry.musicArtworkCustom;
+  if (mode === "embedded" && entry.embeddedArtworkPreview) return entry.embeddedArtworkPreview;
+  return artworkPresetURL(preset);
+}
+
+function rgbToDataURL(rgb) {
+  if (!(rgb instanceof Uint8Array) || rgb.length !== NATIVE_IMAGE_RGB_BYTES) return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = NATIVE_IMAGE_WIDTH; canvas.height = NATIVE_IMAGE_HEIGHT;
+  const context = canvas.getContext("2d");
+  const imageData = context.createImageData(NATIVE_IMAGE_WIDTH, NATIVE_IMAGE_HEIGHT);
+  for (let src = 0, dst = 0; src < rgb.length; src += 3) {
+    imageData.data[dst++] = rgb[src]; imageData.data[dst++] = rgb[src + 1]; imageData.data[dst++] = rgb[src + 2]; imageData.data[dst++] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
 function solidTitleCardRGB(hex) {
   const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || "#000000"));
   const value = Number.parseInt(match?.[1] || "000000", 16);
@@ -1975,15 +2293,15 @@ async function extractFrames(inputName, index, project, clipOptions, timing) {
   if (estimatedBytes > MAX_RAW_FRAME_BYTES) {
     throw new Error(`This clip would need about ${(estimatedBytes / 1048576).toFixed(0)} MiB of raw browser memory. Use a shorter clip, a lower frame rate, or the desktop app.`);
   }
+  const inputArgs = /\.gif$/i.test(inputName) ? ["-ignore_loop", "1", "-i", inputName] : ["-i", inputName];
   const exitCode = await ffmpeg.exec([
-    "-hide_banner", "-loglevel", "error", "-i", inputName,
+    "-hide_banner", "-loglevel", "error", ...inputArgs,
     ...trimArguments(timing),
     "-an", "-vf", videoFilter(clipOptions.fitMode, project.vblanks, timing.speed),
     "-pix_fmt", "rgb24", "-f", "rawvideo", outputName,
   ]);
   if (exitCode !== 0) throw new Error(`FFmpeg could not decode the video frames. ${recentFFmpegLogs.slice(-1)[0] || ""}`.trim());
-  const frames = await ffmpeg.readFile(outputName);
-  await ffmpeg.deleteFile(outputName);
+  const frames = await ffmpeg.readFile(outputName); await ffmpeg.deleteFile(outputName);
   if (!(frames instanceof Uint8Array) || frames.length < RGB_FRAME_BYTES) throw new Error("The converted video contains no usable frames.");
   return frames;
 }
@@ -2020,6 +2338,26 @@ async function extractAudio(inputName, index, project, clipOptions, probe, timin
   const audio = await ffmpeg.readFile(outputName);
   await ffmpeg.deleteFile(outputName);
   return audio instanceof Uint8Array ? audio : new Uint8Array();
+}
+
+async function resolveAudioArtworkRGB(entry, inputName, index, clipOptions, probe) {
+  const mode = normalizeArtworkMode(clipOptions.musicArtworkMode);
+  const preset = normalizeArtworkPreset(clipOptions.musicArtworkPreset);
+  if (mode === "default") return presetArtworkRGB(preset);
+  if (mode === "custom") {
+    if (!/^data:image\/png;base64,/i.test(clipOptions.musicArtworkCustom || "")) throw new Error(`${entry.file.name}: custom audio artwork is missing.`);
+    return sourceToNativeRGB(clipOptions.musicArtworkCustom);
+  }
+  if (entry.embeddedArtworkRGB instanceof Uint8Array && entry.embeddedArtworkRGB.length === NATIVE_IMAGE_RGB_BYTES) return entry.embeddedArtworkRGB.slice();
+  if (probe.hasVideoStream) {
+    const embedded = await extractNativeRGB(inputName, `embedded-${index}`, "fit", { mapVideo: true, allowFailure: true });
+    if (embedded) {
+      entry.embeddedArtworkRGB = embedded.slice();
+      entry.embeddedArtworkPreview = rgbToDataURL(embedded);
+      return embedded;
+    }
+  }
+  return presetArtworkRGB(preset);
 }
 
 function clipTransferList(clip) {
@@ -2173,7 +2511,7 @@ function splitZipResult(parts, entry, estimatedParts, partial = false) {
 }
 
 async function performLongSplit(playerStub, project) {
-  if (entries.length !== 1) throw new Error("Video splitting requires exactly one source video.");
+  if (entries.length !== 1 || mediaKind(entries[0]) !== "video") throw new Error("Video splitting requires exactly one source video.");
   const entry = entries[0];
   const inputName = safeVirtualName(0, entry.file.name);
   await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
@@ -2303,37 +2641,26 @@ async function performLongSplit(playerStub, project) {
 
 async function assembleBatch(playerStub, clips, project) {
   const files = [];
-  let totalFrames = 0;
-  let totalSize = 0;
+  let totalFrames = 0, totalSize = 0;
   for (let index = 0; index < clips.length; index += 1) {
     updateProgress(96 + ((index + 1) / clips.length) * 3, `Building ROM ${index + 1} of ${clips.length}…`);
-    const clip = clips[index];
-    const stub = playerStub.slice();
+    const clip = clips[index]; const stub = playerStub.slice();
     const transfers = [stub.buffer, ...clipTransferList(clip)];
     const assembled = await runRomTask("assembleROM", {
-      playerStub: stub,
-      clips: [clip],
-      options: { romTitle: project.romTitle, outputMode: "rom", resume: project.resume },
+      playerStub: stub, clips: [clip], options: { romTitle: project.romTitle, outputMode: "rom", resume: project.resume },
     }, transfers);
     const data = new Uint8Array(assembled.buffer);
     files.push({ name: batchRomFileName(entries[index]?.file?.name), data });
-    totalFrames += assembled.details.frameCount;
-    totalSize += data.length;
+    totalFrames += assembled.details.frameCount; totalSize += data.length;
   }
   const zip = buildStoredZip(files);
-  return {
-    buffer: zip.buffer,
-    fileName: "GBA_Video_Collection.zip",
-    mime: "application/zip",
-    details: { clipCount: clips.length, frameCount: totalFrames, paddedSize: totalSize, outputKind: "zip" },
-  };
+  return { buffer: zip.buffer, fileName: "GBA_Media_Collection.zip", mime: "application/zip", details: { clipCount: clips.length, frameCount: totalFrames, paddedSize: totalSize, outputKind: "zip" } };
 }
 
 async function performConversion() {
   const project = currentOptions();
-  if (project.splitVideo && !Number.isFinite(project.maxPartSeconds)) {
-    throw new Error("Maximum duration must be 0 or MM:SS, for example 1:05.");
-  }
+  const singleVideo = entries.length === 1 && mediaKind(entries[0]) === "video" && project.outputMode === "rom";
+  if (singleVideo && project.splitVideo && !Number.isFinite(project.maxPartSeconds)) throw new Error("Maximum duration must be 0 or MM:SS, for example 1:05.");
   await ensureFFmpeg();
   if (conversionCancelled) throw new Error("Conversion cancelled.");
 
@@ -2342,8 +2669,7 @@ async function performConversion() {
   if (!playerResponse.ok) throw new Error("Could not load player_stub.bin from the website.");
   const playerStub = new Uint8Array(await playerResponse.arrayBuffer());
 
-  const singleRom = entries.length === 1 && project.outputMode === "rom";
-  if (singleRom && (project.splitVideo || lastEstimate?.needsSplit)) {
+  if (singleVideo && (project.splitVideo || lastEstimate?.needsSplit)) {
     return performLongSplit(playerStub, {
       ...project,
       splitBudgetMiB: project.splitVideo ? project.splitBudgetMiB : 32,
@@ -2361,42 +2687,69 @@ async function performConversion() {
     for (let index = 0; index < entries.length; index += 1) {
       if (conversionCancelled) throw new Error("Conversion cancelled.");
       const entry = entries[index];
-      const clipOptions = effectiveClipOptions(entry, project);
       const base = 8 + index * clipSpan;
-      const mapped = (fraction, message) => updateProgress(base + fraction * clipSpan, `${entry.title || "VIDEO"} — ${message}`);
+      const mapped = (fraction, message) => updateProgress(base + fraction * clipSpan, `${entry.title || "MEDIA"} — ${message}`);
       const inputName = safeVirtualName(index, entry.file.name);
-
-      mapped(0, "Loading video into browser memory…");
+      mapped(0, "Loading media into browser memory…");
       await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
       try {
         mapped(0.03, "Inspecting media…");
         const probe = await readProbe(inputName, index, entry.file);
+        entry.kind = probe.kind || entry.kind;
         entry.duration = probe.duration;
         entry.hasAudio = probe.hasAudio;
         entry.audioTracks = probe.audioTracks || [];
         entry.audioTracksKnown = !probe.audioUnknown;
-        if (entry.hasAudio && entry.audioTracksKnown && entry.audioTrack >= entry.audioTracks.length) throw new Error("The selected input audio track is not available in this file.");
         entry.channels = audioTrackChannels(probe, entry.audioTrack);
         entry.chapters = probe.chapters || [];
+        entry.metadataTitle = probe.title || entry.metadataTitle || "";
+        entry.metadataArtist = probe.artist || entry.metadataArtist || "";
+        entry.metadataAlbum = probe.album || entry.metadataAlbum || "";
+        if (mediaKind(entry) === "audio") {
+          if (!entry.musicTitle || entry.musicTitle === rawFileTitle(entry.file)) entry.musicTitle = musicTitleFromEntry(entry);
+          if (!entry.musicArtist) entry.musicArtist = musicArtistFromEntry(entry);
+        }
+        const clipOptions = effectiveClipOptions(entry, project);
+        const kind = mediaKind(entry);
+        if (entry.audioTracksKnown && entry.hasAudio && clipOptions.audioTrack >= entry.audioTracks.length) throw new Error("The selected input audio track is not available in this file.");
+
+        if (kind === "image") {
+          mapped(0.12, "Preparing native 240×160 image…");
+          const nativeRGB = await extractNativeRGB(inputName, `image-${index}`, clipOptions.fitMode);
+          const clip = await runRomTask("encodeNativeMedia", {
+            mediaKind: "image", nativeRGB, audio: new Uint8Array(), title: entry.title || "IMAGE",
+            imageSeconds: clipOptions.imageSeconds, vblanks: project.vblanks, seekSeconds: project.seekSeconds, loop: Boolean(clipOptions.loop),
+          }, [nativeRGB.buffer], (fraction, message) => mapped(0.35 + fraction * 0.6, message));
+          clips.push(clip); continue;
+        }
+
         const timing = clipTiming(clipOptions, probe.duration);
+        if (kind === "audio") {
+          mapped(0.12, "Preparing artwork…");
+          const nativeRGB = await resolveAudioArtworkRGB(entry, inputName, index, clipOptions, probe);
+          mapped(0.30, "Extracting audio…");
+          const audio = await extractAudio(inputName, index, project, clipOptions, probe, timing);
+          if (!(audio instanceof Uint8Array) || audio.length === 0) throw new Error(`${entry.file.name}: no decodable audio stream was produced.`);
+          const audioCodec = resolveAudioCodec(project.audioQuality, project.extremeOptimization, audio.byteLength, project.smartTargetMiB);
+          mapped(0.48, "Encoding audio media…");
+          const clip = await runRomTask("encodeNativeMedia", {
+            mediaKind: "audio", nativeRGB, audio,
+            title: entry.title || "AUDIO", musicTitle: clipOptions.musicTitle || musicTitleFromEntry(entry), artist: clipOptions.musicArtist || musicArtistFromEntry(entry), album: entry.metadataAlbum || "",
+            durationSeconds: timing.outputDuration, vblanks: project.vblanks, audioCodec, seekSeconds: project.seekSeconds, loop: Boolean(clipOptions.loop),
+          }, [nativeRGB.buffer, audio.buffer], (fraction, message) => mapped(0.48 + fraction * 0.5, message));
+          clips.push(clip); continue;
+        }
+
         mapped(0.08, "Extracting 120×80 frames…");
         const framesRGB = await extractFrames(inputName, index, project, clipOptions, timing);
         mapped(0.31, probe.hasAudio && clipOptions.audioMode !== "none" ? "Extracting audio…" : "No audio selected.");
         const audio = await extractAudio(inputName, index, project, clipOptions, probe, timing);
-        mapped(0.38, "Encoding the GBA clip…");
+        mapped(0.38, "Encoding the GBA video…");
         const clip = await runRomTask("encodeClip", {
-          framesRGB,
-          audio,
-          title: entry.title || "VIDEO",
-          vblanks: project.vblanks,
-          paletteMode: clipOptions.paletteMode,
-          ditherMode: clipOptions.ditherMode,
-          compression: project.compression,
-          keyInterval: 30,
-          adaptiveKeyframes: Boolean(project.extremeOptimization && project.adaptiveKeyframes),
-          enhancedSceneDetection: Boolean(project.extremeOptimization && project.enhancedSceneDetection),
-          audioCodec: resolveAudioCodec(project.audioQuality, project.extremeOptimization, audio.byteLength, project.smartTargetMiB),
-          seekSeconds: project.seekSeconds,
+          framesRGB, audio, title: entry.title || "VIDEO", vblanks: project.vblanks,
+          paletteMode: clipOptions.paletteMode, ditherMode: clipOptions.ditherMode, compression: project.compression, keyInterval: 30,
+          adaptiveKeyframes: Boolean(project.extremeOptimization && project.adaptiveKeyframes), enhancedSceneDetection: Boolean(project.extremeOptimization && project.enhancedSceneDetection),
+          audioCodec: resolveAudioCodec(project.audioQuality, project.extremeOptimization, audio.byteLength, project.smartTargetMiB), seekSeconds: project.seekSeconds,
           loop: Boolean(clipOptions.loop),
         }, [framesRGB.buffer, audio.buffer], (fraction, message) => mapped(0.38 + fraction * 0.6, message));
         clips.push(clip);
@@ -2407,36 +2760,20 @@ async function performConversion() {
 
     updateProgress(96, "Assembling and validating output…");
     if (project.outputMode === "batch") return assembleBatch(playerStub, clips, project);
-
-    const stub = playerStub.slice();
-    const transfers = [stub.buffer];
+    const stub = playerStub.slice(); const transfers = [stub.buffer];
     for (const clip of clips) transfers.push(...clipTransferList(clip));
     const assembled = await runRomTask("assembleROM", {
-      playerStub: stub,
-      clips,
-      options: { romTitle: project.romTitle, outputMode: project.outputMode, resume: project.resume, menuTheme: project.menuTheme },
+      playerStub: stub, clips,
+      options: { romTitle: project.romTitle, outputMode: entries.length > 1 ? "menu" : "rom", resume: project.resume, menuTheme: entries.length > 1 ? project.menuTheme : null },
     }, transfers);
-    updateProgress(100, "ROM ready.");
     return {
-      ...assembled,
-      fileName: desktopOutputFileName(entries.map((entry) => entry.file.name), project.outputMode),
+      buffer: assembled.buffer,
+      fileName: desktopOutputFileName(entries.map((entry) => entry.file.name), entries.length > 1 ? "menu" : "rom"),
       mime: "application/octet-stream",
+      details: { ...assembled.details, outputKind: "rom" },
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (singleRom && /32 MiB|cartridge size|raw browser memory|exceed/i.test(message)) {
-      appendLog("One ROM could not fit safely. Switching to automatic numbered-ROM splitting.");
-      return performLongSplit(playerStub, {
-        ...project,
-        splitBudgetMiB: 32,
-        maxPartSeconds: 0,
-        chapterAware: true,
-        partTitleScreens: project.partTitleScreens,
-        titleCards: project.titleCards,
-        resumeLongSplit: true,
-      });
-    }
-    throw error;
+  } finally {
+    // Source files are removed per item above.
   }
 }
 
@@ -2451,7 +2788,7 @@ function publishConversionResult(result, autoDownload = true) {
     : `${resultFileName} is ready`;
   const noun = result.details.outputKind === "zip" ? "combined ROM data" : "ROM";
   const estimated = result.details.estimatedParts ? ` · estimated ${result.details.estimatedParts} part${result.details.estimatedParts === 1 ? "" : "s"}` : "";
-  elements.resultDetails.textContent = `${result.details.clipCount} clip${result.details.clipCount === 1 ? "" : "s"}, ${(result.details.frameCount || 0).toLocaleString()} frames, ${formatBytes(result.details.paddedSize)} ${noun}${estimated}`;
+  elements.resultDetails.textContent = `${result.details.clipCount} media item${result.details.clipCount === 1 ? "" : "s"}, ${(result.details.frameCount || 0).toLocaleString()} frames, ${formatBytes(result.details.paddedSize)} ${noun}${estimated}`;
   elements.resultArea.hidden = false;
   if (autoDownload) downloadResult();
 }
@@ -2583,7 +2920,7 @@ async function createAudioPreview() {
     inputName = "audio-preview-input" + (entry.file.name.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || ".mp4");
     await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
     const probe = await readProbe(inputName, 999, entry.file);
-    const position = clampNumber(elements.timelinePlay.value, 0, probe.duration);
+    const position = mediaKind(entry) === "audio" ? clampNumber(clip.start, 0, probe.duration) : clampNumber(elements.timelinePlay.value, 0, probe.duration);
     const duration = Math.min(10, Math.max(0.25, probe.duration - position));
     const filters = [];
     if (clip.audioMode === "left") filters.push("pan=mono|c0=c0");
@@ -2629,7 +2966,7 @@ function configureDesktopLink() {
 
 function configureCompatibilityMessage() {
   const mobile = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
-  if (mobile) elements.compatibilityText.textContent = "Mobile browsers can run out of memory quickly. Short clips only; use the desktop app for longer videos.";
+  if (mobile) elements.compatibilityText.textContent = "Mobile browsers can run out of memory quickly. Keep media projects modest; use the desktop app for large conversions.";
 }
 
 if (elements.menuBackground) {
@@ -2739,13 +3076,15 @@ elements.romTitle.addEventListener("input", () => { romTitleAuto = false; });
 
 const ordinarySettings = [
   elements.seekSeconds, elements.defaultStart, elements.defaultEnd, elements.defaultSpeed,
-  elements.defaultVolume, elements.defaultLoop, elements.romTitle, elements.resume,
+  elements.defaultVolume, elements.defaultLoop, elements.defaultImageSlideshow, elements.defaultImageSeconds, elements.romTitle, elements.resume,
 ];
 for (const control of ordinarySettings) {
   const changed = () => { resetResult(); updateEstimate(); syncSelectedPreview(); };
   control.addEventListener("change", changed);
   if (control.tagName === "INPUT" && ["text", "number"].includes(control.type)) control.addEventListener("input", changed);
 }
+elements.defaultImageSlideshow?.addEventListener("change", updateImageDefaultsUI);
+elements.defaultImageSeconds?.addEventListener("input", updateImageDefaultsUI);
 
 const splitSettings = [elements.splitBudget, elements.maxPartDuration, elements.chapterAware, elements.partTitleScreens, elements.resumeLongSplit];
 for (const control of splitSettings) {
@@ -2823,7 +3162,7 @@ elements.titlePreviewInput.addEventListener("focus", () => {
 });
 elements.titlePreviewInput.addEventListener("blur", () => {
   const entry = selectedEntry();
-  if (entry && !entry.title) entry.title = "VIDEO";
+  if (entry && !entry.title) entry.title = "MEDIA";
   renderFiles();
 });
 elements.titlePreviewInput.addEventListener("keydown", (event) => {
@@ -2947,4 +3286,5 @@ configureCompatibilityMessage();
 updateConvertButton();
 updateExtremeVisibility();
 updateSplitVisibility();
+updateImageDefaultsUI();
 renderFiles();

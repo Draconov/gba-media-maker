@@ -1,13 +1,49 @@
 # Third-party notices
 
-## FFmpeg
+GBA Media Maker source code is MIT-licensed, but the project uses/distributes components and assets that remain under their own licences.
 
-FFmpeg is not stored in this source repository. Official portable release ZIPs include a pinned Windows x64 `ffmpeg.exe` beside the application so the app never downloads or installs an executable at runtime.
+## FFmpeg — desktop conversion
 
-The release workflow uses the **LGPL** variant from BtbN/FFmpeg-Builds, pinned to release tag `autobuild-2026-08-07-13-13`. It downloads `ffmpeg-master-latest-win64-lgpl.zip`, verifies the archive against the `checksums.sha256` file published with that pinned release, extracts `ffmpeg.exe`, and verifies that the build contains a software AV1 decoder (`libdav1d` or `libaom`). This avoids depending on AV1-capable GPU hardware when converting AV1 source videos.
+FFmpeg is not committed to the source repository as a normal source dependency. Official portable Windows release packages may include a pinned Windows x64 `ffmpeg.exe` beside the application.
+
+The release workflow currently pins BtbN/FFmpeg-Builds release:
+
+```text
+autobuild-2026-08-07-13-13
+```
+
+Packaging downloads that release's `checksums.sha256`, discovers the matching **non-shared win64 LGPL** ZIP from the manifest instead of assuming a floating `*-latest-*` filename, verifies its SHA-256 hash, extracts `ffmpeg.exe`, and checks for software AV1 decoding support (`libdav1d` or `libaom`).
 
 - FFmpeg project: <https://ffmpeg.org/>
-- Binary build source: <https://github.com/BtbN/FFmpeg-Builds>
-- Pinned binary release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-08-07-13-13>
+- BtbN/FFmpeg-Builds: <https://github.com/BtbN/FFmpeg-Builds>
+- Pinned release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-08-07-13-13>
 
-FFmpeg and its linked libraries are distributed under their own licenses. The selected BtbN `lgpl` build intentionally excludes GPL-only dependencies. Review the FFmpeg and binary-provider licensing information before redistribution.
+FFmpeg and its linked libraries are distributed under their own licences. The release packaging intentionally selects the LGPL build variant. Review the FFmpeg/BtbN licensing information before redistribution.
+
+## ffmpeg.wasm — browser conversion
+
+The browser edition uses the `@ffmpeg/ffmpeg` / `@ffmpeg/util` JavaScript packages and an FFmpeg WebAssembly core for local browser processing.
+
+Current package versions are declared in `website/package.json` and remain subject to their respective upstream licences and the licences of the FFmpeg build they load/use.
+
+- ffmpeg.wasm project: <https://github.com/ffmpegwasm/ffmpeg.wasm>
+- FFmpeg project: <https://ffmpeg.org/>
+
+## Built-in audio artwork presets
+
+The 20 images under:
+
+```text
+assets/audio-artwork/
+website/public/audio-artwork/
+```
+
+are third-party artwork from the **Grainient — Dither Gradient I** collection, supplied by the project maintainer under a separate licence that permits their inclusion/redistribution with this project.
+
+These artwork files are **not relicensed under the repository's MIT licence**. Their use and redistribution remain subject to the applicable artwork licence.
+
+- Collection source: <https://grainient.supply/collections/dither-gradient-i>
+
+## Platform/trademark notice
+
+Game Boy Advance, Nintendo, and related marks belong to their respective owners. GBA Media Maker is an independent project and is not affiliated with or endorsed by Nintendo.

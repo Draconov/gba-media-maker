@@ -5,11 +5,11 @@ export const FPS_ORDER = ["smooth", "balanced", "classic", "compact"];
 export function sanitizeDesktopFilename(name) {
   const trimmed = String(name || "").trim();
   const leaf = trimmed.split(/[\\/]/).pop() || "";
-  const safe = leaf.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim() || "video";
+  const safe = leaf.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim() || "media";
   return Array.from(safe).slice(0, 180).join("");
 }
 
-export function sourceBaseName(fileName, fallback = "video") {
+export function sourceBaseName(fileName, fallback = "media") {
   const safe = sanitizeDesktopFilename(fileName);
   const extension = /\.[^.]*$/.exec(safe)?.[0] || "";
   const base = extension ? safe.slice(0, -extension.length) : safe;
@@ -18,20 +18,20 @@ export function sourceBaseName(fileName, fallback = "video") {
 
 export function conversionOutputFileName(fileNames, outputMode) {
   const names = Array.from(fileNames || []);
-  const base = names.length > 1 ? "GBA_Video_Collection" : sourceBaseName(names[0], "video");
+  const base = names.length > 1 ? "GBA_Media_Collection" : sourceBaseName(names[0], "media");
   return `${base}.${outputMode === "batch" ? "zip" : "gba"}`;
 }
 
 export function splitArchiveFileName(fileName) {
-  return `${sourceBaseName(fileName, "video")}_PARTS.zip`;
+  return `${sourceBaseName(fileName, "media")}_PARTS.zip`;
 }
 
 export function splitPartFileName(fileName, part) {
-  return `${sourceBaseName(fileName, "video")}_PART_${String(part).padStart(2, "0")}.gba`;
+  return `${sourceBaseName(fileName, "media")}_PART_${String(part).padStart(2, "0")}.gba`;
 }
 
 export function batchRomFileName(fileName) {
-  return `${sourceBaseName(fileName, "video")}_GBA.gba`;
+  return `${sourceBaseName(fileName, "media")}_GBA.gba`;
 }
 
 export function parsePartDuration(value) {

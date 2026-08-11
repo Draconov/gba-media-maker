@@ -1,11 +1,14 @@
 package main
 
-import _ "embed"
+import "embed"
 
 // Embedded browser assets keep the source readable and avoid a large inline script.
 //
 //go:embed assets/icon.png
 var appIconPNG []byte
+
+//go:embed assets/audio-artwork/*.png
+var audioArtworkFS embed.FS
 
 //go:embed web/index.html
 var appHTML string

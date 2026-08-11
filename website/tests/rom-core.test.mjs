@@ -6,8 +6,12 @@ import {
   FRAME_BYTES,
   METADATA_OFFSET,
   RGB_FRAME_BYTES,
+  NATIVE_IMAGE_BYTES,
+  NATIVE_IMAGE_RGB_BYTES,
   assembleROM,
+  convertNativeMediaClip,
   convertRawClip,
+  rgb24ToNativeRGB555,
   safeRomTitle,
 } from "../src/rom-core.js";
 
@@ -57,6 +61,83 @@ function reconstructFrames(rom, descriptorOffset) {
 
 test("safeRomTitle sanitizes and pads to twelve bytes", () => {
   assert.equal(new TextDecoder().decode(safeRomTitle("My cat! 2026")), "MY CAT 2026 ");
+});
+
+
+test("native image conversion matches the v0.13 240x160 RGB555 descriptor", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const rgb = new Uint8Array(NATIVE_IMAGE_RGB_BYTES);
+  for (let pixel = 0; pixel < rgb.length; pixel += 3) {
+    rgb[pixel] = 255;
+    rgb[pixel + 1] = 128;
+    rgb[pixel + 2] = 0;
+  }
+  const native = rgb24ToNativeRGB555(rgb);
+  assert.equal(native.length, NATIVE_IMAGE_BYTES);
+
+  const clip = convertNativeMediaClip({ mediaKind: "image", nativeRGB: rgb, title: "PICTURE", imageSeconds: 0, vblanks: 5 });
+  const result = assembleROM(playerStub, [clip], { romTitle: "IMAGE", outputMode: "rom", resume: true });
+  const rom = result.rom;
+  const flags = u16(rom, ASSET_OFFSET + 50);
+  assert.equal(u32(rom, ASSET_OFFSET), 1);
+  assert.equal(u32(rom, ASSET_OFFSET + 4), NATIVE_IMAGE_BYTES);
+  assert.equal(u16(rom, ASSET_OFFSET + 46), 240);
+  assert.equal(u16(rom, ASSET_OFFSET + 48), 160);
+  assert.ok(flags & 0x0080, "image flag missing");
+  assert.equal(flags & 0x0001, 0, "image must not advertise audio");
+  assert.equal(u32(rom, ASSET_OFFSET + 84), 0, "manual image must preserve zero slideshow duration");
+  assert.equal(new TextDecoder().decode(rom.subarray(0xac, 0xb0)), "GM05");
+});
+
+test("native audio conversion writes artwork, MMD2 metadata, and audio flags", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const rgb = new Uint8Array(NATIVE_IMAGE_RGB_BYTES);
+  for (let pixel = 0; pixel < rgb.length; pixel += 3) {
+    rgb[pixel] = 25;
+    rgb[pixel + 1] = 80;
+    rgb[pixel + 2] = 180;
+  }
+  const audio = new Uint8Array(16384);
+  for (let index = 0; index < audio.length; index += 1) audio[index] = (index * 7) & 0xff;
+  const clip = convertNativeMediaClip({
+    mediaKind: "audio", nativeRGB: rgb, audio, title: "MUSIC", musicTitle: "Track Name", artist: "Artist", album: "Album",
+    durationSeconds: 1, vblanks: 5, audioCodec: "pcm", seekSeconds: 5, loop: true,
+  });
+  const result = assembleROM(playerStub, [clip], { romTitle: "MUSIC", outputMode: "rom", resume: true });
+  const rom = result.rom;
+  const flags = u16(rom, ASSET_OFFSET + 50);
+  assert.ok(flags & 0x0001, "audio-present flag missing");
+  assert.ok(flags & 0x0002, "loop flag missing");
+  assert.ok(flags & 0x0040, "audio-only flag missing");
+  assert.ok(flags & 0x0100, "media-metadata flag missing");
+  assert.equal(u32(rom, ASSET_OFFSET + 4), NATIVE_IMAGE_BYTES);
+  assert.equal(u16(rom, ASSET_OFFSET + 46), 240);
+  assert.equal(u16(rom, ASSET_OFFSET + 48), 160);
+  assert.equal(u32(rom, ASSET_OFFSET + 84), clip.audioSampleCount);
+  assert.ok(u32(rom, ASSET_OFFSET + 16) > 0, "audio payload missing");
+  assert.ok(u32(rom, ASSET_OFFSET + 32) > 0, "audio seek table missing");
+
+  const metadataOffset = u32(rom, ASSET_OFFSET + 12);
+  assert.ok(metadataOffset > ASSET_OFFSET);
+  assert.equal(u32(rom, metadataOffset), 0x32444d4d);
+  assert.equal(new TextDecoder().decode(rom.subarray(metadataOffset + 4, metadataOffset + 14)), "TRACK NAME");
+  assert.equal(new TextDecoder().decode(rom.subarray(metadataOffset + 32, metadataOffset + 38)), "ARTIST");
+  assert.equal(new TextDecoder().decode(rom.subarray(metadataOffset + 60, metadataOffset + 65)), "ALBUM");
+});
+
+test("mixed video, audio, and image clips assemble as one GBV5 media-menu ROM", async () => {
+  const playerStub = new Uint8Array(await readFile(new URL("../public/player_stub.bin", import.meta.url)));
+  const video = convertRawClip({ framesRGB: new Uint8Array(RGB_FRAME_BYTES), title: "VIDEO", vblanks: 8, ditherMode: "off", compression: "none" });
+  const rgb = new Uint8Array(NATIVE_IMAGE_RGB_BYTES);
+  const audioBytes = new Uint8Array(16384);
+  const audio = convertNativeMediaClip({ mediaKind: "audio", nativeRGB: rgb, audio: audioBytes, title: "AUDIO", musicTitle: "SONG", durationSeconds: 1, vblanks: 5 });
+  const image = convertNativeMediaClip({ mediaKind: "image", nativeRGB: rgb, title: "IMAGE", imageSeconds: 5, vblanks: 5 });
+  const result = assembleROM(playerStub, [video, audio, image], { romTitle: "MIXED", outputMode: "menu", resume: true });
+  assert.equal(u16(result.rom, METADATA_OFFSET + 8), 3);
+  assert.equal(u16(result.rom, METADATA_OFFSET + 6) & 0x0002, 0, "media menu must not use legacy playlist mode");
+  assert.equal(u16(result.rom, ASSET_OFFSET + 50) & (0x0040 | 0x0080), 0, "video descriptor must remain video");
+  assert.ok(u16(result.rom, ASSET_OFFSET + 96 + 50) & 0x0040, "second descriptor must be audio");
+  assert.ok(u16(result.rom, ASSET_OFFSET + 192 + 50) & 0x0080, "third descriptor must be image");
 });
 
 test("browser core creates a structurally valid GBV5 ROM", async () => {

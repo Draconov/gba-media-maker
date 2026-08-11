@@ -10,6 +10,11 @@ export const FRAME_WIDTH = 120;
 export const FRAME_HEIGHT = 80;
 export const FRAME_BYTES = FRAME_WIDTH * FRAME_HEIGHT;
 export const RGB_FRAME_BYTES = FRAME_BYTES * 3;
+export const NATIVE_IMAGE_WIDTH = 240;
+export const NATIVE_IMAGE_HEIGHT = 160;
+export const NATIVE_IMAGE_PIXELS = NATIVE_IMAGE_WIDTH * NATIVE_IMAGE_HEIGHT;
+export const NATIVE_IMAGE_RGB_BYTES = NATIVE_IMAGE_PIXELS * 3;
+export const NATIVE_IMAGE_BYTES = NATIVE_IMAGE_PIXELS * 2;
 export const AUDIO_RATE = 16384;
 export const VIDEO_PALETTE_COLORS = 250;
 export const GBA_REFRESH = 59.727500569606;
@@ -114,7 +119,7 @@ function patchGBAHeader(rom, title) {
   setU32(rom, 0, 0xea00002e);
   rom.set(NINTENDO_LOGO, 4);
   rom.set(safeRomTitle(title), 0xa0);
-  rom.set(asciiBytes("GV05"), 0xac);
+  rom.set(asciiBytes("GM05"), 0xac);
   rom.set(asciiBytes("01"), 0xb0);
   rom[0xb2] = 0x96;
   rom.fill(0, 0xb3, 0xbd);
@@ -500,6 +505,92 @@ function alignAudio(audioInput, frameCount, vblanks) {
   return audio;
 }
 
+
+export function rgb24ToNativeRGB555(rgb) {
+  if (!(rgb instanceof Uint8Array)) throw new TypeError("rgb must be a Uint8Array");
+  if (rgb.length !== NATIVE_IMAGE_RGB_BYTES) {
+    throw new Error(`Native image RGB data is ${rgb.length} bytes; expected ${NATIVE_IMAGE_RGB_BYTES}.`);
+  }
+  const out = new Uint8Array(NATIVE_IMAGE_BYTES);
+  for (let pixel = 0; pixel < NATIVE_IMAGE_PIXELS; pixel += 1) {
+    const source = pixel * 3;
+    const r5 = Math.floor((rgb[source] * 31 + 127) / 255);
+    const g5 = Math.floor((rgb[source + 1] * 31 + 127) / 255);
+    const b5 = Math.floor((rgb[source + 2] * 31 + 127) / 255);
+    const value = r5 | (g5 << 5) | (b5 << 10);
+    out[pixel * 2] = value & 0xff;
+    out[pixel * 2 + 1] = value >>> 8;
+  }
+  return out;
+}
+
+function audioStorage(audio, frameCount, vblanks, audioCodec) {
+  const hasAudio = audio instanceof Uint8Array && audio.length > 0;
+  const alignedPCM = hasAudio ? alignAudio(audio, frameCount, vblanks) : new Uint8Array();
+  let storedAudio = alignedPCM;
+  let resolvedAudioCodec = hasAudio ? "pcm" : "none";
+  let audioBlockSamples = 0;
+  let audioBlockBytes = 0;
+  if (hasAudio && audioCodec === "adpcm") {
+    const encoded = encodeIMAADPCM(alignedPCM, DEFAULT_ADPCM_BLOCK_SAMPLES);
+    storedAudio = encoded.data;
+    resolvedAudioCodec = "adpcm";
+    audioBlockSamples = encoded.blockSamples;
+    audioBlockBytes = encoded.blockBytes;
+  }
+  return { hasAudio, alignedPCM, storedAudio, resolvedAudioCodec, audioBlockSamples, audioBlockBytes };
+}
+
+export function convertNativeMediaClip({
+  mediaKind,
+  nativeRGB,
+  audio = new Uint8Array(),
+  title = "GBA MEDIA",
+  musicTitle = "",
+  artist = "",
+  album = "",
+  durationSeconds = 0,
+  imageSeconds = 5,
+  vblanks = 5,
+  audioCodec = "pcm",
+  seekSeconds = 5,
+  loop = false,
+  report,
+}) {
+  if (mediaKind !== "audio" && mediaKind !== "image") throw new Error("Native media kind must be audio or image.");
+  report?.(0.08, mediaKind === "audio" ? "Converting 240×160 artwork…" : "Converting native 240×160 image…");
+  const video = rgb24ToNativeRGB555(nativeRGB);
+  if (mediaKind === "image") {
+    const seconds = Math.max(0, Number(imageSeconds) || 0);
+    report?.(1, "Native image ready.");
+    return {
+      mediaKind: "image", title, frameCount: 1, vblanks, keyInterval: 0, adaptiveKeyframes: false,
+      seekSeconds, loop: Boolean(loop), hasAudio: false, audioCodec: "none", audioSampleCount: 0,
+      audioBlockSamples: 0, audioBlockBytes: 0, compressed: false,
+      palette: new Uint8Array(), paletteIndex: new Uint8Array(), paletteCount: 0, videoIndex: new Uint8Array(),
+      video, audio: new Uint8Array(), rawVideoSize: NATIVE_IMAGE_BYTES, storedVideoSize: NATIVE_IMAGE_BYTES,
+      imageSeconds: seconds, mediaMetadata: false, musicTitle: "", artist: "", album: "",
+    };
+  }
+
+  const displaySeconds = Math.max(0, Number(durationSeconds) || 0);
+  let frameCount = Math.ceil((displaySeconds * GBA_REFRESH) / Math.max(1, Number(vblanks) || 5));
+  if (frameCount < 1) frameCount = 1;
+  report?.(0.35, "Preparing audio storage…");
+  const storage = audioStorage(audio, frameCount, vblanks, audioCodec);
+  if (!storage.hasAudio) throw new Error("Audio media contains no decodable audio stream.");
+  report?.(1, "Audio media ready.");
+  return {
+    mediaKind: "audio", title, musicTitle, artist, album, mediaMetadata: true,
+    frameCount, vblanks, keyInterval: 0, adaptiveKeyframes: false, seekSeconds, loop: Boolean(loop),
+    hasAudio: true, audioCodec: storage.resolvedAudioCodec, audioSampleCount: storage.alignedPCM.length,
+    audioBlockSamples: storage.audioBlockSamples, audioBlockBytes: storage.audioBlockBytes, compressed: false,
+    palette: new Uint8Array(), paletteIndex: new Uint8Array(), paletteCount: 0, videoIndex: new Uint8Array(),
+    video, audio: storage.storedAudio, rawVideoSize: NATIVE_IMAGE_BYTES, storedVideoSize: NATIVE_IMAGE_BYTES,
+    imageSeconds: 0,
+  };
+}
+
 export function convertRawClip({
   framesRGB,
   audio = new Uint8Array(),
@@ -619,20 +710,11 @@ export function convertRawClip({
     }
   }
 
-  const hasAudio = audio.length > 0;
-  const alignedPCM = hasAudio ? alignAudio(audio, frameCount, vblanks) : new Uint8Array();
-  let storedAudio = alignedPCM;
-  let resolvedAudioCodec = hasAudio ? "pcm" : "none";
-  let audioBlockSamples = 0, audioBlockBytes = 0;
-  if (hasAudio && audioCodec === "adpcm") {
-    const encoded = encodeIMAADPCM(alignedPCM, DEFAULT_ADPCM_BLOCK_SAMPLES);
-    storedAudio = encoded.data;
-    resolvedAudioCodec = "adpcm";
-    audioBlockSamples = encoded.blockSamples;
-    audioBlockBytes = encoded.blockBytes;
-  }
+  const storage = audioStorage(audio, frameCount, vblanks, audioCodec);
+  const { hasAudio, alignedPCM, storedAudio, resolvedAudioCodec, audioBlockSamples, audioBlockBytes } = storage;
   report?.(0.94, "Finalizing clip data…");
   return {
+    mediaKind: "video",
     title,
     frameCount,
     vblanks,
@@ -661,38 +743,55 @@ function writeClipDescriptor(rom, descriptorOffset, clip, offsets) {
   let flags = 0;
   if (clip.hasAudio) flags |= 1;
   if (clip.loop) flags |= 2;
-  if (clip.compressed) flags |= 4;
+  if (clip.mediaKind === "video" && clip.compressed) flags |= 4;
   if (clip.paletteCount > 1) flags |= 8;
   if (clip.audioCodec === "adpcm") flags |= 16;
-  if (clip.adaptiveKeyframes) flags |= 32;
-  let seekFrames = Math.round((clip.seekSeconds * GBA_REFRESH) / clip.vblanks);
+  if (clip.mediaKind === "video" && clip.adaptiveKeyframes) flags |= 32;
+  if (clip.mediaKind === "audio") flags |= 64;
+  if (clip.mediaKind === "image") flags |= 128;
+  if (clip.mediaMetadata) flags |= 256;
+  let seekFrames = Math.round((clip.seekSeconds * GBA_REFRESH) / Math.max(1, clip.vblanks));
   if (seekFrames < 1) seekFrames = 1;
 
+  const native = clip.mediaKind === "audio" || clip.mediaKind === "image";
   setU32(rom, descriptorOffset, clip.frameCount);
-  setU32(rom, descriptorOffset + 4, FRAME_BYTES);
-  setU32(rom, descriptorOffset + 8, offsets.video);
+  setU32(rom, descriptorOffset + 4, native ? NATIVE_IMAGE_BYTES : FRAME_BYTES);
+  setU32(rom, descriptorOffset + 8, offsets.video || 0);
   setU32(rom, descriptorOffset + 12, offsets.videoIndex || 0);
   setU32(rom, descriptorOffset + 16, offsets.audio || 0);
   setU32(rom, descriptorOffset + 20, clip.audio.length);
-  setU32(rom, descriptorOffset + 24, offsets.palette);
+  setU32(rom, descriptorOffset + 24, offsets.palette || 0);
   setU32(rom, descriptorOffset + 28, offsets.paletteIndex || 0);
   setU32(rom, descriptorOffset + 32, offsets.seek || 0);
   setU32(rom, descriptorOffset + 36, AUDIO_RATE);
   setU32(rom, descriptorOffset + 40, seekFrames);
   setU16(rom, descriptorOffset + 44, clip.vblanks);
-  setU16(rom, descriptorOffset + 46, FRAME_WIDTH);
-  setU16(rom, descriptorOffset + 48, FRAME_HEIGHT);
+  setU16(rom, descriptorOffset + 46, native ? NATIVE_IMAGE_WIDTH : FRAME_WIDTH);
+  setU16(rom, descriptorOffset + 48, native ? NATIVE_IMAGE_HEIGHT : FRAME_HEIGHT);
   setU16(rom, descriptorOffset + 50, flags);
   setU16(rom, descriptorOffset + 52, clip.seekSeconds);
-  setU16(rom, descriptorOffset + 54, clip.paletteCount);
-  setU16(rom, descriptorOffset + 56, clip.keyInterval);
+  setU16(rom, descriptorOffset + 54, clip.paletteCount || 0);
+  setU16(rom, descriptorOffset + 56, clip.adaptiveKeyframes ? 0 : (clip.keyInterval || 0));
   rom.set(encodeGBATextFixed(clip.title, 12), descriptorOffset + 60);
   setU32(rom, descriptorOffset + 72, clip.rawVideoSize);
   setU32(rom, descriptorOffset + 76, clip.storedVideoSize);
   setU32(rom, descriptorOffset + 80, clip.hasAudio ? (clip.audioCodec === "adpcm" ? 2 : 1) : 0);
-  setU32(rom, descriptorOffset + 84, clip.audioSampleCount || 0);
+  const auxCount = clip.mediaKind === "image" ? Math.round(Math.max(0, Number(clip.imageSeconds) || 0) * 1000) : (clip.audioSampleCount || 0);
+  setU32(rom, descriptorOffset + 84, auxCount);
   setU32(rom, descriptorOffset + 88, clip.audioBlockSamples || 0);
   setU32(rom, descriptorOffset + 92, clip.audioBlockBytes || 0);
+}
+
+const MEDIA_METADATA_MAGIC = 0x32444d4d; // MMD2
+const MEDIA_METADATA_SIZE = 80;
+
+export function encodeMediaMetadata(title = "", artist = "", album = "") {
+  const data = new Uint8Array(MEDIA_METADATA_SIZE);
+  setU32(data, 0, MEDIA_METADATA_MAGIC);
+  data.set(encodeGBATextFixed(title, 28), 4);
+  data.set(encodeGBATextFixed(artist, 28), 32);
+  data.set(encodeGBATextFixed(album, 20), 60);
+  return data;
 }
 
 function decodeMenuBytes(value) {
@@ -791,9 +890,13 @@ export function assembleROM(playerStub, clips, { romTitle = "GBA VIDEO", outputM
   const clipOffsets = [];
   for (const clip of clips) {
     const offsets = {};
-    offsets.palette = writer.writeAligned(clip.palette);
-    if (clip.paletteIndex.length) offsets.paletteIndex = writer.writeAligned(clip.paletteIndex);
-    if (clip.videoIndex.length) offsets.videoIndex = writer.writeAligned(clip.videoIndex);
+    if (clip.palette?.length) offsets.palette = writer.writeAligned(clip.palette);
+    if (clip.paletteIndex?.length) offsets.paletteIndex = writer.writeAligned(clip.paletteIndex);
+    if (clip.mediaKind === "audio" && clip.mediaMetadata) {
+      offsets.videoIndex = writer.writeAligned(encodeMediaMetadata(clip.musicTitle, clip.artist, clip.album));
+    } else if (clip.videoIndex?.length) {
+      offsets.videoIndex = writer.writeAligned(clip.videoIndex);
+    }
     offsets.video = writer.writeAligned(clip.video);
     if (clip.hasAudio) {
       offsets.seek = writer.writeAligned(buildSeekTable(clip));

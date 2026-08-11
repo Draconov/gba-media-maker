@@ -1,28 +1,147 @@
 # Changelog
 
-## [0.13.0] - 2026-08-10
+All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 
-- Added animated GIF import as looping video media; GIFs now appear under the Media files picker and automatically loop in generated ROMs.
+> [!NOTE]
+> Historical sections describe the controls and behavior that existed in that release. For the current v0.13.0 controls and media model, use the main [`README.md`](README.md).
 
-### Added
-- Renamed the application experience to **GBA Media Maker** and added first-class Video, Audio, and Image media types.
-- Added audio-only conversion, native 240×160 cover artwork, title/artist/album metadata, GBA Now Playing UI, seeking, pause, volume, mute, playlist navigation, and SRAM resume integration.
-- Added native 240×160 RGB555 image entries with manual viewer/gallery navigation and configurable slideshow timing.
-- Added mixed-media playlist/menu ROMs with media-type tags and media-aware desktop controls.
-- Added `.gbamedia` v2 projects while retaining `.gbavideo` v1 project loading.
-- Added media conversion regression tests covering a mixed MP4 + WAV + PNG ROM.
+## Release index
 
-### Changed
-- Kept the GBV5 container version and extended clip descriptor flags for audio-only, image, and media metadata records.
-- Renamed Add Video/clip-facing UI to Add Media and hide settings that do not apply to the selected media type.
-- Long-video autosplitting is now strictly video-only.
-- Rebuilt `assets/player_stub.bin` with the v0.13 media runtime.
-- Refined audio Now Playing: 28-character song title and author fields, restored video-style volume/mute feedback, raised the time/play row above the progress bar, and increased the progress bar to 4 pixels.
-- Reworked ROM controls: shoulders switch media directly, D-pad Left/Right owns seeking/frame-step with ~0.3 s hold-repeat, START cycles hidden/time/full HUD modes, START+SELECT opens help, and menu navigation uses true columns. Removed the redundant `SELECT+L/R` media shortcut and `L+R` quick-HUD combo. Images no longer pause with `A` when slideshow is disabled, and silent/GIF/No-audio videos no longer expose mute or volume controls.
+| Version | Date | Main theme |
+|---|---|---|
+| **0.13.0** | **2026-08-11** | GBA Media Maker: video + GIF + music + images, mixed-media menus, desktop/web parity |
+| 0.12.2 | 2026-08-07 | Stable video player/menu refinements, custom menu video backgrounds, Cyrillic text |
+| 0.12.1 | 2026-08-07 | Independent split-title typography and responsive editor fixes |
+| 0.12.0 | 2026-08-06 | Extreme optimization, adaptive keyframes, experimental IMA ADPCM |
+| 0.11.0 | 2026-08-06 | Native split-video title cards |
+| 0.10.0 | 2026-08-05 | Custom MTH1 menu themes and stable menu preview parity |
+| 0.9.0 | 2026-08-05 | Long-video splitting, projects, collection menus, browser parity |
+| 0.8.0 | 2026-07-31 | Presets, compression, menu ROMs, advanced controls |
+| 0.7.0 | 2026-07-31 | Playback clock/HUD, local-app hardening, stable release workflow |
+| 0.6.0 | 2026-07-31 | Synchronized seeking and reproducible player builds |
+| 0.5.0 | 2026-07-30 | First complete portable local-web conversion workflow |
+
+## [0.13.0] - 2026-08-11
+
+### Highlights
+
+- Renamed the product experience to **GBA Media Maker** and expanded the converter from video-only projects to first-class **video, animated GIF, music/audio, and static-image** media.
+- Preserved the established GBV5 version 5 container and the stable v0.12.2 video/menu presentation while adding media-specific descriptor flags and runtime dispatch.
+- Brought the standalone website to the current desktop media model, ROM format, player runtime, output naming, menu/theme tools, title cards, and project schema.
+
+### Added — media types
+
+- Added audio-only conversion for FFmpeg-supported music/audio sources such as MP3, WAV, FLAC, OGG/Opus, M4A, and AAC.
+- Added native **240×160 RGB555** audio artwork and a GBA Now Playing screen.
+- Added editable **28-character song title** and **28-character artist** fields plus a compact `MMD2` record that also retains a 20-character album field.
+- Added three per-track audio artwork modes:
+  - **Embedded artwork** with fallback to the selected built-in preset;
+  - **Default artwork** using one of 20 bundled 240×160 presets;
+  - **Custom image** using PNG/JPEG/WebP artwork prepared for the GBA screen.
+- Added native **240×160 RGB555** static-image media entries.
+- Added explicit image **Enable slideshow** behavior; a zero duration is a manual viewer rather than an implicit five-second slideshow.
+- Added animated GIF import through the video path. GIFs are always treated as animated video media and force native looping.
+
+### Added — collections and projects
+
+- Added mixed-media menu ROMs containing any combination of video, GIF, audio, and image entries.
+- Changed the new collection model so **every project with two or more items uses the media menu**, even when every item has the same media type. Separate ROMs remain available as ZIP output.
+- Added `[V]`, `[A]`, and `[I]` media labels to collection-menu entries.
+- Added `.gbamedia` **project format v2** (`gba-media-maker-project`) for the mixed-media model.
+- Kept legacy `.gbavideo` / GBA Video Maker project loading and migrated old playlist output values to the current media-menu mode.
+- Added desktop/browser output naming parity for single ROMs, menu collections, separate-ROM ZIPs, split-video archives/parts, and project files.
+
+### Added — audio player and HUD
+
+- Added audio seeking, pause/resume, loop handling, 0/50/100 volume, mute/unmute, HUD modes, media switching, and save/resume integration.
+- Audio starts with the full Now Playing HUD visible.
+- Added video-style audio seek/mute/volume feedback without force-blanking or redrawing the full artwork screen for ordinary UI updates.
+- Refined the audio Now Playing layout with title, artist, elapsed/total time, PLAY/PAUSE status, and a four-pixel progress line.
+
+### Changed — ROM controls
+
+- `L` / `R` now change to previous/next media directly.
+- D-pad Left/Right owns seek while playing and frame/timeline stepping while paused.
+- Held D-pad Left/Right repeats every **18 VBlanks (~0.30 s)**.
+- D-pad Up/Down and `SELECT` are available only when the current media actually contains audio.
+- `START` cycles hidden → time-only → full HUD.
+- `START + SELECT` opens the controls-help screen.
+- Removed the redundant `SELECT + L/R` media shortcut everywhere.
+- Removed the redundant `L + R` quick-HUD shortcut everywhere.
+- Manual images no longer react to `A`; slideshow images still use `A` to pause/resume slideshow timing.
+- GIFs, silent videos, videos converted with **No audio**, and images no longer expose mute/volume controls or badges.
+
+### Changed — video GUI/runtime
+
+- Restored the stable **v0.12.2 video HUD presentation**, including the frame counter, progress layout, seek indicator, full-HUD behavior while paused, and yellow loop icon.
+- Temporary seek-arrow feedback, temporary full HUD after seek, mute/unmute feedback, and volume feedback now each last **6 VBlanks (~0.10 s)**.
+- Preserved the newer input-polling order so late video frames cannot starve keypad input.
+- Fixed temporary HUD timer advancement so seek/mute/volume indicators cannot remain stuck when video decoding is behind schedule.
+- Removed obsolete shoulder-combo grace timing after `L + R` stopped being a command, making ordinary L/R media switching immediate.
+
+### Changed — save/resume
+
+- Restored the v0.12.2-style resume confirmation instead of silently auto-resuming a saved position:
+
+  ```text
+  CONTINUE FROM
+      MM:SS
+
+   A CONTINUE
+   B RESTART
+  ```
+
+- `A` resumes the saved video/audio position; `B` clears that position and restarts the current media.
+- Static images do not show a playback-position prompt.
+- Menu selection and per-media resume positions remain independent.
+
+### Changed — menu/theme system
+
+- Restored the complete stable v0.12.2 menu-theme/rendering stack instead of the simplified interim v0.13 implementation.
+- Restored Ocean Wave and Blue Wave background behavior, animated MTH1 timing, outline rendering, selection-arrow behavior, and exact logical 120×80 preview geometry.
+- Restored the full custom v0.12.2 GBA colour picker with saturation/value area, hue strip, eyedropper, RGB/HEX input, and preset swatches.
+- Retained v0.13 media-aware `SELECT MEDIA` wording and media tags on top of the stable renderer.
+
+### Added — website parity
+
+- Added first-class browser video/GIF/audio/image handling with the same v0.13 project model as the EXE.
+- Added the same 20 audio-artwork presets, embedded/default/custom artwork modes, fallback behavior, and project persistence.
+- Added native browser audio/image GBV5 descriptors and `MMD2` metadata generation.
+- Added mixed-media/same-media menu collection output and Separate ROMs ZIP output.
+- Added current `.gbamedia` v2 save/open and legacy-project migration.
+- Added desktop-compatible output naming helpers.
+- Synchronized the website player from the authoritative `assets/player_stub.bin` rather than maintaining a separate browser runtime.
+- Expanded browser tests for ROM structure, project format/migration, naming parity, media assets, and current UI/ROM behavior.
+
+### Fixed
+
+- Fixed a regression that made the custom menu colour inputs appear as thin browser-native bars instead of the v0.12.2 custom picker.
+- Fixed the interim menu restore that had overwritten newer v0.13 playback-control handling.
+- Fixed keypad input starvation when the video decoder/render loop was already late.
+- Fixed seek feedback that could remain visible indefinitely on late/heavy video playback.
+- Fixed audio seek/mute/volume feedback causing a white full-screen flash by updating only affected native UI regions.
+- Fixed silent video/GIF/image entries accepting meaningless audio controls.
+- Fixed save/resume-enabled ROMs silently jumping to saved positions without the continue/restart screen.
+- Fixed Windows icon assets whose rounded corners were stored as opaque black pixels; current PNG/ICO/web icon assets preserve transparency.
+- Fixed image project loading so an explicit zero-second/manual-viewer slideshow value is not changed back to five seconds.
+- Fixed legacy browser playlist projects so they upgrade to the current menu collection mode.
+
+### Packaging and build
+
+- Kept the GBA player stub fixed at **32 KiB** with media beginning at `0x8000` and global metadata at `0x7FC0`.
+- Current player builds use size-oriented `-Oz` so the media runtime, stable menu system, HUD, and restored resume prompt fit the fixed pre-asset region.
+- CI verifies the committed stub size, smoke-builds the player to a temporary output, synchronizes the website stub, runs Go tests/vet, and cross-builds the Windows executable.
+- GitHub Pages rebuilds/synchronizes the player before website tests/build.
+- Release packaging continues to pin the BtbN FFmpeg release, discover the correct non-shared win64 LGPL archive from `checksums.sha256`, verify SHA-256, and verify software AV1 decoding support.
 
 ### Compatibility
-- Existing video conversion remains on the legacy 120×80 indexed playback path.
-- Existing video project files remain loadable.
+
+- The global ROM format remains **GBV5 version 5**.
+- Existing video entries continue to use the established 120×80 indexed playback path.
+- v0.13 consumes previously unused clip flag bits for audio-only (`0x0040`), image (`0x0080`), and media metadata (`0x0100`) instead of creating a new container version.
+- The current runtime reads both `MMD2` and legacy `MMD1` audio metadata.
+- Legacy playlist ROM flags remain understood even though new multi-item projects use the media menu.
+- Existing v0.12.x video conversion, splitting, title-card, menu-theme, text, PCM, and experimental ADPCM features are retained.
 
 ## [0.12.2] - 2026-08-07
 

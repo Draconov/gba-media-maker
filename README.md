@@ -7,6 +7,12 @@
 
 ![Version](https://img.shields.io/badge/version-0.13.0-ffd600?style=for-the-badge&labelColor=20252d)
 
+<p>
+  <a href="https://draconov.github.io/gba-video-maker/"><strong>Open the web app</strong></a>
+  ·
+  <a href="https://github.com/draconov/gba-video-maker">Main repository</a>
+</p>
+
 </div>
 
 GBA Media Maker is the v0.13 evolution of GBA Video Maker. It keeps the existing video converter and GBV5-compatible ROM container while adding first-class audio and image entries, mixed-media collections, native 240×160 artwork/images, and a media-aware GBA runtime.

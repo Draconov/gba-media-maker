@@ -116,3 +116,15 @@
 #imageSection .tiny{display:block;margin-top:6px}
 #imageSeconds{max-width:140px}
 .clip-info small{line-height:1.35}
+
+/* v0.13 audio artwork selector */
+.music-artwork-presets{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-top:2px}
+.music-artwork-preset{position:relative;display:block;width:100%;aspect-ratio:3/2;padding:0;overflow:hidden;border:2px solid transparent;border-radius:7px;background:#000;cursor:pointer;box-shadow:0 0 0 1px var(--button-line)}
+.music-artwork-preset img{display:block;width:100%;height:100%;object-fit:cover;image-rendering:auto}
+.music-artwork-preset span{position:absolute;right:3px;bottom:3px;min-width:22px;padding:1px 4px;border-radius:4px;background:#000b;color:#fff;font-size:9px;font-weight:800;text-align:center}
+.music-artwork-preset:hover{filter:brightness(1.08)}
+.music-artwork-preset[aria-checked="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.music-artwork-preset:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#musicArtworkCustom{padding:6px}
+@media(max-width:720px){.music-artwork-presets{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:520px){.music-artwork-presets{grid-template-columns:repeat(3,minmax(0,1fr))}}

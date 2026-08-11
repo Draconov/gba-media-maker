@@ -98,22 +98,25 @@ type reorderVideoRequest struct {
 }
 
 type clipSettingsRequest struct {
-	ID           string  `json:"id"`
-	Title        string  `json:"title"`
-	UseProject   bool    `json:"useProject"`
-	Start        string  `json:"start"`
-	End          string  `json:"end"`
-	Speed        float64 `json:"speed"`
-	Fit          string  `json:"fit"`
-	Audio        string  `json:"audio"`
-	AudioTrack   int     `json:"audioTrack"`
-	Volume       float64 `json:"volume"`
-	Loop         bool    `json:"loop"`
-	PaletteMode  string  `json:"paletteMode"`
-	DitherMode   string  `json:"ditherMode"`
-	ImageSeconds float64 `json:"imageSeconds,omitempty"`
-	MusicTitle   string  `json:"musicTitle,omitempty"`
-	MusicArtist  string  `json:"musicArtist,omitempty"`
+	ID                 string  `json:"id"`
+	Title              string  `json:"title"`
+	UseProject         bool    `json:"useProject"`
+	Start              string  `json:"start"`
+	End                string  `json:"end"`
+	Speed              float64 `json:"speed"`
+	Fit                string  `json:"fit"`
+	Audio              string  `json:"audio"`
+	AudioTrack         int     `json:"audioTrack"`
+	Volume             float64 `json:"volume"`
+	Loop               bool    `json:"loop"`
+	PaletteMode        string  `json:"paletteMode"`
+	DitherMode         string  `json:"ditherMode"`
+	ImageSeconds       float64 `json:"imageSeconds,omitempty"`
+	MusicTitle         string  `json:"musicTitle,omitempty"`
+	MusicArtist        string  `json:"musicArtist,omitempty"`
+	MusicArtworkMode   string  `json:"musicArtworkMode,omitempty"`
+	MusicArtworkPreset string  `json:"musicArtworkPreset,omitempty"`
+	MusicArtworkCustom string  `json:"musicArtworkCustom,omitempty"`
 }
 
 type convertRequest struct {
@@ -294,7 +297,7 @@ func (s *appState) ensurePreview(ctx context.Context, ffmpegPath, input string, 
 	return os.Rename(tempPath, outPath)
 }
 
-func (s *appState) ensureAudioPreview(ctx context.Context, ffmpegPath, input, fit, outPath string) error {
+func (s *appState) ensureAudioPreview(ctx context.Context, ffmpegPath, input, fit, fallbackPreset, outPath string) error {
 	if st, err := os.Stat(outPath); err == nil && st.Size() > 0 {
 		return nil
 	}
@@ -313,7 +316,11 @@ func (s *appState) ensureAudioPreview(ctx context.Context, ffmpegPath, input, fi
 	_, artErr := runCommandContext(ctx2, ffmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-threads", "1", "-i", input, "-map", "0:v:0", "-frames:v", "1", "-an", "-sn", "-dn", "-vf", makePreviewFilter(fit), "-threads", "1", "-f", "image2", tempPath)
 	if artErr != nil {
 		_ = os.Remove(tempPath)
-		_, artErr = runCommandContext(ctx2, ffmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x10243A:s=240x160", "-frames:v", "1", "-f", "image2", tempPath)
+		data, fallbackErr := audioArtworkPresetPNG(fallbackPreset)
+		if fallbackErr != nil {
+			return fallbackErr
+		}
+		artErr = os.WriteFile(tempPath, data, 0644)
 	}
 	if artErr != nil {
 		return artErr
@@ -644,7 +651,7 @@ func (s *appState) openProject() (projectOpenResponse, error) {
 	if err != nil {
 		return projectOpenResponse{}, err
 	}
-	if len(data) > 2<<20 {
+	if len(data) > 32<<20 {
 		return projectOpenResponse{}, errors.New("project file is too large")
 	}
 	var doc projectDocument
@@ -951,7 +958,20 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		if clipReq.UseProject {
 			imageSeconds = req.ImageSeconds
 		}
-		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds, MusicTitle: clipReq.MusicTitle, MusicArtist: clipReq.MusicArtist}
+		artworkMode := strings.ToLower(strings.TrimSpace(clipReq.MusicArtworkMode))
+		if artworkMode == "" {
+			artworkMode = "embedded"
+		}
+		if artworkMode != "default" && artworkMode != "embedded" && artworkMode != "custom" {
+			return ProjectOptions{}, nil, fmt.Errorf("%s: invalid audio artwork mode", v.Name)
+		}
+		artworkPreset := normalizeAudioArtworkPreset(clipReq.MusicArtworkPreset)
+		if v.Info.Kind == "audio" && artworkMode == "custom" {
+			if _, customErr := decodeCustomAudioArtworkDataURL(clipReq.MusicArtworkCustom); customErr != nil {
+				return ProjectOptions{}, nil, fmt.Errorf("%s: %w", v.Name, customErr)
+			}
+		}
+		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds, MusicTitle: clipReq.MusicTitle, MusicArtist: clipReq.MusicArtist, MusicArtworkMode: artworkMode, MusicArtworkPreset: artworkPreset, MusicArtworkCustom: clipReq.MusicArtworkCustom}
 		if isAnimatedGIFPath(v.Path) {
 			input.MediaKind = "video"
 			input.Loop = true
@@ -1233,6 +1253,21 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = w.Write(appIconPNG)
 	})
+	mux.HandleFunc(prefix+"/audio-artwork/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, prefix+"/audio-artwork/"), ".png")
+		if normalizeAudioArtworkPreset(name) != name {
+			http.NotFound(w, r)
+			return
+		}
+		data, err := audioArtworkPresetPNG(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(data)
+	})
 	mux.HandleFunc(prefix+"/style.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -1452,7 +1487,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, fmt.Errorf("invalid project settings: %w", err))
@@ -1525,13 +1560,18 @@ func (s *appState) routes(page []byte) http.Handler {
 			if candidate < 0 {
 				candidate = 0
 			}
-			out = filepath.Join(s.sessionDir, fmt.Sprintf("preview-%d-%d-%s.png", idx, int(candidate*1000), fit))
+			fallbackPreset := normalizeAudioArtworkPreset(r.URL.Query().Get("artworkFallback"))
+			cacheSuffix := fit
+			if video.Info.Kind == "audio" {
+				cacheSuffix += "-" + fallbackPreset
+			}
+			out = filepath.Join(s.sessionDir, fmt.Sprintf("preview-%d-%d-%s.png", idx, int(candidate*1000), cacheSuffix))
 			if st, err := os.Stat(out); err == nil && st.Size() > 0 {
 				previewErr = nil
 				break
 			}
 			if video.Info.Kind == "audio" {
-				previewErr = s.ensureAudioPreview(r.Context(), ff, video.Path, fit, out)
+				previewErr = s.ensureAudioPreview(r.Context(), ff, video.Path, fit, fallbackPreset, out)
 			} else {
 				previewErr = s.ensurePreview(r.Context(), ff, video.Path, candidate, fit, out)
 			}
@@ -1561,7 +1601,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, fmt.Errorf("invalid settings: %w", err))
@@ -1600,7 +1640,7 @@ func (s *appState) routes(page []byte) http.Handler {
 		}
 		idx, _ := strconv.Atoi(r.URL.Query().Get("index"))
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, err)
 			return
@@ -1630,7 +1670,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, fmt.Errorf("invalid settings: %w", err))

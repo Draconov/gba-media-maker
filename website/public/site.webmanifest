@@ -1,7 +1,7 @@
 {
-  "name": "GBA Video Maker Web",
-  "short_name": "GBA Video Maker",
-  "description": "Convert videos into Game Boy Advance ROMs locally in your browser.",
+  "name": "GBA Media Maker Web",
+  "short_name": "GBA Media Maker",
+  "description": "Convert videos, music, images and GIFs into Game Boy Advance ROMs in your browser.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
