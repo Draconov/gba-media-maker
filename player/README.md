@@ -1,41 +1,177 @@
-# Embedded GBA Player
+# Embedded GBA Media Player
 
-The player is a freestanding ARM7TDMI program compiled with LLVM. It implements GBV5 clip menus, keyframe/delta decoding, scene-palette switching, audio seeking, HUD modes, controls help, volume/mute controls, and SRAM resume support.
+Freestanding ARM7TDMI runtime used by **GBA Media Maker v0.13.0**.
 
-## Build on Linux/macOS
+The player is built once as a generic **32 KiB** stub and embedded at the beginning of every generated ROM. GBV5 metadata and media assets are appended by the desktop or browser converter.
+
+## Supported media paths
+
+| Media | Display path | Stored visual data | Audio |
+|---|---|---|---|
+| Video | Mode 4 | 120×80 indexed frames, expanded 2× to 240×160 | Optional PCM / experimental ADPCM |
+| Animated GIF | Mode 4 | Video-frame path, forced loop | None |
+| Music/audio | Mode 3 | Native 240×160 RGB555 artwork | PCM / experimental ADPCM |
+| Static image | Mode 3 | Native 240×160 RGB555 image | None |
+
+The runtime remains compatible with legacy GBV5 video descriptors and uses v0.13 descriptor flags to dispatch audio-only, image, and media-metadata entries.
+
+## Build
+
+Linux/macOS:
 
 ```bash
 ./player/build.sh
 ```
 
-Requirements: `clang`, `ld.lld`, and `llvm-objcopy`.
-
-## Build on Windows PowerShell
+PowerShell:
 
 ```powershell
 ./player/build.ps1
 ```
 
-The resulting `assets/player_stub.bin` must be exactly **32768 bytes**. The converter patches the GBA header and the global metadata block at `0x7FC0`, then begins clip descriptors and assets at `0x8000`.
+Requirements:
 
-## Native split-part title cards
+- `clang`
+- `ld.lld`
+- `llvm-objcopy`
 
-Version 0.11 adds optional `TCD1` title-card assets for automatically split single-video ROMs. Before initializing the 120×80 video path, the player can show a full **240×160 RGB555** screen generated from the selected part's darkened first frame or another configured background.
+The build compiles `startup.S`, `metadata.S`, `main.c`, and `compiler_compat.S` for `arm-none-eabi`, links the freestanding runtime, converts it to a raw binary, and pads the result to exactly:
 
-The title card can wait for `A`, start after a timer, allow skipping, fade to black, initialize playback, and then fade the first video frame in. The converter supports independent Large, Medium, and Small typography, alignment, text colour, and outline colour for the title and subtitle, and defaults first-frame backgrounds to 50% darkening. Because the screen is pre-rendered during conversion, the GBA does not perform runtime image scaling, alpha blending, or font layout.
+```text
+32768 bytes / 0x8000
+```
 
-In multi-video menu ROMs, the selected clip uses a clear pixel-art arrow. Finishing a clip or pressing B returns to the menu.
+By default the output is `assets/player_stub.bin`. CI can set `PLAYER_STUB_OUT` to smoke-build a temporary copy without overwriting the committed stub.
 
+## Current controls
 
-## Unified Latin + Cyrillic font
+### Video
 
-Version 0.12.2 extends the compact 3×5 runtime font with one union of Ukrainian and Russian Cyrillic characters. Shared Cyrillic letters use one glyph entry; Ukrainian adds `Ґ Є І Ї` and Russian adds `Ё Ъ Ы Э`. The converter keeps project strings as UTF-8 and writes menu/title fallback strings as one-byte glyph IDs (`0x80`–`0xA5`), so the GBA player does not need a UTF-8 decoder. Native 240×160 title-card assets use the same glyph shapes while being pre-rendered by the converter.
+| Button | Action |
+|---|---|
+| `A` | Pause / resume |
+| `B` | Return to menu in menu ROMs; restart in a direct ROM |
+| `L` / `R` | Previous / next media |
+| `Left` / `Right` | Seek while playing; one-frame step while paused |
+| Hold `Left` / `Right` | Repeat about every 18 VBlanks (~0.30 s) |
+| `Up` / `Down` | Volume 0 / 50 / 100 only when audio exists |
+| `SELECT` | Mute / unmute only when audio exists |
+| `START` | HUD hidden → time only → full |
+| `START + SELECT` | Help |
 
-## Experimental v0.12 media extensions
+GIFs, silent videos, and videos converted with **No audio** do not expose volume/mute actions or badges.
 
-The bundled player remains compatible with legacy GBV5 descriptors and adds two opt-in flags used only by Extreme optimization:
+### Audio
 
-- **Adaptive keyframes:** the stream already identifies every record as full or delta, so seeking reconstructs from the nearest full record without assuming a fixed interval.
-- **IMA ADPCM:** 2,048-sample blocks contain an independent predictor and step index. The player decodes two 4,096-sample PCM halves in EWRAM and refills the inactive half while Direct Sound DMA plays the active half. Frame seek entries store decoded sample positions for ADPCM and byte offsets for PCM.
+| Button | Action |
+|---|---|
+| `A` | Pause / resume |
+| `B` | Return to menu in menu ROMs; restart in a direct ROM |
+| `L` / `R` | Previous / next media |
+| `Left` / `Right` | Seek while playing; one timeline step while paused |
+| Hold `Left` / `Right` | Repeat about every 18 VBlanks (~0.30 s) |
+| `Up` / `Down` | Volume 0 / 50 / 100 |
+| `SELECT` | Mute / unmute |
+| `START` | HUD hidden → time only → full |
+| `START + SELECT` | Help |
 
-Legacy clips continue to stream signed 8-bit PCM directly from ROM. Codec ID, sample count, block size, and block byte length are stored in descriptor bytes 80–95, which were reserved in earlier releases.
+Audio starts with the full Now Playing HUD visible.
+
+### Images
+
+| Button | Action |
+|---|---|
+| `A` | Pause/resume only when slideshow duration is non-zero |
+| `B` | Return to menu in menu ROMs; restart in a direct ROM |
+| `L` / `R` | Previous / next media |
+| `START` | Cycle HUD visibility |
+| `START + SELECT` | Help |
+
+Manual images ignore `A`. Images have no seek, volume, or mute controls.
+
+### Media menu
+
+| Button | Action |
+|---|---|
+| `Up` / `Down` | Move within current column |
+| `Left` / `Right` | Move between columns/pages |
+| `A` | Play selected media |
+| `START + SELECT` | Help |
+
+The old `SELECT + L/R` media shortcut and `L + R` quick-HUD shortcut are intentionally removed.
+
+## HUD behavior
+
+Video uses the restored v0.12.2 presentation:
+
+- elapsed/total time;
+- full-HUD frame counter;
+- progress line;
+- yellow loop indicator;
+- centered seek badge;
+- volume and mute badges when audio exists.
+
+Audio uses a native 240×160 artwork screen with title, artist, elapsed/total time, PLAY/PAUSE status, and a 4-pixel progress line.
+
+Temporary UI timing:
+
+```text
+seek badge / temporary full HUD   6 VBlanks ≈ 0.10 s
+mute badge                        6 VBlanks ≈ 0.10 s
+volume badge                      6 VBlanks ≈ 0.10 s
+held seek/step repeat            18 VBlanks ≈ 0.30 s
+```
+
+Audio temporary UI updates restore/redraw only affected HUD regions, avoiding full-screen artwork flashes.
+
+## Save/resume
+
+When the GBV5 global resume flag is set, the runtime stores:
+
+- save magic and media count;
+- remembered menu selection;
+- one encoded resume position per media entry.
+
+Before a valid saved video/audio position is used, the player shows:
+
+```text
+CONTINUE FROM
+    MM:SS
+
+ A CONTINUE
+ B RESTART
+```
+
+Images do not show a playback-position prompt.
+
+## GBV5 extensions used by v0.13
+
+Current clip flag bits:
+
+```text
+0x0001  audio stream present
+0x0002  loop
+0x0004  compressed video
+0x0008  scene palette table
+0x0010  IMA ADPCM
+0x0020  adaptive keyframes
+0x0040  audio-only media
+0x0080  static-image media
+0x0100  media metadata record
+```
+
+Audio metadata supports current `MMD2` and legacy `MMD1`. New `MMD2` records contain 28-character title, 28-character artist, and 20-character album fields.
+
+Menu themes use `MTH1`. Native title cards use `TCD1`.
+
+## ROM/display invariants
+
+- GBV5 global metadata: `0x7FC0`
+- Media/descriptor region begins: `0x8000`
+- Player stub size: exactly 32 KiB
+- Video logical frame: 120×80 / 9,600 bytes
+- Native artwork/image screen: 240×160 RGB555 / 76,800 bytes
+- Audio sample rate: 16,384 Hz mono
+- Maximum generated ROM: 32 MiB
+
+See [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) for the complete ROM and converter architecture.

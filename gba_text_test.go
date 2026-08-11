@@ -82,3 +82,10 @@ func TestGBASlashGlyphRemainsDiagonal(t *testing.T) {
 		t.Fatalf("slash glyph must not match vertical bar")
 	}
 }
+
+func TestSafeGBAHeaderTitleFallbackUsesMediaBrand(t *testing.T) {
+	got := string(safeGBAHeaderTitle("🙂"))
+	if got != "GBA MEDIA   " {
+		t.Fatalf("fallback title=%q", got)
+	}
+}

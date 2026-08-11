@@ -1,120 +1,225 @@
 <p align="center">
-  <img src="public/icon.png" width="96" alt="GBA Video Maker icon">
+  <img src="public/icon.png" width="96" alt="GBA Media Maker icon">
 </p>
 
-<h1 align="center">GBA Video Maker Web</h1>
+<h1 align="center">GBA Media Maker Web</h1>
 
 <p align="center">
-  Convert videos into Game Boy Advance ROMs directly in your browser.
+  Build video, music, GIF, image, and mixed-media Game Boy Advance ROMs directly in a modern desktop browser.
   <br>
-  Processing stays on your device; source videos are never uploaded to a server.
-</p>
-
-<p align="center">
-  <a href="https://draconov.github.io/gba-video-maker/"><strong>Open the web app</strong></a>
-  ·
-  <a href="https://github.com/draconov/gba-video-maker">Main repository</a>
+  Media processing stays on the user's device; there is no conversion-upload backend.
 </p>
 
 ---
 
 ## Overview
 
-Version 0.12.2 follows the Windows application's conversion workflow and uses the same embedded GBA player. It supports single videos, collections, customizable menu ROMs, long-video splitting, project files, per-clip settings, and browser-side ROM generation through ffmpeg.wasm.
+The browser edition targets **v0.13.0 parity** with the portable Windows app. It uses ffmpeg.wasm for media work and the same synchronized 32 KiB GBA player stub for ROM playback.
 
-### Highlights
+### Current parity
 
-- Runs locally in the browser with no video uploads
-- Produces Single ROM, playlist ROM, menu ROM, or separate-ROM ZIP output
-- Uses the same fixed 120×80 playback format and `player_stub.bin` as the Windows app
-- Supports `.gbavideo` project save/open with browser-safe source relinking
-- Estimates ROM size and long-video part count before conversion
-- Recovers completed split parts through IndexedDB
-- Provides the same menu-design preview, built-in backgrounds, UI colours, outlines, and custom image/GIF/video support as the Windows app
-- Provides native 240×160 split-part title cards with shared or individual part settings, 50% default darkening, and independent title/subtitle Large/Medium/Small sizing, alignment, text colour, and outline colour in a compact two-row typography table
-- Keeps the `Part N` selector, plain `of M` total, navigation buttons, and all title-card checkboxes in compact single rows while avoiding duplicate preview extraction
+| Feature | Browser | Desktop |
+|---|:---:|:---:|
+| Video ROMs | ✅ | ✅ |
+| Animated GIF import/auto-loop | ✅ | ✅ |
+| Audio-only ROMs | ✅ | ✅ |
+| Native static-image ROMs | ✅ | ✅ |
+| Mixed/same-media menu collections | ✅ | ✅ |
+| Separate-ROM ZIP output | ✅ | ✅ |
+| `.gbamedia` v2 projects | ✅ | ✅ |
+| Legacy `.gbavideo` loading | ✅ | ✅ |
+| v0.12.2 menu themes/custom colour picker | ✅ | ✅ |
+| Custom image/GIF/video menu backgrounds | ✅ | ✅ |
+| Split-video title cards | ✅ | ✅ |
+| Long-video splitting | ✅ | ✅ |
+| Extreme optimization controls | ✅ | ✅ |
+| 20 default audio-artwork presets | ✅ | ✅ |
+| Embedded/custom audio artwork | ✅ | ✅ |
+| Current save/resume/runtime controls | ✅ | ✅ |
+| Current output naming rules | ✅ | ✅ |
 
+The main practical difference is resource access: native FFmpeg is faster and more tolerant of large sources, while browsers have WebAssembly memory/storage limits and cannot silently reopen arbitrary local paths from a saved project.
 
-### Ukrainian and Russian text
+## Media workflow
 
-The browser edition uses the same combined Latin + Cyrillic 3×5 font as the desktop app and player. Menu titles and split-part title cards accept Ukrainian and Russian UTF-8 text directly, including Ukrainian-only `Ґ Є І Ї` and Russian-only `Ё Ъ Ы Э`. Text limits count glyphs rather than UTF-8 bytes, unsupported characters are reported, and the ROM builder converts supported Cyrillic to compact one-byte player glyph IDs.
+### Video
+
+The website keeps the existing 120×80 indexed video pipeline:
+
+- trim start/end;
+- playback speed;
+- fit, crop, or stretch;
+- GBA-friendly frame-rate presets;
+- shared/scene palettes;
+- off/ordered/error-diffusion dithering;
+- delta or uncompressed video;
+- selected audio stream/channel;
+- volume, normalize, limiter;
+- PCM or experimental ADPCM under supported settings;
+- seek step, loop, save/resume;
+- long-video splitting, chapters, title cards, and recovery tools.
+
+### Animated GIF
+
+GIFs are classified as video, decoded as animation frames, and always loop in the generated ROM.
+
+### Audio
+
+Music/audio items support:
+
+- editable 28-character song title;
+- editable 28-character artist subtitle;
+- trim and playback speed;
+- PCM/experimental ADPCM audio;
+- looping and save/resume;
+- current Now Playing player controls;
+- artwork mode: **Embedded**, **Default**, or **Custom image**.
+
+#### Artwork presets
+
+The browser includes the same 20 native 240×160 default artwork presets as the desktop app:
+
+```text
+website/public/audio-artwork/preset-01.png
+...
+website/public/audio-artwork/preset-20.png
+```
+
+Embedded mode uses source cover art when present and otherwise falls back to the selected preset. Custom PNG/JPEG/WebP artwork is cropped/prepared for the 240×160 GBA screen and stored in `.gbamedia` project data.
+
+### Images
+
+Static images are converted to native 240×160 RGB555 and support:
+
+- fit/crop/stretch;
+- timed slideshow mode;
+- manual viewer mode when slideshow is disabled.
 
 ## Output modes
 
-| Mode | Result | Best for |
-| --- | --- | --- |
-| **Single ROM** | One `.gba` file; automatically splits if it cannot fit | One video |
-| **Playlist ROM** | One ROM that plays clips in order | Episodes or compilations |
-| **Menu ROM** | One ROM with a startup clip selector | Collections with manual selection |
-| **Separate ROMs** | Numbered `.gba` files inside a ZIP | Independent clips or batch conversion |
+Current v0.13 behavior is deliberately simple:
 
-## Main features
+| Input count | Choice | Result |
+|---|---|---|
+| 1 item | Single ROM | `<source>.gba` |
+| 2+ items | Media menu | `GBA_Media_Collection.gba` |
+| 2+ items | Separate ROMs | `GBA_Media_Collection.zip` |
 
-### Video and project workflow
+Every 2+ item collection uses the media menu regardless of whether it contains mixed media or only videos/music/images. Legacy playlist project values are migrated to menu mode.
 
-- One or more source videos
-- Drag-and-drop clip ordering
-- Project defaults with per-clip overrides
-- Full-width selected-clip preview
-- Windows-style thumbnail/trim timeline below the video
-- Draggable Start, Current, and End handles
-- Directly editable Start and End timestamps
-- Editable yellow GBA-font title field with automatic character filtering and 12-character truncation
-- Selected-channel audio preview
-- `.gbavideo` save/open support
+## Output naming parity
 
-### Encoding controls
+The browser uses the same naming helpers as the desktop workflow:
 
-- Named quality/frame-rate presets
-- Crop, fit-with-bars, and stretch framing
-- Shared or scene-change palettes
-- Off, ordered, and error-diffusion dithering
-- Raw or keyframe/delta compression
-- Mono mix, left-channel, right-channel, or disabled audio
-- Loudness normalization and limiter
-- Per-clip speed, volume, looping, palette, dithering, trim, and title settings
-- Reviewable 32 MiB optimization proposal
+```text
+single source             My Movie.gba
+multi-item menu           GBA_Media_Collection.gba
+multi-item batch ZIP      GBA_Media_Collection.zip
+ROM inside batch ZIP      My Song_GBA.gba
+split-video archive       My Movie_PARTS.zip
+split-video part          My Movie_PART_01.gba
+project                   My Project.gbamedia
+```
 
-### Menu design
+The browser/operating system can still append `(1)` or another duplicate-download suffix after GBA Media Maker has supplied the intended filename.
 
-The **Menu design** section appears when multiple clips are loaded and **Menu ROM** is selected. Its preview is generated from the same 120×80 indexed background and UI settings that are embedded in the finished ROM.
+## Menu design
 
-- **Classic dark**, **Ocean Wave — static**, **Ocean Wave — animated**, and **Blue Wave — animated** presets
-- Ocean Wave dual-rate palette shimmer: approximately 2 changes per second on the bright curl and 5 changes per second on the lower water
-- Seven UI-colour presets
-- Optional one-pixel outline with five outline colours
-- Custom PNG, JPEG, WebP, GIF, or video upload
-- Center-crop and resize to 120×80
-- RGB555 indexed conversion with reserved menu UI colours
-- GIFs and videos sampled to at most 16 looping frames; video start and 1–32 second sample duration are configurable and source audio is ignored
-- Integer-scaled preview using the player's exact 3×5 font, coordinates, divider lines, and selector shape
-- Theme data embedded in the ROM as an `MTH1` record, so each exported menu ROM is self-contained
-- Theme palette, frames, animation timing, colours, and outline settings included in size estimates and project files
+The website uses the stable v0.12.2 menu/theme implementation carried forward into v0.13:
 
-Animated frame themes are prepared on the hidden Mode 4 page and displayed on VBlank to reduce tearing. Browser GIF animation requires support for the browser `ImageDecoder` API; browsers without it import the file as a static image when possible.
+- Classic dark
+- Ocean Wave — static
+- Ocean Wave — animated
+- Blue Wave — animated
+- custom PNG/JPEG/WebP background
+- custom GIF/video background sampled to at most 16 looping frames
+- stable 120×80 MTH1 data
+- exact 3×5 player font/coordinates
+- media-type labels
+- pixel-art selection arrow
+- normal, selection, and outline colours
+- optional outline
+- full custom GBA colour picker with saturation/value square, hue slider, eyedropper, RGB, HEX, and preset swatches
 
-### Long-video splitting
+The preview is generated from the same logical menu data that is embedded into the finished ROM.
 
-Single-ROM conversion automatically falls back to numbered ROM parts when the source cannot safely fit on one cartridge. Enabling **Split the video** exposes additional controls:
+## Project files
 
-- 1–32 MiB target size
-- 20 MiB, 30 MiB, and Maximum shortcuts
-- Optional maximum duration using seconds, `MM:SS`, or `H:MM:SS`
-- Chapter-aware cut points
-- Optional native 240×160 title cards with first-frame backgrounds, source-filename titles, and automatic `Part {part}` subtitles
-- Shared settings or per-part overrides, using the same RGB555 colour picker as the menu editor
-- Numbered ROM output plus `PARTS.txt`
-- Estimated part count before conversion
-- Progress such as `Part 3 of approximately 7` and `Source position: 18:42 / 50:00`
-- Interrupted-job recovery through IndexedDB
-- Partial output recovery when a later part fails
+Browser projects use the same canonical v2 schema as the desktop app:
 
+```text
+extension: .gbamedia
+format:    gba-media-maker-project
+version:   2
+```
 
-## Extreme optimization in the browser
+Saved data includes:
 
-Selecting **Extreme optimization (Experimental)** reveals the same target-size, priority, recommendation, and audio-quality controls as the desktop app. The browser performs a bounded 120×80 RGB scan through FFmpeg/WASM, selects representative content, ranks candidates, and applies adaptive-keyframe and ADPCM settings only for that preset. Analysis is sequential, cancellable, and does not hide manual split/title-card controls when metadata discovery is incomplete.
+- project defaults and per-item overrides;
+- media ordering/titles;
+- image slideshow state;
+- music title/artist;
+- artwork mode/preset/custom artwork;
+- menu theme/background settings;
+- title-card settings;
+- current encoding/splitting settings.
 
-The browser still has tighter memory limits than the desktop build. Long source files may analyze successfully but require automatic numbered-ROM splitting during full conversion.
+Legacy `.gbavideo` project formats remain loadable.
+
+### Browser source relinking
+
+A website cannot silently reopen arbitrary local files stored in a project path. After reopening `.gbamedia`, the browser may ask the user to select the original source media again so it can relink them by available file information.
+
+## GBA runtime parity
+
+The website does **not** maintain a separate player fork.
+
+```text
+../player source
+      │
+      ▼
+../assets/player_stub.bin
+      │
+      ▼
+scripts/sync-player.mjs
+      │
+      ▼
+public/player_stub.bin
+```
+
+The synchronized runtime provides the current v0.13 behavior, including:
+
+- v0.12.2-style video HUD and loop icon;
+- frame counter;
+- 0.10-second temporary seek/mute/volume feedback;
+- ~0.30-second held-seek repeat;
+- current L/R media navigation;
+- audio Now Playing HUD;
+- no volume/mute on silent video/GIF/image entries;
+- slideshow-aware image controls;
+- restored save/resume confirmation prompt;
+- current media menu.
+
+## Long-video splitting
+
+Single-video conversion can automatically fall back to numbered parts when the selected cartridge/data target cannot safely fit.
+
+Available controls include:
+
+- 1–32 MiB target;
+- 20 MiB, 30 MiB, and Maximum shortcuts;
+- optional maximum part duration;
+- chapter-aware boundaries;
+- native title cards;
+- completed-part recovery;
+- `PARTS.txt` manifest;
+- exact numbered filenames matching desktop output.
+
+## Extreme optimization
+
+Extreme remains an explicitly experimental preset. The browser performs bounded low-resolution analysis through ffmpeg.wasm, ranks candidate settings, and can apply adaptive-keyframe/experimental ADPCM recommendations.
+
+Stable presets remain on the established fixed-keyframe/PCM path unless the user explicitly selects Extreme.
 
 ## Run locally
 
@@ -122,28 +227,70 @@ The browser still has tighter memory limits than the desktop build. Long source 
 
 - Node.js 22
 - npm
-- A modern browser with WebAssembly support
+- Modern desktop browser with WebAssembly support
+- LLVM only if you also intend to rebuild the GBA player from `../player/`
 
-### Development server
+### Install and develop
 
 ```bash
 cd website
 npm install
+npm test
 npm run dev
 ```
 
-Vite prints a local address, usually `http://localhost:5173`.
+Vite prints the local development URL.
 
-### Test and build
+### Production build
 
 ```bash
 cd website
+npm install
 npm test
 npm run build
 npm run preview
 ```
 
-The deployable site is generated in `website/dist/`. Do not edit `dist/` manually; it is rebuilt by Vite and GitHub Actions.
+The deployable static site is generated under:
+
+```text
+website/dist/
+```
+
+Do not hand-edit `dist/`; it is a build product.
+
+## Player synchronization
+
+The npm lifecycle hooks run `scripts/sync-player.mjs` before development, testing, and production build:
+
+```json
+"predev": "npm run sync-player",
+"pretest": "npm run sync-player",
+"prebuild": "npm run sync-player"
+```
+
+The script copies `../assets/player_stub.bin`, verifies its 32 KiB size, and supplies `public/player_stub.bin` to the static build.
+
+## Tests
+
+The browser test suite covers ROM assembly, media descriptors, project migration, naming parity, menu/title-card data, site assets, and current media behavior.
+
+```bash
+cd website
+npm test
+```
+
+The GitHub Pages workflow also:
+
+1. installs LLVM;
+2. rebuilds the GBA player;
+3. synchronizes the player stub;
+4. installs website dependencies;
+5. runs browser tests;
+6. builds the Vite site;
+7. deploys the static artifact.
+
+See [`.github/workflows/pages.yml`](../.github/workflows/pages.yml).
 
 ## Project structure
 
@@ -153,69 +300,57 @@ website/
 ├── package.json
 ├── vite.config.js
 ├── public/
-│   ├── .nojekyll
 │   ├── icon.png
-│   └── player_stub.bin       copied from ../assets/
+│   ├── audio-artwork/
+│   │   ├── preset-01.png
+│   │   └── ... preset-20.png
+│   └── player_stub.bin        generated/synchronized for build
 ├── scripts/
 │   └── sync-player.mjs
 ├── src/
-│   ├── main.js               interface, smart analysis, conversion workflow, and downloads
-│   ├── adpcm.js              block IMA ADPCM encoder/decoder used by preview and ROM output
-│   ├── smart-encoding.js      representative analysis, candidate scoring, and size ranges
-│   ├── menu-themes.js        built-in themes, custom image/GIF/video conversion, and preview
-│   ├── title-cards.js        native title-card state, preview, and TCD1 serialization
-│   ├── style.css             responsive light/dark interface
-│   ├── rom.worker.js         palette and compression worker
-│   └── rom-core.js           palette, compression, theme/title-card embedding, and ROM assembly
+│   ├── main.js                UI, ffmpeg.wasm workflow, conversion/downloads
+│   ├── rom-core.js            GBV5 assembly, palette/compression/media records
+│   ├── rom.worker.js          conversion worker
+│   ├── project-format.js      .gbamedia v2 save/load/migration
+│   ├── parity-utils.js        desktop-compatible naming/settings helpers
+│   ├── menu-themes.js         stable theme/background preview + MTH1 data
+│   ├── title-cards.js         title-card state/preview/TCD1 data
+│   ├── gba-text.js            player-compatible text encoding
+│   ├── adpcm.js               browser IMA ADPCM codec path
+│   ├── smart-encoding.js      Extreme optimization analysis
+│   └── style.css
 └── tests/
-    ├── rom-core.test.mjs
-    └── title-cards.test.mjs
+    └── *.test.mjs
 ```
 
-The GitHub Pages workflow is stored at:
+## GitHub Pages
+
+Deployment is configured in:
 
 ```text
 .github/workflows/pages.yml
 ```
 
-## Publish with GitHub Pages
-
-1. Commit the repository, including `website/` and `.github/workflows/pages.yml`.
-2. Push to the `main` branch.
-3. Open **Settings → Pages** in the GitHub repository.
-4. Set **Build and deployment → Source** to **GitHub Actions**.
-5. Open the **Actions** tab and wait for **Deploy web converter to GitHub Pages** to finish.
-
-The public project URL is:
-
-```text
-https://draconov.github.io/gba-video-maker/
-```
-
-Pushes that change `website/`, `assets/player_stub.bin`, or the Pages workflow automatically rebuild the site.
-
-## Keep the browser player synchronized
-
-Rebuild the desktop/player project so `assets/player_stub.bin` is current. The website's `prebuild` script copies it into `website/public/player_stub.bin` and verifies that the file is exactly 32 KiB.
-
-```bash
-cd website
-npm run build
-```
-
-Do not manually maintain a separate browser player binary.
+Enable **Settings → Pages → Build and deployment → GitHub Actions** for the repository. The final public URL depends on the GitHub account/repository where this project is deployed.
 
 ## Browser limitations
 
-The interface and ROM output follow the Windows app, but browsers have stricter memory, file-access, and storage limits.
-
-- ffmpeg.wasm and active frame buffers consume browser memory.
-- Long videos are processed one ROM part at a time.
-- Very large files can exceed the browser's WebAssembly memory or storage quota.
-- Browsers cannot silently reopen local files. After opening a `.gbavideo` project, reselect the source files so they can be relinked by name and size.
-- Completed split parts are stored in IndexedDB only when recovery is enabled.
-- The Windows build remains faster and more tolerant of multi-gigabyte sources.
+- ffmpeg.wasm and active frame buffers can use substantial memory.
+- Very large sources can exceed WebAssembly memory or browser storage quotas.
+- Native desktop FFmpeg is usually much faster.
+- Browsers cannot silently restore arbitrary local source paths from project files.
+- Some browser capabilities vary by engine/version; test the intended browser before relying on very large jobs.
 
 ## Privacy
 
-All conversion work happens locally in the browser. The application does not upload source videos to a conversion server.
+The static website does not upload source media to a GBA Media Maker conversion server. Selected files are processed locally through the browser conversion stack.
+
+The page may still fetch normal application dependencies/resources required by the deployed site (including the configured FFmpeg WebAssembly core); this is separate from uploading the user's source media.
+
+## More documentation
+
+- [Main README](../README.md)
+- [Architecture](../docs/ARCHITECTURE.md)
+- [Release history](../CHANGELOG.md)
+- [Player runtime](../player/README.md)
+- [Third-party notices](../THIRD_PARTY_NOTICES.md)

@@ -98,19 +98,25 @@ type reorderVideoRequest struct {
 }
 
 type clipSettingsRequest struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	UseProject  bool    `json:"useProject"`
-	Start       string  `json:"start"`
-	End         string  `json:"end"`
-	Speed       float64 `json:"speed"`
-	Fit         string  `json:"fit"`
-	Audio       string  `json:"audio"`
-	AudioTrack  int     `json:"audioTrack"`
-	Volume      float64 `json:"volume"`
-	Loop        bool    `json:"loop"`
-	PaletteMode string  `json:"paletteMode"`
-	DitherMode  string  `json:"ditherMode"`
+	ID                 string  `json:"id"`
+	Title              string  `json:"title"`
+	UseProject         bool    `json:"useProject"`
+	Start              string  `json:"start"`
+	End                string  `json:"end"`
+	Speed              float64 `json:"speed"`
+	Fit                string  `json:"fit"`
+	Audio              string  `json:"audio"`
+	AudioTrack         int     `json:"audioTrack"`
+	Volume             float64 `json:"volume"`
+	Loop               bool    `json:"loop"`
+	PaletteMode        string  `json:"paletteMode"`
+	DitherMode         string  `json:"ditherMode"`
+	ImageSeconds       float64 `json:"imageSeconds,omitempty"`
+	MusicTitle         string  `json:"musicTitle,omitempty"`
+	MusicArtist        string  `json:"musicArtist,omitempty"`
+	MusicArtworkMode   string  `json:"musicArtworkMode,omitempty"`
+	MusicArtworkPreset string  `json:"musicArtworkPreset,omitempty"`
+	MusicArtworkCustom string  `json:"musicArtworkCustom,omitempty"`
 }
 
 type convertRequest struct {
@@ -134,6 +140,7 @@ type convertRequest struct {
 	Compression        string                    `json:"compression"`
 	PaletteMode        string                    `json:"paletteMode"`
 	DitherMode         string                    `json:"ditherMode"`
+	ImageSeconds       float64                   `json:"imageSeconds,omitempty"`
 	OutputMode         string                    `json:"outputMode"`
 	SplitVideo         bool                      `json:"splitVideo"`
 	SplitBudgetMiB     int                       `json:"splitBudgetMiB"`
@@ -182,7 +189,7 @@ func appDirectory() string {
 }
 
 func logDiagnostic(section string, recovered any) {
-	path := filepath.Join(appDirectory(), "GBA Video Maker.log")
+	path := filepath.Join(appDirectory(), "GBA Media Maker.log")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return
@@ -224,7 +231,7 @@ func newAppState(token, sessionDir string) *appState {
 		s.ffmpegPath, s.engineStatus, s.engineProgress, s.engineMessage = ff, "ready", 100, "Conversion engine ready"
 	} else {
 		s.engineStatus = "missing"
-		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Video Maker.exe, then click Check again."
+		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Media Maker.exe, then click Check again."
 	}
 	return s
 }
@@ -290,6 +297,41 @@ func (s *appState) ensurePreview(ctx context.Context, ffmpegPath, input string, 
 	return os.Rename(tempPath, outPath)
 }
 
+func (s *appState) ensureAudioPreview(ctx context.Context, ffmpegPath, input, fit, fallbackPreset, outPath string) error {
+	if st, err := os.Stat(outPath); err == nil && st.Size() > 0 {
+		return nil
+	}
+	s.previewMu.Lock()
+	defer s.previewMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if st, err := os.Stat(outPath); err == nil && st.Size() > 0 {
+		return nil
+	}
+	tempPath := fmt.Sprintf("%s.%d.png", outPath, time.Now().UnixNano())
+	defer os.Remove(tempPath)
+	ctx2, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	_, artErr := runCommandContext(ctx2, ffmpegPath, "-y", "-hide_banner", "-loglevel", "error", "-threads", "1", "-i", input, "-map", "0:v:0", "-frames:v", "1", "-an", "-sn", "-dn", "-vf", makePreviewFilter(fit), "-threads", "1", "-f", "image2", tempPath)
+	if artErr != nil {
+		_ = os.Remove(tempPath)
+		data, fallbackErr := audioArtworkPresetPNG(fallbackPreset)
+		if fallbackErr != nil {
+			return fallbackErr
+		}
+		artErr = os.WriteFile(tempPath, data, 0644)
+	}
+	if artErr != nil {
+		return artErr
+	}
+	if st, err := os.Stat(tempPath); err != nil || st.Size() == 0 {
+		return errors.New("FFmpeg returned no artwork preview")
+	}
+	_ = os.Remove(outPath)
+	return os.Rename(tempPath, outPath)
+}
+
 func (s *appState) refreshEngine() {
 	ff := locateFFmpeg()
 	s.mu.Lock()
@@ -297,7 +339,7 @@ func (s *appState) refreshEngine() {
 		s.ffmpegPath = ""
 		s.engineStatus = "missing"
 		s.engineProgress = 0
-		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Video Maker.exe, then click Check again."
+		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Media Maker.exe, then click Check again."
 		s.mu.Unlock()
 		return
 	}
@@ -496,7 +538,7 @@ func (s *appState) reorderVideos(ids []string) error {
 }
 
 func (s *appState) relinkVideo(index int) (bool, error) {
-	paths, err := openFilesDialog("Relink video", videoDialogFilter, false)
+	paths, err := openFilesDialog("Relink media", mediaDialogFilter, false)
 	if err != nil {
 		if errors.Is(err, errDialogCancelled) {
 			return true, nil
@@ -550,7 +592,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-video-maker-project", Version: 1, AppVersion: "0.12.2", Settings: req}
+	doc := projectDocument{Format: "gba-media-maker-project", Version: 2, AppVersion: "0.13.0", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -570,15 +612,15 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 			Path: path, Name: video.Name, Size: st.Size(), LastModified: st.ModTime().UnixMilli(), Settings: clip,
 		})
 	}
-	path, err := saveFileDialog("Save GBA Video Maker project", projectDialogFilter, "gbavideo", "My Project.gbavideo")
+	path, err := saveFileDialog("Save GBA Media Maker project", projectDialogFilter, "gbamedia", "My Project.gbamedia")
 	if err != nil {
 		if errors.Is(err, errDialogCancelled) {
 			return true, "", nil
 		}
 		return false, "", err
 	}
-	if !strings.EqualFold(filepath.Ext(path), ".gbavideo") {
-		path += ".gbavideo"
+	if ext := strings.ToLower(filepath.Ext(path)); ext != ".gbamedia" && ext != ".gbavideo" {
+		path += ".gbamedia"
 	}
 	projectDir := filepath.Dir(path)
 	for i := range doc.Clips {
@@ -598,7 +640,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 }
 
 func (s *appState) openProject() (projectOpenResponse, error) {
-	paths, err := openFilesDialog("Open GBA Video Maker project", projectDialogFilter, false)
+	paths, err := openFilesDialog("Open GBA Media Maker project", projectDialogFilter, false)
 	if err != nil {
 		if errors.Is(err, errDialogCancelled) {
 			return projectOpenResponse{Cancelled: true}, nil
@@ -609,7 +651,7 @@ func (s *appState) openProject() (projectOpenResponse, error) {
 	if err != nil {
 		return projectOpenResponse{}, err
 	}
-	if len(data) > 2<<20 {
+	if len(data) > 32<<20 {
 		return projectOpenResponse{}, errors.New("project file is too large")
 	}
 	var doc projectDocument
@@ -618,7 +660,7 @@ func (s *appState) openProject() (projectOpenResponse, error) {
 	if err := dec.Decode(&doc); err != nil {
 		return projectOpenResponse{}, fmt.Errorf("invalid project file: %w", err)
 	}
-	if doc.Format != "gba-video-maker-project" || doc.Version != 1 || len(doc.Clips) == 0 {
+	if !((doc.Format == "gba-video-maker-project" && doc.Version == 1) || (doc.Format == "gba-media-maker-project" && doc.Version == 2)) || len(doc.Clips) == 0 {
 		return projectOpenResponse{}, errors.New("unsupported or empty project file")
 	}
 	videos := make([]uploadedVideo, 0, len(doc.Clips))
@@ -692,7 +734,7 @@ func (s *appState) startInspection() {
 			if r := recover(); r != nil {
 				logDiagnostic("inspection panic", r)
 				s.mu.Lock()
-				s.inspectStatus, s.inspectError = "error", "Video inspection stopped unexpectedly."
+				s.inspectStatus, s.inspectError = "error", "Media inspection stopped unexpectedly."
 				s.mu.Unlock()
 			}
 		}()
@@ -839,7 +881,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	videos := append([]uploadedVideo(nil), s.videos...)
 	s.mu.Unlock()
 	if len(videos) == 0 {
-		return ProjectOptions{}, nil, errors.New("videos are not ready")
+		return ProjectOptions{}, nil, errors.New("media files are not ready")
 	}
 	if ff == "" {
 		return ProjectOptions{}, nil, errors.New("conversion engine is not ready")
@@ -912,7 +954,28 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		if strings.TrimSpace(clipReq.Title) == "" {
 			title = normalizeTitle(strings.TrimSuffix(v.Name, filepath.Ext(v.Name)))
 		}
-		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack}
+		imageSeconds := clipReq.ImageSeconds
+		if clipReq.UseProject {
+			imageSeconds = req.ImageSeconds
+		}
+		artworkMode := strings.ToLower(strings.TrimSpace(clipReq.MusicArtworkMode))
+		if artworkMode == "" {
+			artworkMode = "embedded"
+		}
+		if artworkMode != "default" && artworkMode != "embedded" && artworkMode != "custom" {
+			return ProjectOptions{}, nil, fmt.Errorf("%s: invalid audio artwork mode", v.Name)
+		}
+		artworkPreset := normalizeAudioArtworkPreset(clipReq.MusicArtworkPreset)
+		if v.Info.Kind == "audio" && artworkMode == "custom" {
+			if _, customErr := decodeCustomAudioArtworkDataURL(clipReq.MusicArtworkCustom); customErr != nil {
+				return ProjectOptions{}, nil, fmt.Errorf("%s: %w", v.Name, customErr)
+			}
+		}
+		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds, MusicTitle: clipReq.MusicTitle, MusicArtist: clipReq.MusicArtist, MusicArtworkMode: artworkMode, MusicArtworkPreset: artworkPreset, MusicArtworkCustom: clipReq.MusicArtworkCustom}
+		if isAnimatedGIFPath(v.Path) {
+			input.MediaKind = "video"
+			input.Loop = true
+		}
 		if input.AudioTrack < 0 || input.AudioTrack >= v.Info.AudioStreams {
 			if v.Info.AudioStreams > 0 && input.AudioTrack != 0 {
 				return ProjectOptions{}, nil, fmt.Errorf("%s: selected audio track %d is not available", v.Name, input.AudioTrack+1)
@@ -928,8 +991,10 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 			if parseErr != nil {
 				return ProjectOptions{}, nil, fmt.Errorf("%s: %w", v.Name, parseErr)
 			}
-			if err := validateWebClipSettings(v.Name, clipStart, clipEnd, clipReq.Speed, clipReq.Volume, clipReq.Fit, clipReq.Audio, clipReq.PaletteMode, clipReq.DitherMode, v.Info.Duration); err != nil {
-				return ProjectOptions{}, nil, err
+			if v.Info.Kind != "image" {
+				if err := validateWebClipSettings(v.Name, clipStart, clipEnd, clipReq.Speed, clipReq.Volume, clipReq.Fit, clipReq.Audio, clipReq.PaletteMode, clipReq.DitherMode, v.Info.Duration); err != nil {
+					return ProjectOptions{}, nil, err
+				}
 			}
 			input.Custom = true
 			input.Start = clipStart
@@ -938,14 +1003,14 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 			input.FitMode = clipReq.Fit
 			input.AudioMode = clipReq.Audio
 			input.Volume = clipReq.Volume / 100
-			input.Loop = clipReq.Loop
+			input.Loop = clipReq.Loop || isAnimatedGIFPath(v.Path)
 			input.PaletteMode = clipReq.PaletteMode
 			input.DitherMode = clipReq.DitherMode
 		}
 		inputs = append(inputs, input)
 		infos = append(infos, *v.Info)
 	}
-	if len(infos) > 0 {
+	if len(infos) > 0 && infos[0].Kind != "image" {
 		if err := validateWebClipSettings("project defaults", start, end, req.Speed, req.Volume, req.Fit, req.Audio, req.PaletteMode, req.DitherMode, infos[0].Duration); err != nil {
 			// The default end may be longer than the first clip but will be capped
 			// independently by the converter, so only enforce the shared basics.
@@ -990,14 +1055,22 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 	}
 	mode := req.OutputMode
 	if len(inputs) == 1 {
+		// A one-item ROM opens the media directly; a menu would only add an
+		// unnecessary extra click.
 		mode = "rom"
-	}
-	if mode != "rom" && mode != "playlist" && mode != "menu" && mode != "batch" {
-		mode = "rom"
+	} else if mode == "batch" {
+		// Separate-ROM export remains available for users who do not want a
+		// collection ROM.
+		mode = "batch"
+	} else {
+		// Every multi-item collection uses the media menu, regardless of
+		// whether it contains mixed media, only videos, only music, or only
+		// images. Legacy playlist/rom project values are upgraded here.
+		mode = "menu"
 	}
 	base := strings.TrimSuffix(sanitizeFilename(videos[0].Name), filepath.Ext(videos[0].Name))
 	if len(inputs) > 1 {
-		base = "GBA_Video_Collection"
+		base = "GBA_Media_Collection"
 	}
 	ext := ".gba"
 	if mode == "batch" {
@@ -1046,7 +1119,7 @@ func (s *appState) startConversion(req convertRequest) error {
 				logDiagnostic("conversion panic", r)
 				s.mu.Lock()
 				s.converting = false
-				s.convertError = "The converter stopped unexpectedly. See GBA Video Maker.log."
+				s.convertError = "The converter stopped unexpectedly. See GBA Media Maker.log."
 				s.mu.Unlock()
 			}
 		}()
@@ -1110,7 +1183,7 @@ func recovery(next http.Handler) http.Handler {
 		defer func() {
 			if x := recover(); x != nil {
 				logDiagnostic("HTTP handler panic", x)
-				errorJSON(w, 500, errors.New("internal error; see GBA Video Maker.log"))
+				errorJSON(w, 500, errors.New("internal error; see GBA Media Maker.log"))
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -1179,6 +1252,21 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = w.Write(appIconPNG)
+	})
+	mux.HandleFunc(prefix+"/audio-artwork/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, prefix+"/audio-artwork/"), ".png")
+		if normalizeAudioArtworkPreset(name) != name {
+			http.NotFound(w, r)
+			return
+		}
+		data, err := audioArtworkPresetPNG(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(data)
 	})
 	mux.HandleFunc(prefix+"/style.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
@@ -1325,7 +1413,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			w.WriteHeader(405)
 			return
 		}
-		paths, err := openFilesDialog("Choose source videos", videoDialogFilter, true)
+		paths, err := openFilesDialog("Choose source media", mediaDialogFilter, true)
 		if err != nil {
 			if errors.Is(err, errDialogCancelled) {
 				jsonResponse(w, 200, map[string]bool{"cancelled": true})
@@ -1399,7 +1487,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, fmt.Errorf("invalid project settings: %w", err))
@@ -1472,12 +1560,21 @@ func (s *appState) routes(page []byte) http.Handler {
 			if candidate < 0 {
 				candidate = 0
 			}
-			out = filepath.Join(s.sessionDir, fmt.Sprintf("preview-%d-%d-%s.png", idx, int(candidate*1000), fit))
+			fallbackPreset := normalizeAudioArtworkPreset(r.URL.Query().Get("artworkFallback"))
+			cacheSuffix := fit
+			if video.Info.Kind == "audio" {
+				cacheSuffix += "-" + fallbackPreset
+			}
+			out = filepath.Join(s.sessionDir, fmt.Sprintf("preview-%d-%d-%s.png", idx, int(candidate*1000), cacheSuffix))
 			if st, err := os.Stat(out); err == nil && st.Size() > 0 {
 				previewErr = nil
 				break
 			}
-			previewErr = s.ensurePreview(r.Context(), ff, video.Path, candidate, fit, out)
+			if video.Info.Kind == "audio" {
+				previewErr = s.ensureAudioPreview(r.Context(), ff, video.Path, fit, fallbackPreset, out)
+			} else {
+				previewErr = s.ensurePreview(r.Context(), ff, video.Path, candidate, fit, out)
+			}
 			if previewErr == nil {
 				break
 			}
@@ -1504,7 +1601,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, fmt.Errorf("invalid settings: %w", err))
@@ -1543,7 +1640,7 @@ func (s *appState) routes(page []byte) http.Handler {
 		}
 		idx, _ := strconv.Atoi(r.URL.Query().Get("index"))
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, err)
 			return
@@ -1573,7 +1670,7 @@ func (s *appState) routes(page []byte) http.Handler {
 			return
 		}
 		var req convertRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			errorJSON(w, 400, fmt.Errorf("invalid settings: %w", err))
@@ -1643,7 +1740,7 @@ func runWebApp(launch func(string) error) error {
 	if err != nil {
 		return err
 	}
-	sessionDir, err := os.MkdirTemp("", "gba-video-maker-")
+	sessionDir, err := os.MkdirTemp("", "gba-media-maker-")
 	if err != nil {
 		return err
 	}

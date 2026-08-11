@@ -20,10 +20,7 @@ func browserCandidates() []string {
 		}
 	}
 	envs := []string{os.Getenv("PROGRAMFILES(X86)"), os.Getenv("PROGRAMFILES"), os.Getenv("LOCALAPPDATA")}
-	rels := []string{
-		filepath.Join("Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join("Google", "Chrome", "Application", "chrome.exe"),
-	}
+	rels := []string{filepath.Join("Microsoft", "Edge", "Application", "msedge.exe"), filepath.Join("Google", "Chrome", "Application", "chrome.exe")}
 	for _, base := range envs {
 		if base == "" {
 			continue
@@ -37,7 +34,6 @@ func browserCandidates() []string {
 	}
 	return out
 }
-
 func launchAppWindow(url string) error {
 	seen := map[string]bool{}
 	for _, browser := range browserCandidates() {
@@ -59,16 +55,15 @@ func launchAppWindow(url string) error {
 	}
 	return nil
 }
-
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
-			path := filepath.Join(appDirectory(), "GBA Video Maker.log")
+			path := filepath.Join(appDirectory(), "GBA Media Maker.log")
 			_ = os.WriteFile(path, []byte(fmt.Sprintf("[%s] fatal startup panic: %v\n%s", time.Now().Format(time.RFC3339), r, debug.Stack())), 0644)
 		}
 	}()
 	if err := runWebApp(launchAppWindow); err != nil {
-		path := filepath.Join(appDirectory(), "GBA Video Maker.log")
+		path := filepath.Join(appDirectory(), "GBA Media Maker.log")
 		_ = os.WriteFile(path, []byte(fmt.Sprintf("[%s] startup error: %v\n", time.Now().Format(time.RFC3339), err)), 0644)
 	}
 }

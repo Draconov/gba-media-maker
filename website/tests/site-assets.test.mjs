@@ -8,42 +8,45 @@ const here = dirname(fileURLToPath(import.meta.url));
 const website = resolve(here, "..");
 const repository = resolve(website, "..");
 
-test("website uses the desktop application icon", async () => {
-  const [desktopPng, webPng, desktopIco, webIco, html, manifest] = await Promise.all([
-    readFile(resolve(repository, "assets/app_icon.png")),
+test("website ships GBA Media Maker branding and transparent web icons", async () => {
+  const [desktopPng, webPng, html, manifest] = await Promise.all([
+    readFile(resolve(repository, "assets/icon.png")),
     readFile(resolve(website, "public/icon.png")),
-    readFile(resolve(repository, "assets/app_icon.ico")),
-    readFile(resolve(website, "public/favicon.ico")),
     readFile(resolve(website, "index.html"), "utf8"),
     readFile(resolve(website, "public/site.webmanifest"), "utf8"),
   ]);
 
-  assert.deepEqual(webPng, desktopPng, "website PNG must exactly match assets/app_icon.png");
-  assert.deepEqual(webIco, desktopIco, "website ICO must exactly match assets/app_icon.ico");
+  assert.deepEqual([...desktopPng.subarray(0, 8)], [137,80,78,71,13,10,26,10]);
+  assert.deepEqual([...webPng.subarray(0, 8)], [137,80,78,71,13,10,26,10]);
+  assert.match(html, /<title>GBA Media Maker/);
   assert.match(html, /rel="icon" href="\.\/favicon\.ico"/);
   assert.match(html, /rel="apple-touch-icon" href="\.\/apple-touch-icon\.png"/);
   assert.match(html, /rel="manifest" href="\.\/site\.webmanifest"/);
   assert.match(html, /class="site-icon" src="\.\/icon\.png"/);
 
   const parsed = JSON.parse(manifest);
-  assert.equal(parsed.name, "GBA Video Maker Web");
+  assert.equal(parsed.name, "GBA Media Maker Web");
   assert.ok(parsed.icons.some((icon) => icon.sizes === "192x192"));
   assert.ok(parsed.icons.some((icon) => icon.sizes === "512x512"));
 });
 
-test("web edition exposes desktop parity controls", async () => {
-  const [html, script] = await Promise.all([
+test("web edition exposes current desktop media-maker parity controls", async () => {
+  const [html, script, worker, romCore, projectFormat] = await Promise.all([
     readFile(resolve(website, "index.html"), "utf8"),
     readFile(resolve(website, "src/main.js"), "utf8"),
+    readFile(resolve(website, "src/rom.worker.js"), "utf8"),
+    readFile(resolve(website, "src/rom-core.js"), "utf8"),
+    readFile(resolve(website, "src/project-format.js"), "utf8"),
   ]);
   for (const id of [
-    "saveProjectButton", "openProjectInput", "previewVideo", "timelineStart", "timelineEnd",
+    "fileInput", "saveProjectButton", "openProjectInput", "previewVideo", "previewImage", "timelineStart", "timelineEnd",
     "inlineTimeline", "timelineTrack", "timelineStartHandle", "timelinePlayHandle", "timelineEndHandle",
     "timelineStartTimeInput", "timelineEndTimeInput",
     "titleEditor", "titlePreviewInput", "audioPreviewButton", "audioQuality",
     "extremeSection", "smartTarget", "smartPriority", "smartAnalyze", "smartCancel", "smartResults",
     "splitVideo", "splitBudget", "maxPartDuration", "chapterAware",
     "partTitleScreens", "resumeLongSplit", "estimateArea", "optimizerButton",
+    "defaultImageSlideshow", "defaultImageSeconds",
     "titleCardGroup", "titleCardPreview", "titleCardPartSelect", "titleCardUseShared",
     "titleCardTitle", "titleCardSubtitle", "titleCardBackground", "titleCardDarkness", "titleCardTextSize",
     "titleCardTextColor", "titleCardOutlineColor", "titleCardSubtitleTextSize", "titleCardSubtitleAlignment",
@@ -51,39 +54,59 @@ test("web edition exposes desktop parity controls", async () => {
     "menuSettingsGroup", "menuPreview", "menuBackground", "customMenuBackground", "customMenuVideoTiming", "customMenuVideoStart", "customMenuVideoDuration",
     "menuUIColor", "menuSelectionColor", "menuOutline", "menuOutlineColor",
   ]) assert.match(html, new RegExp(`id="${id}"`));
+
+  assert.match(html, /accept="\.gbamedia,\.gbavideo,[^"]*"/);
+  assert.match(html, /video\/\*,audio\/\*,image\/\*/);
+  assert.match(html, /One ROM — media menu/);
+  assert.match(html, /Separate ROMs in ZIP/);
+  assert.match(html, /Enable slideshow/);
+  assert.match(html, /Custom image, GIF or video/);
+  assert.match(html, /Extreme optimization \(Experimental\)/);
+  assert.match(html, /Compact ADPCM \(Experimental\)/);
+
+  assert.match(script, /function guessMediaKind/);
+  assert.match(script, /musicArtworkMode/);
+  assert.match(script, /musicArtworkPreset/);
+  assert.match(script, /musicArtworkCustom/);
+  assert.match(script, /Embedded artwork/);
+  assert.match(script, /Default artwork/);
+  assert.match(script, /Custom image/);
+  assert.match(script, /resolveAudioArtworkRGB/);
+  assert.match(script, /encodeNativeMedia/);
+  assert.match(script, /mediaKind: "image"/);
+  assert.match(script, /mediaKind: "audio"/);
+  assert.match(script, /\.gif\$\/i/);
   assert.match(script, /performLongSplit/);
   assert.match(script, /Estimated output:/);
-  assert.match(script, /Part \$\{partNumber\} of approximately/);
   assert.match(script, /indexedDB\.open\("gba-video-maker"/);
   assert.match(script, /decodeCustomFile/);
   assert.match(script, /decodeRGB24Frames/);
-  assert.match(script, /isVideoFile/);
-  assert.match(html, /Custom image, GIF or video/);
-  assert.match(html, /Video duration/);
   assert.match(script, /serializeTheme/);
   assert.match(script, /buildTitleCardAsset/);
   assert.match(script, /renderTitleCardPreview/);
   assert.match(script, /analyzeSmartScan/);
-  assert.match(script, /encodeIMAADPCM/);
   assert.match(script, /Input audio track/);
-  assert.match(script, /const showSelector = entry\.audioTracksKnown && tracks\.length > 1/);
-  assert.match(script, /select\.parentElement\.hidden = !showSelector/);
-  assert.match(script, /entry\.audioTracksKnown && tracks\.length <= 1/);
   assert.match(script, /stream_tags=language,title/);
-  assert.match(script, /`0:a:\$\{Number\(clipOptions\.audioTrack\) \|\| 0\}`/);
-  assert.match(script, /audioTrack: Number\(entry\.audioTrack\) \|\| 0/);
   assert.match(script, /canonicalProjectFromBrowser/);
   assert.match(script, /normalizeBrowserProjectDocument/);
-  assert.match(script, /parsePartDuration/);
-  assert.match(script, /resolveAudioCodec/);
-  assert.match(script, /buildOptimizerProposal/);
-  assert.match(script, /applyPreviewFraming/);
-  assert.match(script, /drawFittedPreviewFrame/);
   assert.match(script, /desktopOutputFileName/);
-  assert.match(html, /Extreme optimization \(Experimental\)/);
-  assert.match(html, /Compact ADPCM \(Experimental\)/);
+  assert.match(worker, /encodeNativeMedia/);
+  assert.match(romCore, /convertNativeMediaClip/);
+  assert.match(romCore, /MMD2/);
+  assert.match(projectFormat, /gba-media-maker-project/);
+  assert.match(projectFormat, /PROJECT_VERSION = 2/);
 });
 
+test("website includes all twenty built-in audio artwork presets", async () => {
+  const expectedPngMagic = [137,80,78,71,13,10,26,10];
+  for (let index = 1; index <= 20; index += 1) {
+    const name = `preset-${String(index).padStart(2, "0")}.png`;
+    const image = await readFile(resolve(website, "public/audio-artwork", name));
+    assert.deepEqual([...image.subarray(0, 8)], expectedPngMagic, name);
+  }
+  const script = await readFile(resolve(website, "src/main.js"), "utf8");
+  assert.match(script, /Array\.from\(\{ length: 20 \}/);
+});
 
 test("title-card navigation stays in one row and avoids redundant reloads", async () => {
   const [style, script] = await Promise.all([

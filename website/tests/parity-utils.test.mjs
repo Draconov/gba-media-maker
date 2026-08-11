@@ -32,9 +32,9 @@ test("Extreme Auto audio uses the same one-third target threshold as the desktop
 
 test("browser output names match desktop naming", () => {
   assert.equal(conversionOutputFileName(["My Movie.mp4"], "rom"), "My Movie.gba");
-  assert.equal(conversionOutputFileName(["one.mp4", "two.mkv"], "menu"), "GBA_Video_Collection.gba");
-  assert.equal(conversionOutputFileName(["one.mp4", "two.mkv"], "playlist"), "GBA_Video_Collection.gba");
-  assert.equal(conversionOutputFileName(["one.mp4", "two.mkv"], "batch"), "GBA_Video_Collection.zip");
+  assert.equal(conversionOutputFileName(["one.mp4", "two.mkv"], "menu"), "GBA_Media_Collection.gba");
+  assert.equal(conversionOutputFileName(["one.mp4", "two.mkv"], "playlist"), "GBA_Media_Collection.gba");
+  assert.equal(conversionOutputFileName(["one.mp4", "two.mkv"], "batch"), "GBA_Media_Collection.zip");
   assert.equal(splitArchiveFileName("My Movie.mp4"), "My Movie_PARTS.zip");
   assert.equal(splitPartFileName("My Movie.mp4", 3), "My Movie_PART_03.gba");
   assert.equal(batchRomFileName("My Movie.mp4"), "My Movie_GBA.gba");

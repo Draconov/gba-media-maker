@@ -183,7 +183,7 @@ func safeGBAHeaderTitle(value string) []byte {
 	}
 	text := strings.Join(strings.Fields(b.String()), " ")
 	if text == "" {
-		text = "GBA VIDEO"
+		text = "GBA MEDIA"
 	}
 	raw := []byte(text)
 	if len(raw) > 12 {

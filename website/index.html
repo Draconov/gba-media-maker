@@ -11,9 +11,9 @@
     <meta name="theme-color" content="#0c0f14" media="(prefers-color-scheme: dark)" />
     <meta
       name="description"
-      content="Convert videos into Game Boy Advance ROMs entirely in your browser."
+      content="Convert videos, music and images into Game Boy Advance ROMs entirely in your browser."
     />
-    <title>GBA Video Maker Web</title>
+    <title>GBA Media Maker Web</title>
   </head>
   <body>
     <main class="shell">
@@ -21,7 +21,7 @@
         <div class="hero-title-row">
           <div class="site-brand">
             <img class="site-icon" src="./icon.png" alt="" width="256" height="256" />
-            <h1>GBA Video Maker <span>Web</span></h1>
+            <h1>GBA Media Maker <span>Web</span></h1>
           </div>
           <a id="desktopLink" class="secondary button-link" hidden>Download desktop app</a>
         </div>
@@ -30,23 +30,23 @@
       <section class="project-toolbar" aria-label="Project actions">
         <button id="saveProjectButton" class="secondary" type="button">Save project</button>
         <label class="secondary button-link" for="openProjectInput">Open project</label>
-        <input id="openProjectInput" class="visually-hidden" type="file" accept=".gbavideo,application/json" />
-        <span id="projectNotice" class="project-notice">Browser projects keep settings; source videos are relinked by filename.</span>
+        <input id="openProjectInput" class="visually-hidden" type="file" accept=".gbamedia,.gbavideo,application/json" />
+        <span id="projectNotice" class="project-notice">Browser projects keep settings; source media is relinked by filename.</span>
       </section>
 
       <section class="card">
         <label id="dropZone" class="drop-zone" for="fileInput">
-          <input id="fileInput" type="file" accept="video/*" multiple />
+          <input id="fileInput" type="file" accept="video/*,audio/*,image/*,.mkv,.webm,.avi,.mov,.m4v,.mp4,.gif,.mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.wma,.aiff,.ape,.png,.jpg,.jpeg,.webp,.bmp,.tga,.tif,.tiff" multiple />
           <span class="drop-icon" aria-hidden="true">＋</span>
-          <strong>Drop videos here</strong>
-          <span>or tap to choose files</span>
+          <strong>Drop media here</strong>
+          <span>Videos, music and images can live together in one ROM.</span>
         </label>
 
         <div id="fileArea" class="file-area" hidden>
           <div class="section-heading">
             <div>
-              <h2>Videos</h2>
-              <p id="fileSummary">0 videos selected</p>
+              <h2>Media</h2>
+              <p id="fileSummary">0 items selected</p>
             </div>
             <button id="clearButton" class="text-button" type="button">Clear all</button>
           </div>
@@ -57,7 +57,7 @@
       <section id="previewCard" class="card preview-card" hidden>
         <div class="section-heading">
           <div>
-            <h2>Selected clip</h2>
+            <h2>Selected media</h2>
             <p id="selectedClipName"></p>
           </div>
         </div>
@@ -65,9 +65,10 @@
           <div class="video-editor-stage">
             <div class="video-stage">
               <video id="previewVideo" playsinline muted tabindex="0" aria-label="Video preview. Click to play or pause."></video>
+              <img id="previewImage" class="media-preview-image" alt="Selected media preview" hidden>
             </div>
 
-            <div id="inlineTimeline" class="inline-timeline" aria-label="Video trim timeline">
+            <div id="inlineTimeline" class="inline-timeline" aria-label="Media trim timeline">
               <div id="timelineThumbs" class="timeline-thumbs" aria-hidden="true"></div>
 
               <div id="timelineTrack" class="timeline-track" aria-label="Start, preview and end positions">
@@ -102,9 +103,9 @@
             </div>
 
             <div class="title-editor-row">
-              <div id="titleEditor" class="title-editor" role="group" aria-label="Editable GBA clip-menu title" title="Click to edit the clip-menu title">
+              <div id="titleEditor" class="title-editor" role="group" aria-label="Editable GBA media-menu title" title="Click to edit the media-menu title">
                 <canvas id="titlePreview" width="208" height="32" aria-hidden="true"></canvas>
-                <input id="titlePreviewInput" type="text" maxlength="12" autocomplete="off" spellcheck="false" aria-label="Clip-menu title, maximum 12 GBA characters" />
+                <input id="titlePreviewInput" type="text" maxlength="12" autocomplete="off" spellcheck="false" aria-label="Media-menu title, maximum 12 GBA characters" />
               </div>
               <button id="resetClipTitleButton" class="secondary" type="button">Title from filename</button>
             </div>
@@ -149,10 +150,10 @@
             <span>Output</span>
             <select id="outputMode">
               <option value="rom" selected>Single ROM</option>
-              <option value="playlist">One ROM — play clips in order</option>
-              <option value="menu">One ROM — clip menu</option>
+              <option value="menu">One ROM — media menu</option>
               <option value="batch">Separate ROMs in ZIP</option>
             </select>
+            <small>Collections always use the media menu unless Separate ROMs is selected.</small>
           </label>
 
           <label>
@@ -254,9 +255,17 @@
             <span>Loop playback</span>
           </label>
 
+          <div class="image-defaults wide-field">
+            <div class="section-heading compact-heading"><div><h3>Image defaults</h3><p>Used by image items that inherit project settings.</p></div></div>
+            <div class="inline-settings">
+              <label class="check-field"><input id="defaultImageSlideshow" type="checkbox" checked /><span>Enable slideshow</span></label>
+              <label><span>Show image for (seconds)</span><input id="defaultImageSeconds" type="number" min="0.5" max="3600" step="0.5" value="5" /></label>
+            </div>
+          </div>
+
           <label class="wide-field">
             <span>ROM title</span>
-            <input id="romTitle" type="text" maxlength="12" value="GBA VIDEO" />
+            <input id="romTitle" type="text" maxlength="12" value="GBA MEDIA" />
           </label>
 
           <label class="check-field">
@@ -362,7 +371,7 @@
             <div class="menu-preview-wrap"><canvas id="menuPreview" width="480" height="320"></canvas><p id="menuBackgroundStatus" class="muted-note">Choose a built-in background or upload a custom image, GIF or video.</p></div>
             <div class="menu-design-controls">
               <label class="wide-field"><span>Menu background</span><select id="menuBackground"><option value="classic-dark">Classic dark</option><option value="ocean-wave-static">Ocean Wave — static</option><option value="ocean-wave-animated" selected>Ocean Wave — animated</option><option value="blue-wave-animated">Blue Wave — animated</option><option value="custom">Custom image, GIF or video</option></select></label>
-              <div id="customMenuBackgroundRow" class="wide-field custom-menu-background" hidden><label><span>Custom background</span><input id="customMenuBackground" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.png,.jpg,.jpeg,.webp,.gif,.mp4,.m4v,.mov,.webm,.mkv,.avi,.mpg,.mpeg"></label><div id="customMenuVideoTiming" class="menu-video-timing" hidden><label><span>Video start</span><input id="customMenuVideoStart" type="text" value="0:00" inputmode="numeric" placeholder="0:00"></label><label><span>Video duration</span><input id="customMenuVideoDuration" type="text" value="0:04" inputmode="numeric" placeholder="0:04"></label></div><small>Images are cropped to 120×80. GIFs and videos are sampled to at most 16 looping frames; video audio is ignored. Video duration can be 1–32 seconds.</small></div>
+              <div id="customMenuBackgroundRow" class="wide-field custom-menu-background" hidden><label><span>Custom background</span><input id="customMenuBackground" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.png,.jpg,.jpeg,.webp,.gif,.mp4,.m4v,.mov,.webm,.mkv,.avi,.mpg,.mpeg"></label><div id="customMenuVideoTiming" class="menu-video-timing" hidden><label><span>Video start</span><input id="customMenuVideoStart" type="text" value="0:00" inputmode="numeric" placeholder="0:00"></label><label><span>Video duration</span><input id="customMenuVideoDuration" type="text" value="0:04" inputmode="numeric" placeholder="0:04"></label></div><small>Images are cropped to 120×80. GIFs and media files are sampled to at most 16 looping frames; video audio is ignored. Video duration can be 1–32 seconds.</small></div>
               <div class="color-picker-field"><label for="menuUIColor">UI text colour</label><span class="gba-color-control"><input id="menuUIColor" type="color" value="#ffffff" aria-label="Choose UI text colour"><output id="menuUIColorValue" class="gba-color-value">#FFFFFF · RGB555 31,31,31</output></span></div>
               <div class="color-picker-field"><label for="menuSelectionColor">Selection colour</label><span class="gba-color-control"><input id="menuSelectionColor" type="color" value="#ffde00" aria-label="Choose selection colour"><output id="menuSelectionColorValue" class="gba-color-value">#FFDE00 · RGB555 31,27,0</output></span></div>
               <label class="check-field"><input id="menuOutline" type="checkbox" checked><span>Draw UI outline</span></label>
@@ -387,7 +396,7 @@
           <button id="convertButton" class="primary" type="button" disabled>Create output</button>
         </div>
 
-        <div id="estimateArea" class="estimate-area">Add a video to see an output estimate.</div>
+        <div id="estimateArea" class="estimate-area">Add media to see an output estimate.</div>
 
         <div id="progressArea" class="progress-area" hidden>
           <div class="progress-labels">
@@ -409,7 +418,7 @@
 
       <footer>
         <p>
-          Conversion runs locally with ffmpeg.wasm. Completed split parts can be resumed after reselecting the same source video.
+          Conversion runs locally with ffmpeg.wasm. Completed split parts can be resumed after reselecting the same source media.
         </p>
       </footer>
     </main>

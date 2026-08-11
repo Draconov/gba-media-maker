@@ -8,179 +8,32 @@
 <meta name="gbavm-session-token" content="__SESSION_TOKEN__">
 <link rel="icon" type="image/png" href="./icon.png">
 <link rel="stylesheet" href="./style.css">
-<title>GBA Video Maker 0.12.2</title>
+<title>GBA Media Maker 0.13.0</title>
 </head>
 <body>
 <div class="shell">
-  <div id="topBar" class="top hidden">
-    <div class="top-actions">
-      <button id="openProject" class="btn">Open project</button>
-      <button id="saveProject" class="btn">Save project</button>
-      <button id="resetTop" class="btn">Start over</button>
-    </div>
-  </div>
-
-  <input id="picker" type="file" accept="video/*,.mkv,.webm,.avi,.mov,.m4v,.mp4" multiple class="hidden">
-
-  <section id="welcome" class="card welcome" tabindex="0">
-    <div>
-      <h1>Drag and drop videos here</h1>
-      <p>Choose one video, build a playlist or menu ROM, or reopen a saved project.</p>
-      <div class="welcome-actions">
-        <button id="chooseVideos" class="btn primary">Choose videos</button>
-        <button id="openProjectWelcome" class="btn">Open project</button>
-      </div>
-    </div>
-  </section>
-
-  <section id="loading" class="card loading hidden">
-    <h2 id="loadingTitle">Opening videos…</h2>
-    <p id="loadingText">Reading video information.</p>
-    <div class="bar"><i id="loadingFill"></i></div>
-    <div id="engineError" class="error hidden"></div>
-    <button id="retryEngine" class="btn hidden">Check again</button>
-  </section>
-
+  <div id="topBar" class="top hidden"><div class="top-actions"><button id="openProject" class="btn">Open project</button><button id="saveProject" class="btn">Save project</button><button id="resetTop" class="btn">Start over</button></div></div>
+  <input id="picker" type="file" accept="video/*,audio/*,image/*,.mkv,.webm,.avi,.mov,.m4v,.mp4,.gif,.mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.wma,.aiff,.ape,.png,.jpg,.jpeg,.webp,.bmp,.tga,.tif,.tiff" multiple class="hidden">
+  <section id="welcome" class="card welcome" tabindex="0"><div><h1>Drag and drop media here</h1><p>Videos, music and images can live together in one GBA ROM.</p><div class="welcome-actions"><button id="chooseVideos" class="btn primary">Choose media</button><button id="openProjectWelcome" class="btn">Open project</button></div></div></section>
+  <section id="loading" class="card loading hidden"><h2 id="loadingTitle">Opening media…</h2><p id="loadingText">Reading media information.</p><div class="bar"><i id="loadingFill"></i></div><div id="engineError" class="error hidden"></div><button id="retryEngine" class="btn hidden">Check again</button></section>
   <section id="editor" class="editor hidden">
     <div class="card left">
-      <div class="preview"><img id="previewImage" alt=""></div>
-      <div class="preview-controls">
-        <button id="previewStart" class="btn">Start frame</button>
-        <button id="previewEnd" class="btn">End frame</button>
-        <button id="addVideos" class="btn">Add videos</button>
-      </div>
-
-      <section class="timeline-panel" aria-label="Video timeline">
-        <div id="timelineThumbs" class="timeline-thumbs"></div>
-        <div id="timeline" class="timeline" tabindex="0" title="Mouse wheel or arrow keys adjust the playhead">
-          <div class="timeline-track"></div>
-          <input id="timelineStart" class="timeline-range start-handle" type="range" min="0" max="1" step="0.04" value="0" aria-label="Start time">
-          <input id="timelineEnd" class="timeline-range end-handle" type="range" min="0" max="1" step="0.04" value="1" aria-label="End time">
-          <input id="timelinePlay" class="timeline-range play-handle" type="range" min="0" max="1" step="0.04" value="0" aria-label="Preview playhead">
-        </div>
-        <div class="timeline-status">
-          <button id="jumpBegin" class="mini-btn" title="Jump to beginning">|◀</button>
-          <span>Start <b id="timelineStartText">0:00.00</b></span>
-          <span>Current <b id="timelineCurrentText">0:00.00</b></span>
-          <span>End <b id="timelineEndText">0:00.00</b></span>
-          <button id="jumpEnd" class="mini-btn" title="Jump to end">▶|</button>
-        </div>
-      </section>
-
-      <div id="clips" class="clips"></div>
-      <div class="order-controls">
-        <button id="moveUp" class="btn compact">Move up</button>
-        <button id="moveDown" class="btn compact">Move down</button>
-      </div>
-      <p id="clipInfo" class="tiny"></p>
+      <div class="preview"><img id="previewImage" alt="Media preview"></div>
+      <div class="preview-controls"><button id="previewStart" class="btn">Start preview</button><button id="previewEnd" class="btn">End preview</button><button id="addVideos" class="btn">Add media</button></div>
+      <section id="timelinePanel" class="timeline-panel" aria-label="Media timeline"><div id="timelineThumbs" class="timeline-thumbs"></div><div id="timeline" class="timeline" tabindex="0"><div class="timeline-track"></div><input id="timelineStart" class="timeline-range start-handle" type="range" min="0" max="1" step="0.04" value="0"><input id="timelineEnd" class="timeline-range end-handle" type="range" min="0" max="1" step="0.04" value="1"><input id="timelinePlay" class="timeline-range play-handle" type="range" min="0" max="1" step="0.04" value="0"></div><div class="timeline-status"><button id="jumpBegin" class="mini-btn">|◀</button><span>Start <b id="timelineStartText">0:00.00</b></span><span>Current <b id="timelineCurrentText">0:00.00</b></span><span>End <b id="timelineEndText">0:00.00</b></span><button id="jumpEnd" class="mini-btn">▶|</button></div></section>
+      <div id="clips" class="clips"></div><div class="order-controls"><button id="moveUp" class="btn compact">Move up</button><button id="moveDown" class="btn compact">Move down</button></div><p id="clipInfo" class="tiny"></p>
     </div>
-
     <div class="card right">
-      <section class="section">
-        <h3>Editing scope</h3>
-        <div class="scope-row">
-          <button id="editProjectDefaults" class="btn scope active">Project defaults</button>
-          <button id="editSelectedClip" class="btn scope">Selected clip</button>
-          <span id="scopeBadge" class="scope-badge project">Project settings</span>
-        </div>
-        <p class="tiny">Project defaults are inherited by clips until you enable custom settings for a selected clip.</p>
-      </section>
-
-      <section id="clipIdentitySection" class="section hidden">
-        <h3>Selected clip</h3>
-        <div class="fields">
-          <label class="check field full"><input id="useProject" type="checkbox" checked> Use project settings for this clip</label>
-          <div class="field two">
-            <label>Clip-menu title <span id="titleCount">0/12</span></label>
-            <div class="inline-field"><input id="menuTitle" maxlength="12"><button id="resetMenuTitle" class="btn compact">From filename</button></div>
-          </div>
-          <div class="field">
-            <label>Menu title preview</label>
-            <canvas id="titlePreview" width="208" height="32"></canvas>
-          </div>
-          <p id="titleWarning" class="field full validation"></p>
-          <p class="field full tiny">Supports Latin, Ukrainian and Russian with one GBA pixel font.</p>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>Quality preset</h3>
-        <div class="fields">
-          <div class="field full"><select id="preset"><option value="best">Best quality</option><option value="balanced" selected>Balanced</option><option value="long">Long video</option><option value="small">Smallest ROM</option><option value="extreme">Extreme optimization (Experimental)</option><option value="custom">Custom</option></select></div>
-        </div>
-      </section>
-
-      <section id="extremeSection" class="section hidden experimental-section">
-        <h3>Extreme optimization <span class="experimental-badge">Experimental</span></h3>
-        <p class="tiny">Analyzes representative scenes and compares real encoding trade-offs. Existing presets continue using the proven v0.11 pipeline.</p>
-        <div class="fields">
-          <div class="field"><label>Target ROM size</label><select id="smartTarget"><option value="8">8 MiB</option><option value="16">16 MiB</option><option value="24">24 MiB</option><option value="31">31 MiB</option><option value="32" selected>32 MiB</option></select></div>
-          <div class="field"><label>Priority</label><select id="smartPriority"><option value="balanced" selected>Balanced quality and duration</option><option value="quality">Best quality within target</option><option value="longest">Longest possible video</option><option value="motion">Preserve smooth motion</option><option value="detail">Preserve image detail</option></select></div>
-          <div class="field full smart-actions"><button id="smartAnalyze" class="btn" type="button">Analyze and optimize video</button><button id="smartCancel" class="btn hidden" type="button">Cancel analysis</button><span id="smartStatus" class="tiny">Not analyzed</span></div>
-          <div id="smartResults" class="field full smart-results hidden"></div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>Video</h3>
-        <div class="fields">
-          <div class="field"><label>Start</label><input id="start" value="0:00"></div>
-          <div class="field"><label>End (blank = full video)</label><input id="end"></div>
-          <div class="field"><label>Speed</label><input id="speed" type="number" min="0.5" max="3" step="0.05" value="1"></div>
-          <div class="field"><label>Screen framing</label><select id="fit"><option value="fit" selected>Fit with bars</option><option value="crop">Crop to fill</option><option value="stretch">Stretch</option></select></div>
-          <div class="field"><label>Frame rate <span class="project-only">(project)</span></label><select id="fps"><option value="smooth">Smooth — 14.93 fps</option><option value="balanced" selected>Balanced — 11.95 fps</option><option value="classic">Classic — 9.95 fps</option><option value="compact">Compact — 7.47 fps</option></select></div>
-          <div class="field"><label>Seek step <span class="project-only">(project)</span></label><select id="seekSeconds"><option>3</option><option selected>5</option><option>10</option><option>15</option></select></div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>Colour and compression</h3>
-        <div class="fields">
-          <div class="field"><label>Palette</label><select id="paletteMode"><option value="shared" selected>Shared palette</option><option value="scene">Per-scene palette</option></select></div>
-          <div class="field"><label>Dithering</label><select id="ditherMode"><option value="off">Off</option><option value="ordered" selected>Ordered</option><option value="error">Error diffusion</option></select></div>
-          <div class="field"><label>Video compression <span class="project-only">(project)</span></label><select id="compression"><option value="delta" selected>Delta + keyframes</option><option value="none">Uncompressed</option></select></div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>Audio</h3>
-        <div class="fields">
-          <div id="audioTrackField" class="field hidden"><label>Input audio track <span class="tiny">(selected clip)</span></label><select id="audioTrack"></select></div>
-          <div class="field"><label>Channel</label><select id="audio"><option value="mix" selected>Mix to mono</option><option value="left">Left channel</option><option value="right">Right channel</option><option value="none">No audio</option></select></div>
-          <div class="field project-control"><label>Audio quality</label><select id="audioQuality"><option value="pcm" selected>Standard PCM</option><option value="adpcm">Compact ADPCM (Experimental)</option><option value="auto">Auto for ROM target</option></select><span class="tiny">Compressed audio is available only with Extreme optimization.</span></div>
-          <div class="field"><label>Volume %</label><input id="volume" type="number" min="0" max="200" step="5" value="100"></div>
-          <label class="check project-control"><input id="normalize" type="checkbox"> Normalize quiet audio</label>
-          <label class="check project-control"><input id="limiter" type="checkbox" checked> Limiter</label>
-          <div class="field two"><label>Preview selected channel</label><div class="audio-row"><button id="audioPreview" class="btn">Create preview</button><audio id="audioPlayer" controls></audio></div></div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>ROM and playback</h3>
-        <div class="fields">
-          <div class="field two"><label>ROM title</label><input id="romTitle" maxlength="12"></div>
-          <div class="field"><label>Output</label><select id="outputMode"><option value="rom">Single ROM</option><option value="playlist">One ROM — play clips in order</option><option value="menu">One ROM — clip menu</option><option value="batch">Separate ROMs in ZIP</option></select></div>
-          <label class="check"><input id="loop" type="checkbox"> Loop playback</label>
-          <label class="check project-control"><input id="resume" type="checkbox" checked> Save/resume position</label>
-          <label id="splitVideoRow" class="check"><input id="splitVideo" type="checkbox"> Split the video</label>
-          <div id="longSplitControls" class="field full split-options hidden">
-            <div class="split-options-grid">
-              <div class="field full split-settings">
-                <label>ROM size per part: <b id="splitBudgetValue">31 MiB</b></label>
-                <input id="splitBudget" type="range" min="1" max="32" step="1" value="31">
-                <div class="range-presets"><button type="button" class="mini-btn split-preset" data-size="20">20 MiB</button><button type="button" class="mini-btn split-preset" data-size="30">30 MiB</button><button type="button" class="mini-btn split-preset" data-size="32">Maximum</button></div>
-                <span class="tiny">Lower values create smaller, more numerous ROMs.</span>
-              </div>
-              <div class="field"><label>Maximum duration per part (MM:SS, 0 = automatic)</label><input id="maxPartDuration" type="text" inputmode="numeric" value="0" placeholder="0 or 1:05"></div>
-              <label class="check"><input id="chapterAware" type="checkbox" checked> Prefer chapter boundaries</label>
-              <label class="check"><input id="resumeLongSplit" type="checkbox" checked> Resume interrupted splitting</label>
-            </div>
-          </div>
-        </div>
-        <p class="tiny">Enable Split the video to choose a ROM-size target, an optional MM:SS duration limit, chapter-aware boundaries, title screens, and interrupted-job recovery. Videos that cannot fit one 32 MiB cartridge are still split automatically even when this option is off. Menu ROMs remember the selected item and save resume positions separately for each clip.</p>
-        <p class="tiny">Playlist controls: SELECT+Left previous clip, SELECT+Right next clip. Other controls: A pause; B restart or menu; L/R seek; Left/Right seek or paused frame-step; Up/Down volume; SELECT mute; START HUD; START+SELECT help.</p>
-      </section>
-
+      <section class="section"><h3>Editing scope</h3><div class="scope-row"><button id="editProjectDefaults" class="btn scope active">Project defaults</button><button id="editSelectedClip" class="btn scope">Selected media</button><span id="scopeBadge" class="scope-badge project">Project settings</span></div></section>
+      <section id="clipIdentitySection" class="section hidden"><h3>Selected media</h3><div class="fields"><label class="check field full"><input id="useProject" type="checkbox" checked> Use project settings for this item</label><div class="field two"><label>Menu title <span id="titleCount">0/12</span></label><div class="inline-field"><input id="menuTitle" maxlength="12"><button id="resetMenuTitle" class="btn compact">From metadata/file</button></div></div><div class="field"><label>GBA title preview</label><canvas id="titlePreview" width="208" height="32"></canvas></div><p id="titleWarning" class="field full validation"></p></div></section>
+      <section id="qualitySection" class="section"><h3>Video quality preset</h3><div class="fields"><div class="field full"><select id="preset"><option value="best">Best quality</option><option value="balanced" selected>Balanced</option><option value="long">Long video</option><option value="small">Smallest ROM</option><option value="extreme">Extreme optimization (Experimental)</option><option value="custom">Custom</option></select></div></div></section>
+      <section id="extremeSection" class="section hidden experimental-section"><h3>Extreme optimization <span class="experimental-badge">Experimental</span></h3><div class="fields"><div class="field"><label>Target ROM size</label><select id="smartTarget"><option value="8">8 MiB</option><option value="16">16 MiB</option><option value="24">24 MiB</option><option value="31">31 MiB</option><option value="32" selected>32 MiB</option></select></div><div class="field"><label>Priority</label><select id="smartPriority"><option value="balanced" selected>Balanced quality and duration</option><option value="quality">Best quality</option><option value="longest">Longest possible video</option><option value="motion">Preserve motion</option><option value="detail">Preserve detail</option></select></div><div class="field full smart-actions"><button id="smartAnalyze" class="btn">Analyze and optimize video</button><button id="smartCancel" class="btn hidden">Cancel analysis</button><span id="smartStatus" class="tiny">Not analyzed</span></div><div id="smartResults" class="field full smart-results hidden"></div></div></section>
+      <section id="videoSection" class="section"><h3>Video</h3><div class="fields"><div class="field"><label>Start</label><input id="start" value="0:00"></div><div class="field"><label>End (blank = full video)</label><input id="end"></div><div class="field"><label>Speed</label><input id="speed" type="number" min="0.5" max="3" step="0.05" value="1"></div><div class="field"><label>Screen framing</label><select id="fit"><option value="fit" selected>Fit with bars</option><option value="crop">Crop to fill</option><option value="stretch">Stretch</option></select></div><div class="field project-control"><label>Frame rate</label><select id="fps"><option value="smooth">Smooth — 14.93 fps</option><option value="balanced" selected>Balanced — 11.95 fps</option><option value="classic">Classic — 9.95 fps</option><option value="compact">Compact — 7.47 fps</option></select></div><div class="field project-control"><label>Seek step</label><select id="seekSeconds"><option>3</option><option selected>5</option><option>10</option><option>15</option></select></div></div></section>
+      <section id="musicSection" class="section hidden"><h3>Music</h3><div class="fields"><div class="field two"><label>Song title <span class="tiny">(shown in Now Playing)</span></label><input id="musicTitle" maxlength="28" placeholder="From audio metadata or filename"></div><div class="field two"><label>Artist(s) <span class="tiny">(subtitle)</span></label><input id="musicArtist" maxlength="28" placeholder="From audio metadata"></div><div class="field"><label>Start</label><input id="musicStart" value="0:00"></div><div class="field"><label>End (blank = full song)</label><input id="musicEnd"></div><div class="field"><label>Playback speed</label><input id="musicSpeed" type="number" min="0.5" max="3" step="0.05" value="1"></div><div class="field two"><label>Artwork source</label><select id="musicArtworkMode"><option value="embedded" selected>Embedded artwork</option><option value="default">Default artwork</option><option value="custom">Custom image</option></select></div><div id="musicArtworkPresetRow" class="field full"><label>Default artwork preset <span class="tiny">(also used if embedded artwork is missing)</span></label><div id="musicArtworkPresets" class="music-artwork-presets" role="radiogroup" aria-label="Default audio artwork presets"></div></div><div id="musicArtworkCustomRow" class="field full hidden"><label>Custom artwork</label><input id="musicArtworkCustom" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"><span id="musicArtworkCustomStatus" class="tiny">Choose an image. It will be cropped to 240×160 for the GBA.</span></div><div class="field full"><span id="musicArtworkInfo" class="tiny">Embedded artwork is used when available. If the file has no embedded cover, the selected default preset is used instead.</span></div></div></section>
+      <section id="imageSection" class="section hidden"><h3>Image viewer</h3><div class="fields"><div class="field"><label>Screen framing</label><select id="imageFit"><option value="fit" selected>Fit with bars</option><option value="crop">Crop to fill</option><option value="stretch">Stretch</option></select></div><label class="check field"><input id="imageSlideshow" type="checkbox" checked> Enable slideshow</label><div id="imageSlideshowDuration" class="field"><label>Show image for</label><div class="inline-field"><input id="imageSeconds" type="number" min="0.5" max="3600" step="0.5" value="5"><span>seconds</span></div><span class="tiny">Turn slideshow off for a manual image viewer. Use L/R to move between media.</span></div><div class="field two"><span class="tiny">Static images are stored at native 240×160 RGB555.</span></div></div></section>
+      <section id="colorSection" class="section"><h3>Colour and compression</h3><div class="fields"><div class="field"><label>Palette</label><select id="paletteMode"><option value="shared" selected>Shared palette</option><option value="scene">Per-scene palette</option></select></div><div class="field"><label>Dithering</label><select id="ditherMode"><option value="off">Off</option><option value="ordered" selected>Ordered</option><option value="error">Error diffusion</option></select></div><div class="field project-control"><label>Video compression</label><select id="compression"><option value="delta" selected>Delta + keyframes</option><option value="none">Uncompressed</option></select></div></div></section>
+      <section id="audioSection" class="section"><h3>Sound</h3><div class="fields"><div id="audioTrackField" class="field hidden"><label>Input audio track</label><select id="audioTrack"></select></div><div class="field"><label>Channel</label><select id="audio"><option value="mix" selected>Mix to mono</option><option value="left">Left channel</option><option value="right">Right channel</option><option value="none">No audio</option></select></div><div class="field project-control"><label>Audio quality</label><select id="audioQuality"><option value="pcm" selected>Standard PCM</option><option value="adpcm">Compact ADPCM (Experimental)</option><option value="auto">Auto for ROM target</option></select></div><div class="field"><label>Source volume %</label><input id="volume" type="number" min="0" max="200" step="5" value="100"></div><label class="check project-control"><input id="normalize" type="checkbox"> Normalize quiet audio</label><label class="check project-control"><input id="limiter" type="checkbox" checked> Limiter</label><div class="field two"><label>Preview audio</label><div class="audio-row"><button id="audioPreview" class="btn">Create preview</button><audio id="audioPlayer" controls></audio></div></div></div></section>
+      <section class="section"><h3>ROM and playback</h3><div class="fields"><div class="field two"><label>ROM title</label><input id="romTitle" maxlength="12"></div><div class="field"><label>Output</label><select id="outputMode"><option value="rom">Single ROM</option><option value="menu">One ROM — media menu</option><option value="batch">Separate ROMs in ZIP</option></select><span id="outputModeHint" class="tiny">Collections automatically use the media menu.</span></div><label class="check"><input id="loop" type="checkbox"> Loop playback</label><label class="check project-control"><input id="resume" type="checkbox" checked> Save/resume position</label><label id="splitVideoRow" class="check"><input id="splitVideo" type="checkbox"> Split long video</label><div id="longSplitControls" class="field full split-options hidden"><div class="split-options-grid"><div class="field full split-settings"><label>ROM size per part: <b id="splitBudgetValue">31 MiB</b></label><input id="splitBudget" type="range" min="1" max="32" value="31"><div class="range-presets"><button type="button" class="mini-btn split-preset" data-size="20">20 MiB</button><button type="button" class="mini-btn split-preset" data-size="30">30 MiB</button><button type="button" class="mini-btn split-preset" data-size="32">Maximum</button></div></div><div class="field"><label>Maximum duration per part (MM:SS, 0 = auto)</label><input id="maxPartDuration" value="0"></div><label class="check"><input id="chapterAware" type="checkbox" checked> Prefer chapter boundaries</label><label class="check"><input id="resumeLongSplit" type="checkbox" checked> Resume interrupted splitting</label></div></div></div><p class="tiny">Playback: A pause/resume; B restart or menu; L/R previous/next media; Left/Right seek (video frame-step while paused, hold to repeat); Up/Down volume and SELECT mute only when the current media has audio; START cycles HUD; START+SELECT help. Manual images ignore A, and images/GIFs/silent videos have no audio controls. Collections with two or more items always open through the media menu.</p></section>
       <section id="titleCardSection" class="section hidden">
         <h3>Title cards for split video</h3>
         <div class="title-card-checkbox-row" role="group" aria-label="Title-card options">
@@ -256,28 +109,11 @@
         </div>
       </section>
 
-      <div class="bottom">
-        <div id="estimate" class="estimate"></div>
-        <div class="bottom-buttons"><button id="optimize" class="btn">Optimize to fit 32 MiB</button><button id="convert" class="btn primary">Create output</button></div>
-      </div>
-      <div id="progressWrap" class="progress-wrap hidden"><div class="status"><span id="progressText"></span><span id="progressPct"></span></div><div class="bar"><i id="progressFill"></i></div></div>
-      <div id="convertError" class="error hidden"></div>
-      <div id="done" class="done hidden"><button id="download" class="btn primary">Download output</button></div>
+      <div class="bottom"><div id="estimate" class="estimate"></div><div class="bottom-buttons"><button id="optimize" class="btn">Optimize to fit 32 MiB</button><button id="convert" class="btn primary">Create output</button></div></div><div id="progressWrap" class="progress-wrap hidden"><div class="status"><span id="progressText"></span><span id="progressPct"></span></div><div class="bar"><i id="progressFill"></i></div></div><div id="convertError" class="error hidden"></div><div id="done" class="done hidden"><button id="download" class="btn primary">Download output</button></div>
     </div>
   </section>
 </div>
-
-<div id="optimizerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="optimizerTitle">
-  <div class="modal-card card">
-    <h2 id="optimizerTitle">Optimize to fit 32 MiB</h2>
-    <div id="optimizerSummary"></div>
-    <div class="modal-actions"><button id="optimizerCancel" class="btn">Cancel</button><button id="optimizerApply" class="btn primary">Apply changes</button></div>
-  </div>
-</div>
-
-<script src="./gba-text.js" defer></script>
-<script src="./menu-themes.js" defer></script>
-<script src="./title-cards.js" defer></script>
-<script src="./app.js" defer></script>
+<div id="optimizerModal" class="modal hidden" role="dialog"><div class="modal-card card"><h2 id="optimizerTitle">Optimize to fit 32 MiB</h2><div id="optimizerSummary"></div><div class="modal-actions"><button id="optimizerCancel" class="btn">Cancel</button><button id="optimizerApply" class="btn primary">Apply changes</button></div></div></div>
+<script src="./gba-text.js" defer></script><script src="./menu-themes.js" defer></script><script src="./title-cards.js" defer></script><script src="./app.js" defer></script>
 </body>
 </html>

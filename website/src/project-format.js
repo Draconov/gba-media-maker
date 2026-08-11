@@ -1,12 +1,25 @@
-export const PROJECT_FORMAT = "gba-video-maker-project";
-export const PROJECT_VERSION = 1;
+export const PROJECT_FORMAT = "gba-media-maker-project";
+export const PROJECT_VERSION = 2;
+export const LEGACY_PROJECT_FORMAT = "gba-video-maker-project";
+export const LEGACY_PROJECT_VERSION = 1;
 
 const FPS_TO_VBLANKS = { smooth: 4, balanced: 5, classic: 6, compact: 8 };
 const VBLANKS_TO_FPS = { 4: "smooth", 5: "balanced", 6: "classic", 8: "compact" };
+const ARTWORK_MODES = new Set(["embedded", "default", "custom"]);
+const ARTWORK_PRESET = /^preset-(0[1-9]|1[0-9]|20)$/;
 
 function numberOr(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeArtworkMode(value) {
+  return ARTWORK_MODES.has(String(value || "").toLowerCase()) ? String(value).toLowerCase() : "embedded";
+}
+
+function normalizeArtworkPreset(value) {
+  const text = String(value || "").toLowerCase();
+  return ARTWORK_PRESET.test(text) ? text : "preset-01";
 }
 
 function projectClock(seconds, blankWhenZero = false) {
@@ -34,23 +47,24 @@ function browserSettingsFromLegacy(settings = {}) {
     audioQuality: settings.audioQuality || "pcm",
     smartTargetMiB: numberOr(settings.smartTargetMiB, 32),
     smartPriority: settings.smartPriority || "balanced",
-    vblanks: numberOr(settings.vblanks, 5),
-    fitMode: settings.fitMode || "fit",
+    vblanks: numberOr(settings.vblanks, FPS_TO_VBLANKS[settings.fps] || 5),
+    fitMode: settings.fitMode || settings.fit || "fit",
     paletteMode: settings.paletteMode || "shared",
     ditherMode: settings.ditherMode || "ordered",
     compression: settings.compression || "delta",
-    audioMode: settings.audioMode || "mix",
+    audioMode: settings.audioMode || settings.audio || "mix",
     seekSeconds: numberOr(settings.seekSeconds, 5),
-    defaultStart: numberOr(settings.defaultStart, 0),
-    defaultEnd: numberOr(settings.defaultEnd, 0),
-    defaultSpeed: numberOr(settings.defaultSpeed, 1),
-    defaultVolume: numberOr(settings.defaultVolume, 1),
-    defaultLoop: Boolean(settings.defaultLoop),
-    romTitle: settings.romTitle || "GBA VIDEO",
+    defaultStart: numberOr(settings.defaultStart, parseProjectClock(settings.start, 0)),
+    defaultEnd: numberOr(settings.defaultEnd, String(settings.end ?? "").trim() ? parseProjectClock(settings.end, 0) : 0),
+    defaultSpeed: numberOr(settings.defaultSpeed, numberOr(settings.speed, 1)),
+    defaultVolume: numberOr(settings.defaultVolume, numberOr(settings.volume, 100) / 100),
+    defaultLoop: Boolean(settings.defaultLoop ?? settings.loop),
+    defaultImageSeconds: Math.max(0, numberOr(settings.defaultImageSeconds ?? settings.imageSeconds, 5)),
+    romTitle: settings.romTitle || "GBA MEDIA",
     normalize: Boolean(settings.normalize),
     limiter: settings.limiter !== false,
     resume: settings.resume !== false,
-    outputMode: settings.outputMode || "rom",
+    outputMode: settings.outputMode === "batch" ? "batch" : (settings.outputMode === "menu" || settings.outputMode === "playlist" ? "menu" : "rom"),
     splitVideo: Boolean(settings.splitVideo),
     splitBudgetMiB: numberOr(settings.splitBudgetMiB, 31),
     maxPartDuration: String(settings.maxPartDuration ?? "0"),
@@ -67,9 +81,9 @@ function browserSettingsFromLegacy(settings = {}) {
   };
 }
 
-export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0.12.2" }) {
+export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0.13.0" }) {
   const fps = VBLANKS_TO_FPS[Number(settings.vblanks)] || "balanced";
-  const doc = {
+  return {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
     appVersion,
@@ -86,7 +100,8 @@ export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0
       audio: settings.audioMode || "mix",
       volume: Math.round(numberOr(settings.defaultVolume, 1) * 10000) / 100,
       loop: Boolean(settings.defaultLoop),
-      romTitle: settings.romTitle || "GBA VIDEO",
+      imageSeconds: Math.max(0, numberOr(settings.defaultImageSeconds, 5)),
+      romTitle: settings.romTitle || "GBA MEDIA",
       seekSeconds: numberOr(settings.seekSeconds, 5),
       normalize: Boolean(settings.normalize),
       limiter: Boolean(settings.limiter),
@@ -94,7 +109,7 @@ export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0
       compression: settings.compression || "delta",
       paletteMode: settings.paletteMode || "shared",
       ditherMode: settings.ditherMode || "ordered",
-      outputMode: settings.outputMode || "rom",
+      outputMode: settings.outputMode === "batch" ? "batch" : (settings.outputMode === "menu" || settings.outputMode === "playlist" ? "menu" : "rom"),
       splitVideo: Boolean(settings.splitVideo),
       splitBudgetMiB: numberOr(settings.splitBudgetMiB, 31),
       maxPartDuration: String(settings.maxPartDuration ?? "0").trim() || "0",
@@ -115,7 +130,7 @@ export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0
       size: Number(entry.file.size) || 0,
       lastModified: Number(entry.file.lastModified) || 0,
       settings: {
-        title: entry.title || "GBA VIDEO",
+        title: entry.title || "GBA MEDIA",
         useProject: entry.useProject !== false,
         start: projectClock(entry.start),
         end: projectClock(entry.end, true),
@@ -127,61 +142,28 @@ export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0
         loop: Boolean(entry.loop),
         paletteMode: entry.paletteMode || "shared",
         ditherMode: entry.ditherMode || "ordered",
+        imageSeconds: Math.max(0, numberOr(entry.imageSeconds, 5)),
+        musicTitle: String(entry.musicTitle || "").slice(0, 28),
+        musicArtist: String(entry.musicArtist || "").slice(0, 28),
+        musicArtworkMode: normalizeArtworkMode(entry.musicArtworkMode),
+        musicArtworkPreset: normalizeArtworkPreset(entry.musicArtworkPreset),
+        musicArtworkCustom: String(entry.musicArtworkCustom || ""),
       },
     })),
   };
-  return doc;
 }
 
-export function browserStateFromCanonicalProject(doc) {
-  if (!doc || doc.format !== PROJECT_FORMAT || Number(doc.version) !== PROJECT_VERSION || !Array.isArray(doc.clips) || doc.clips.length === 0) {
-    throw new Error("This is not a valid .gbavideo project.");
-  }
-  const settings = doc.settings || {};
+function stateFromDocument(doc) {
+  const settings = browserSettingsFromLegacy(doc.settings || {});
   return {
-    settings: {
-      preset: settings.preset || "custom",
-      audioQuality: settings.audioQuality || "pcm",
-      smartTargetMiB: numberOr(settings.smartTargetMiB, 32),
-      smartPriority: settings.smartPriority || "balanced",
-      vblanks: FPS_TO_VBLANKS[settings.fps] || 5,
-      fitMode: settings.fit || "fit",
-      paletteMode: settings.paletteMode || "shared",
-      ditherMode: settings.ditherMode || "ordered",
-      compression: settings.compression || "delta",
-      audioMode: settings.audio || "mix",
-      seekSeconds: numberOr(settings.seekSeconds, 5),
-      defaultStart: parseProjectClock(settings.start, 0),
-      defaultEnd: String(settings.end ?? "").trim() ? parseProjectClock(settings.end, 0) : 0,
-      defaultSpeed: numberOr(settings.speed, 1),
-      defaultVolume: numberOr(settings.volume, 100) / 100,
-      defaultLoop: Boolean(settings.loop),
-      romTitle: settings.romTitle || "GBA VIDEO",
-      normalize: Boolean(settings.normalize),
-      limiter: settings.limiter !== false,
-      resume: settings.resume !== false,
-      outputMode: settings.outputMode || "rom",
-      splitVideo: Boolean(settings.splitVideo),
-      splitBudgetMiB: numberOr(settings.splitBudgetMiB, 31),
-      maxPartDuration: String(settings.maxPartDuration ?? "0").trim() || "0",
-      chapterAware: settings.chapterAware !== false,
-      partTitleScreens: settings.titleCards?.enabled ?? (settings.partTitleScreens !== false),
-      titleCards: settings.titleCards || null,
-      resumeLongSplit: settings.resumeLongSplit !== false,
-      menuBackground: settings.menuBackground || settings.menuTheme?.id || "ocean-wave-animated",
-      menuUIColor: settings.menuUIColor || "#FFFFFF",
-      menuSelectionColor: settings.menuSelectionColor || "#FFDE00",
-      menuOutline: settings.menuOutline !== false,
-      menuOutlineColor: settings.menuOutlineColor || "#000000",
-      menuTheme: settings.menuTheme || null,
-    },
+    settings,
     clips: doc.clips.map((saved) => ({
       source: {
-        name: saved.name || "video",
+        name: saved.name || "media",
         size: Number(saved.size) || 0,
         lastModified: Number(saved.lastModified) || 0,
       },
-      title: saved.settings?.title || "GBA VIDEO",
+      title: saved.settings?.title || "GBA MEDIA",
       useProject: saved.settings?.useProject !== false,
       start: parseProjectClock(saved.settings?.start, 0),
       end: String(saved.settings?.end ?? "").trim() ? parseProjectClock(saved.settings?.end, 0) : 0,
@@ -193,22 +175,39 @@ export function browserStateFromCanonicalProject(doc) {
       loop: Boolean(saved.settings?.loop),
       paletteMode: saved.settings?.paletteMode || "shared",
       ditherMode: saved.settings?.ditherMode || "ordered",
+      imageSeconds: Math.max(0, numberOr(saved.settings?.imageSeconds, settings.defaultImageSeconds)),
+      musicTitle: String(saved.settings?.musicTitle || "").slice(0, 28),
+      musicArtist: String(saved.settings?.musicArtist || "").slice(0, 28),
+      musicArtworkMode: normalizeArtworkMode(saved.settings?.musicArtworkMode),
+      musicArtworkPreset: normalizeArtworkPreset(saved.settings?.musicArtworkPreset),
+      musicArtworkCustom: String(saved.settings?.musicArtworkCustom || ""),
     })),
   };
 }
 
+export function browserStateFromCanonicalProject(doc) {
+  if (!doc || !Array.isArray(doc.clips) || doc.clips.length === 0) throw new Error("This is not a valid GBA Media Maker project.");
+  const current = doc.format === PROJECT_FORMAT && Number(doc.version) === PROJECT_VERSION;
+  const legacy = doc.format === LEGACY_PROJECT_FORMAT && Number(doc.version) === LEGACY_PROJECT_VERSION;
+  if (!current && !legacy) throw new Error("This is not a supported GBA Media Maker project.");
+  return stateFromDocument(doc);
+}
+
 export function normalizeBrowserProjectDocument(parsed) {
-  if (parsed?.format === PROJECT_FORMAT) return browserStateFromCanonicalProject(parsed);
+  if ((parsed?.format === PROJECT_FORMAT && Number(parsed.version) === PROJECT_VERSION) ||
+      (parsed?.format === LEGACY_PROJECT_FORMAT && Number(parsed.version) === LEGACY_PROJECT_VERSION)) {
+    return browserStateFromCanonicalProject(parsed);
+  }
   if (parsed?.format === "GBA Video Maker Project" && Array.isArray(parsed.clips) && parsed.clips.length > 0) {
     return {
       settings: browserSettingsFromLegacy(parsed.settings || {}),
       clips: parsed.clips.map((saved) => ({
         source: {
-          name: saved.source?.name || "video",
+          name: saved.source?.name || "media",
           size: Number(saved.source?.size) || 0,
           lastModified: Number(saved.source?.lastModified) || 0,
         },
-        title: saved.title || "GBA VIDEO",
+        title: saved.title || "GBA MEDIA",
         useProject: saved.useProject !== false,
         start: numberOr(saved.start, 0),
         end: numberOr(saved.end, 0),
@@ -220,8 +219,14 @@ export function normalizeBrowserProjectDocument(parsed) {
         loop: Boolean(saved.loop),
         paletteMode: saved.paletteMode || "shared",
         ditherMode: saved.ditherMode || "ordered",
+        imageSeconds: Math.max(0, numberOr(saved.imageSeconds, 5)),
+        musicTitle: String(saved.musicTitle || "").slice(0, 28),
+        musicArtist: String(saved.musicArtist || "").slice(0, 28),
+        musicArtworkMode: normalizeArtworkMode(saved.musicArtworkMode),
+        musicArtworkPreset: normalizeArtworkPreset(saved.musicArtworkPreset),
+        musicArtworkCustom: String(saved.musicArtworkCustom || ""),
       })),
     };
   }
-  throw new Error("This is not a valid .gbavideo project.");
+  throw new Error("This is not a valid GBA Media Maker project.");
 }

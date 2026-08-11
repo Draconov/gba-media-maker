@@ -569,12 +569,12 @@ function renderMenuPreview(canvas,theme,settings={},elapsed=0) {
     if(outlineEnabled) { logical[13*FRAME_WIDTH+x]=outline; logical[15*FRAME_WIDTH+x]=outline; }
     logical[14*FRAME_WIDTH+x]=ui;
   }
-  drawText(logical,36,2,'SELECT VIDEO',ui,outline,outlineEnabled);
+  drawText(logical,36,2,'SELECT MEDIA',ui,outline,outlineEnabled);
   drawText(logical,2,8,'CLIP 1/3',ui,outline,outlineEnabled);
   drawText(logical,74,8,'TOTAL 01:05',ui,outline,outlineEnabled);
-  drawText(logical,8,17,'FIRST VIDEO',selected,outline,outlineEnabled);
-  drawText(logical,8,23,'SECOND VIDEO',ui,outline,outlineEnabled);
-  drawText(logical,8,29,'THIRD VIDEO',ui,outline,outlineEnabled);
+  drawText(logical,8,17,'FIRST MEDIA',selected,outline,outlineEnabled);
+  drawText(logical,8,23,'SECOND MEDIA',ui,outline,outlineEnabled);
+  drawText(logical,8,29,'THIRD MEDIA',ui,outline,outlineEnabled);
   drawMenuArrow(logical,3,17,selected,outline,outlineEnabled);
   paintIntegerScaled(canvas,logical);
 }

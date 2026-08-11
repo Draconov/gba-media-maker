@@ -1,317 +1,115 @@
 <div align="center">
-  <img src="assets/app_icon.png" width="96" alt="GBA Video Maker icon">
+  <img src="assets/icon.png" width="96" alt="GBA Media Maker icon">
 
-# GBA Video Maker
+# GBA Media Maker
 
-**Turn ordinary videos into playable Game Boy Advance ROMs — in the browser or with the portable Windows app.**
+**Turn videos, music, and images into playable Game Boy Advance ROMs.**
 
-[![Version](https://img.shields.io/badge/version-0.12.2-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
-[![Web App](https://img.shields.io/badge/TRY-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-video-maker/)
-[![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](../../releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge&labelColor=20252d)](LICENSE)
+![Version](https://img.shields.io/badge/version-0.13.0-ffd600?style=for-the-badge&labelColor=20252d)
+
+<p>
+  <a href="https://draconov.github.io/gba-video-maker/"><strong>Open the web app</strong></a>
+  ·
+  <a href="https://github.com/draconov/gba-video-maker">Main repository</a>
+</p>
+
 </div>
 
-## Choose your version
+GBA Media Maker is the v0.13 evolution of GBA Video Maker. It keeps the existing video converter and GBV5-compatible ROM container while adding first-class audio and image entries, mixed-media collections, native 240×160 artwork/images, and a media-aware GBA runtime.
 
-| | Web app | Portable desktop app |
-|---|---|---|
-| Installation | None | Extract the ZIP and run the EXE |
-| Processing | Local, inside the browser | Local, through native FFmpeg |
-| Best for | Quick conversions and short/medium videos | Long videos, repeated jobs, and maximum speed |
-| Privacy | Files stay on your device | Files stay on your device |
-| Platform | Modern desktop browsers | Windows x64 |
-| Open | **[Launch the web converter](https://draconov.github.io/gba-video-maker/)** | **[Open the latest release](../../releases/latest)** |
+## What v0.13.0 adds
 
-The browser edition uses WebAssembly and can use considerably more memory than the desktop app. For large conversions, the portable app is usually the safer choice.
+- **Video + Audio + Image** files in the same project and ROM.
+- **Audio-only ROMs** from MP3, WAV, FLAC, OGG/Opus, M4A/AAC and other formats supported by FFmpeg.
+- Embedded cover-art extraction for audio, with a generated fallback artwork screen.
+- GBA **Now Playing** screen with editable 28-character song title and artist subtitle, elapsed/total time, progress, pause, seek, volume and mute.
+- **Native 240×160 static images** stored as RGB555 instead of 120×80 video frames.
+- Image viewer/gallery controls with an explicit **Enable slideshow** switch; turn it off for a manual viewer.
+- Every multi-item collection ROM starts in the media menu, whether it is mixed media, video-only, music-only, or image-only; entries use `[V]`, `[A]`, and `[I]` tags.
+- `.gbamedia` v2 project files; legacy `.gbavideo` v1 projects remain accepted.
+- Existing video presets, title cards, menus, palette modes, long-video splitting, PCM and experimental IMA ADPCM are retained.
 
-## What it can create
+## Desktop workflow
 
-- A normal single-video ROM
-- One ROM that plays several clips in sequence
-- One ROM with a startup clip-selection menu
-- Separate `.gba` files packaged into a ZIP
-- Numbered ROM parts when a single video cannot safely fit on one cartridge
+1. Launch **GBA Media Maker**.
+2. Choose or drag one or more media files.
+3. Reorder them. A one-item project opens directly; every multi-item collection uses the **Media menu** automatically (or choose **Separate ROMs**).
+4. Selecting a video, music file, or image exposes a dedicated Video, Music, or Image settings panel.
+5. Create the output and test the `.gba` in an emulator or on hardware/flashcart.
 
-Generated video uses fixed **120×80** indexed frames and expands them to the GBA's **240×160** display. Legacy presets use signed 8-bit mono PCM at **16,384 Hz**, hardware DMA audio playback, and keyframe/delta video compression with raw-frame fallback.
+The Windows app runs a local-only UI on `127.0.0.1` and invokes FFmpeg locally. Source media is not uploaded by the desktop application.
 
-**Extreme optimization (Experimental)** can additionally use scene-aware adaptive keyframes and block-based 4-bit IMA ADPCM.
+## GBA controls
 
-## Features
+### Video and audio playback
 
-### Video and output
-
-- Drag in one or more videos
-- Trim start and end times
-- Playback-speed controls
-- Fit with bars, crop, or stretch
-- Four GBA-friendly frame-rate choices
-- Shared or per-scene palettes
-- Dithering off, ordered, or error diffusion
-- Keyframe/delta compression or uncompressed video
-- Automatic raw-frame fallback when compression would be larger
-- Configurable 3, 5, 10, or 15-second seek step
-- Optional looping per clip
-- Editable 12-character ROM title
-- Clip reordering and per-clip menu titles
-- Optional SRAM save/resume support
-
-### Audio
-
-- Mono mix, left channel, right channel, or disabled audio
-- Per-clip volume
-- Optional loudness normalization
-- Optional limiter
-- Selected-channel preview in both desktop and web editions
-- Standard PCM, Compact ADPCM (Experimental), or Auto for ROM target under Extreme optimization
-- Codec previews use the same 16,384 Hz PCM/ADPCM implementation written into the ROM
-
-### Long videos and split ROMs
-
-Single-video conversions can automatically split into multiple ROMs when the selected cartridge target is exceeded. The converter estimates the part count before encoding, verifies the real encoded size of each accepted part, and continues from the exact ending timestamp.
-
-Optional split controls provide:
-
-- A **1–32 MiB** ROM-data target with 20 MiB, 30 MiB, and Maximum shortcuts
-- Optional maximum source duration per part using `MM:SS`
-- Chapter-aware split points when chapter metadata is available
-- Persistent recovery of completed parts after cancellation or failure
-- Progress such as `Part N of approximately M` and `18:42 / 50:00`
-- Output as `NAME_PART_01.gba`, `NAME_PART_02.gba`, and `PARTS.txt` inside one ZIP
-
-### Native title cards
-
-Split ROMs can show a native **240×160** title card before each part.
-
-- First frame of the part as the default background
-- Adjustable background darkening
-- Source filename as the default title
-- Automatic `Part {part}` subtitle
-- Shared settings or per-part overrides
-- Independent title/subtitle size, alignment, text colour, and outline colour
-- Wait for `A` or timed start
-- Optional skip and fade into video
-- Pixel-accurate RGB555 preview in both editions
-
-### Menu design
-
-When **One ROM — clip menu** is selected, the menu can be customized directly in the editor.
-
-- Live 120×80 pixel preview using the same indexed data as the GBA player
-- Exact 3×5 font, divider lines, text coordinates, and selector shape
-- Built-in **Classic dark**, **Ocean Wave — static**, **Ocean Wave — animated**, and **Blue Wave — animated** backgrounds
-- Selectable normal, selected, and outline colours
-- Optional one-pixel UI outline
-- Custom PNG, JPEG, WebP, GIF, or video backgrounds
-- GIFs and videos sampled to at most 16 looping frames; video start and 1–32 second sample duration are configurable, and source audio is ignored
-- One, two, or three title columns
-- Four-direction D-pad navigation
-- Remembered menu selection and separate resume position for each clip when SRAM resume is enabled
-
-Menu theme data is embedded directly into the ROM and included in the size estimate.
-
-### Latin and Cyrillic text
-
-Version **0.12.2** expands the existing 3×5 pixel font into one shared Latin + Cyrillic font, allowing mixed text in menu titles and title cards.
-
-- One shared character set instead of separate language fonts
-- Full Ukrainian support, including `Ґ Є І Ї`
-- UTF-8 text remains readable in `.gbavideo` project files
-- Menu titles and title cards count visible characters rather than UTF-8 bytes
-- `{part}` works in strings such as `Частина {part}`
-- Common typographic apostrophes, quotes, dashes, and ellipses are normalized
-- Unsupported characters are reported instead of silently disappearing
-- The internal 12-byte cartridge header remains ASCII-safe through transliteration
-
-Lowercase Cyrillic input is accepted and rendered in the same uppercase-style 3×5 pixel font used by the player.
-
-### Extreme optimization (Experimental)
-
-Extreme optimization is isolated from the stable presets. **Best quality**, **Balanced**, **Long video**, **Smallest ROM**, and **Custom** keep the established PCM/fixed-keyframe path unless Extreme optimization is explicitly selected.
-
-The experimental mode can:
-
-- Analyze representative low-resolution samples
-- Compare frame rate, palette, dithering, adaptive keyframes, and audio storage
-- Estimate ROM-size ranges and quality trade-offs
-- Apply a recommended candidate while keeping manual controls editable
-- Detect scene boundaries using motion, brightness, fades, flash rejection, and minimum scene length
-- Use adaptive keyframes while preserving seeking
-- Use 4-bit IMA ADPCM at 16,384 Hz to reduce audio storage
-
-> [!WARNING]
-> Compact ADPCM and adaptive encoding are experimental. They are covered by encoder/decoder and ROM-structure tests, but have not been qualified on every flash cartridge or long-duration real-hardware setup. Use Standard PCM when reliability matters more than capacity.
-
-For detailed release history, see [`CHANGELOG.md`](CHANGELOG.md).
-
-## Generated ROM controls
-
-| Button | During playback |
+| Button | Action |
 |---|---|
 | `A` | Pause or resume |
-| `B` | Restart the clip, or return to the menu in menu ROMs |
-| `L` / `R` | Seek backward or forward |
-| Hold `L` / `R` | Repeat seeking approximately every 0.4 seconds |
-| `D-pad Left` / `Right` | Seek while playing; step one frame while paused |
-| `D-pad Up` / `Down` | Change volume: 0%, 50%, or 100% |
-| `SELECT` | Mute or unmute |
-| `START` | Cycle HUD: hidden, time only, or full |
-| `L + R` | Quickly hide or restore the HUD |
+| `B` | Restart the current media, or return to the media menu in menu ROMs |
+| `L` / `R` | Previous / next media |
+| D-pad `Left` / `Right` | Seek while playing; video steps one frame while paused. Holding repeats about every 0.3 seconds |
+| D-pad `Up` / `Down` | Volume 0% / 50% / 100% when the current media has audio |
+| `SELECT` | Mute / unmute when the current media has audio |
+| `START` | Cycle HUD: hidden → time only → full |
 | `START + SELECT` | Open the controls-help screen |
-| `SELECT + Left/Right` | Previous or next clip in playlist ROMs |
 
-### Menu controls
+GIFs and silent videos, including videos converted with **No audio**, have no volume or mute controls.
 
-| Button | In the clip menu |
+### Image viewer
+
+| Button | Action |
 |---|---|
-| `D-pad Up` / `Down` | Move within a column |
-| `D-pad Left` / `Right` | Move between columns |
-| `A` | Play the selected clip |
+| `A` | Pause / resume only when slideshow is enabled; does nothing in manual-viewer mode |
+| `B` | Return to the media menu, or restart in a direct single-image ROM |
+| `L` / `R` | Previous / next media |
+| `START` | Cycle the image HUD |
+| `START + SELECT` | Open the controls-help screen |
 
-The full HUD can show elapsed and total time, current frame number, progress, and the loop icon.
+Images have no mute or volume controls.
 
-## Save/resume support
+### Media menu
 
-When **Save/resume position** is enabled, the ROM declares `SRAM_V113` save memory.
-
-A single-video ROM stores its playback frame. Menu and playlist ROMs additionally store the most recently selected clip and a separate resume frame for each clip.
-
-When a saved position is available:
-
-- `A` continues from the saved time
-- `B` restarts that clip from the beginning
-
-Finishing a clip normally clears only that clip's saved frame. SRAM behavior should be tested on the intended flash cartridge because save handling differs among cartridges and emulator configurations.
-
-## Desktop app
-
-Download the portable ZIP from the repository's **Releases** page, extract it, and run:
-
-```text
-GBA Video Maker.exe
-```
-
-No installer, Python runtime, administrator access, or devkitARM installation is required. Official portable packages place a pinned Windows x64 `ffmpeg.exe` beside the application, and the app does not download or update executables at runtime.
-
-> [!NOTE]
-> Windows may warn about an unsigned executable. Building from source or signing release binaries is the reliable way to establish publisher trust.
-
-## Web app
-
-The standalone browser edition lives under [`website/`](website/) and uses the same embedded `assets/player_stub.bin` as the desktop converter, so both editions generate ROMs with the same playback engine.
-
-The web edition supports the same main conversion workflow, including output modes, quality controls, long-video splitting, title cards, project save/open, menu design, audio preview, and Extreme optimization controls.
-
-Browser processing is local. Selected videos are copied into FFmpeg's in-browser filesystem and are not uploaded to a project server. Browser security does not allow a saved project to silently reopen local files, so source files must be selected again and are relinked by filename.
-
-### Run the website locally
-
-```bash
-cd website
-npm install
-npm test
-npm run dev
-```
-
-Build the static site used by GitHub Pages:
-
-```bash
-cd website
-npm run build
-npm run preview
-```
-
-GitHub Pages deployment is configured in [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
-
-## ROM format
-
-| Property | Value |
+| Button | Action |
 |---|---|
-| Display | 240×160 Mode 4 |
-| Encoded video | 120×80 indexed frames |
-| Video colours | RGB555 palette entries 0–249 |
-| UI colours | Palette entries 250–255 |
-| Audio | Signed 8-bit mono PCM at 16,384 Hz; optional experimental IMA ADPCM |
-| Maximum ROM size | 32 MiB |
-| Padding | Next power-of-two cartridge size |
+| D-pad `Up` / `Down` | Move within the current column |
+| D-pad `Left` / `Right` | Move between columns (and across menu pages when needed) |
+| `A` | Play the selected media |
 
-Delta compression stores periodic full keyframes and changed-byte runs between them. Each clip includes frame and seek metadata so the player can reconstruct frames after seeking.
+## Media formats
 
-## Privacy and security
+The native desktop build delegates decoding to FFmpeg, so practical source support includes common MP4/MKV/MOV/AVI/WebM videos; MP3/WAV/FLAC/OGG/Opus/M4A/AAC audio; and PNG/JPEG/WebP/BMP/TIFF-style images.
 
-### Desktop
+Generated video remains 120×80 indexed graphics expanded to 240×160 on the GBA. Audio artwork and static image entries use full 240×160 RGB555 screens. Audio playback remains mono at 16,384 Hz, using signed 8-bit PCM or the existing experimental IMA ADPCM path.
 
-The desktop GUI is served locally on a random `127.0.0.1` address with a random session token. FFmpeg processes selected videos locally. Temporary files are created in the operating system's temporary directory and removed after normal shutdown.
+## Build
 
-### Browser
-
-The GitHub Pages site is static. Conversion runs locally in the browser with WebAssembly and does not require a video-upload server.
-
-See [`SECURITY.md`](SECURITY.md) for vulnerability-reporting guidance.
-
-## Build from source
-
-### Requirements
-
-- Go 1.23 or newer
-- FFmpeg for conversions and integration tests
-- LLVM tools (`clang`, `ld.lld`, and `llvm-objcopy`) to rebuild the GBA player
-- Node.js and npm for the standalone website
-
-### Go checks
+Requirements: Go 1.23+, FFmpeg for conversion/tests, and LLVM (`clang`, `ld.lld`, `llvm-objcopy`) when rebuilding the GBA runtime.
 
 ```bash
-go fmt ./...
-go vet ./...
 go test ./...
-```
-
-### Rebuild the GBA player
-
-After changing files under `player/`:
-
-```bash
 ./player/build.sh
+go build ./...
 ```
 
-### Build the Windows executable
+Windows release helpers live under `scripts/`. The release workflow discovers the pinned BtbN non-shared `win64-lgpl` FFmpeg archive through its `checksums.sha256` manifest.
 
-```bash
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-  go build -trimpath -ldflags="-H windowsgui -s -w" \
-  -o "GBA Video Maker.exe" .
-```
+## ROM compatibility
 
-PowerShell helpers:
+The global ROM metadata remains **GBV5 version 5**. v0.13 uses previously available descriptor flag bits for audio-only, image, and media-metadata records rather than creating an unnecessary container-version break. Legacy video descriptors continue to use the existing path.
 
-```powershell
-./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.12.2
-```
+The GBA header game code is `GM05` for newly generated media ROMs.
 
-## Project layout
+## Repository layout
 
-```text
-player/                  ARM7TDMI player source and build scripts
-assets/player_stub.bin   Prebuilt 32 KiB GBA player template
-converter.go             FFmpeg pipeline, palettes, compression, and ROM assembly
-menu_theme.go            MTH1 menu-theme validation and ROM embedding
-title_card.go            Native 240×160 title-card rendering and TCD1 assets
-web/                     Desktop interface, menu themes, and title-card editor
-website/                 Standalone GitHub Pages converter with matching tools
-webapp.go                Local desktop HTTP API and preview-job coordination
-scripts/                 Desktop build and packaging helpers
-docs/                    Architecture documentation
-.github/workflows/       CI, release, and Pages deployment
-```
-
-More implementation details are available in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`website/README.md`](website/README.md).
-
-## FFmpeg and legal notes
-
-FFmpeg is a separate open-source project distributed under its own licences and is not committed to the source repository. Official portable packages may include a verified FFmpeg binary. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-Convert only media you have permission to use. Game Boy Advance, Nintendo, and related marks belong to their respective owners. This independent project is not affiliated with or endorsed by Nintendo.
+- `converter.go` — media inspection, conversion, packing, audio/image/video pipelines
+- `web/` — embedded desktop UI
+- `player/` — freestanding ARM7TDMI runtime
+- `assets/player_stub.bin` — rebuilt 32 KiB runtime stub embedded in generated ROMs
+- `website/` — browser-edition source scaffold
+- `scripts/` — Windows build/release helpers
+- `.github/workflows/` — CI/release/pages workflows
 
 ## License
 
-GBA Video Maker is available under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

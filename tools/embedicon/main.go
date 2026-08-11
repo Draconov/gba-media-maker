@@ -76,7 +76,6 @@ func buildResource(entries []iconEntry, baseRVA uint32) []byte {
 	groupLangOff := groupDirOff + 24
 	dataEntriesOff := groupLangOff + 24
 	blobOff := int(align(uint32(dataEntriesOff+(n+1)*16), 4))
-
 	iconBlobOffsets := make([]int, n)
 	cursor := blobOff
 	for i, e := range entries {
@@ -91,7 +90,6 @@ func buildResource(entries []iconEntry, baseRVA uint32) []byte {
 	putDir(out, rootOff, 2)
 	putEntry(out, rootEntriesOff, resourceTypeIcon, uint32(iconDirOff), true)
 	putEntry(out, rootEntriesOff+8, resourceTypeGroupIcon, uint32(groupDirOff), true)
-
 	putDir(out, iconDirOff, uint16(n))
 	for i := range entries {
 		langDir := iconLangOff + i*24
@@ -103,7 +101,6 @@ func buildResource(entries []iconEntry, baseRVA uint32) []byte {
 		binary.LittleEndian.PutUint32(out[dataEntry+4:dataEntry+8], uint32(len(entries[i].data)))
 		copy(out[iconBlobOffsets[i]:], entries[i].data)
 	}
-
 	putDir(out, groupDirOff, 1)
 	putEntry(out, groupDirOff+16, 1, uint32(groupLangOff), true)
 	putDir(out, groupLangOff, 1)
@@ -111,7 +108,6 @@ func buildResource(entries []iconEntry, baseRVA uint32) []byte {
 	putEntry(out, groupLangOff+16, languageEnglishUS, uint32(groupDataEntry), false)
 	binary.LittleEndian.PutUint32(out[groupDataEntry:groupDataEntry+4], baseRVA+uint32(groupBlobOff))
 	binary.LittleEndian.PutUint32(out[groupDataEntry+4:groupDataEntry+8], uint32(groupSize))
-
 	g := out[groupBlobOff : groupBlobOff+groupSize]
 	binary.LittleEndian.PutUint16(g[2:4], 1)
 	binary.LittleEndian.PutUint16(g[4:6], uint16(n))
@@ -178,7 +174,6 @@ func embed(exePath, icoPath string) error {
 		exe = append(exe, make([]byte, need-len(exe))...)
 	}
 	copy(exe[newRaw:newRaw+uint32(len(resource))], resource)
-
 	h := exe[newHeader : newHeader+40]
 	copy(h[0:8], []byte(".rsrc\x00\x00\x00"))
 	binary.LittleEndian.PutUint32(h[8:12], uint32(len(resource)))
@@ -186,15 +181,13 @@ func embed(exePath, icoPath string) error {
 	binary.LittleEndian.PutUint32(h[16:20], newRawSize)
 	binary.LittleEndian.PutUint32(h[20:24], newRaw)
 	binary.LittleEndian.PutUint32(h[36:40], resourceDataRead)
-
 	binary.LittleEndian.PutUint16(exe[coff+2:coff+4], uint16(sections+1))
 	initialized := binary.LittleEndian.Uint32(exe[opt+8 : opt+12])
 	binary.LittleEndian.PutUint32(exe[opt+8:opt+12], initialized+newRawSize)
 	binary.LittleEndian.PutUint32(exe[opt+56:opt+60], align(newRVA+uint32(len(resource)), sectionAlignment))
-	binary.LittleEndian.PutUint32(exe[opt+64:opt+68], 0) // checksum is optional for ordinary executables
+	binary.LittleEndian.PutUint32(exe[opt+64:opt+68], 0)
 	binary.LittleEndian.PutUint32(exe[resourceDir:resourceDir+4], newRVA)
 	binary.LittleEndian.PutUint32(exe[resourceDir+4:resourceDir+8], uint32(len(resource)))
-
 	tmp := exePath + ".icon.tmp"
 	if err := os.WriteFile(tmp, exe, 0o755); err != nil {
 		return err
@@ -207,8 +200,8 @@ func embed(exePath, icoPath string) error {
 }
 
 func main() {
-	exe := flag.String("exe", "GBA Video Maker.exe", "Windows executable to update")
-	ico := flag.String("ico", "assets/app_icon.ico", "ICO file to embed")
+	exe := flag.String("exe", "GBA Media Maker.exe", "Windows executable to update")
+	ico := flag.String("ico", "assets/icon.ico", "ICO file to embed")
 	flag.Parse()
 	if err := embed(*exe, *ico); err != nil {
 		fmt.Fprintln(os.Stderr, "embedicon:", err)

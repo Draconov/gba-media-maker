@@ -1,5 +1,5 @@
 # Build output
-GBA Video Maker.exe
+GBA Media Maker.exe
 *.exe
 *.zip
 *.sha256
@@ -9,7 +9,7 @@ build/
 # Runtime downloads and logs
 ffmpeg.exe
 ffmpeg.exe.download
-GBA Video Maker.log
+GBA Media Maker.log
 
 # Generated media
 *.gba
