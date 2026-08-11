@@ -5,12 +5,7 @@
 
 **Turn videos, music, animated GIFs, and images into playable Game Boy Advance ROMs — on Windows or in the browser.**
 
-[![Version](https://img.shields.io/badge/version-0.13.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md)
-[![Open Web App](https://img.shields.io/badge/OPEN-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-media-maker/)
-[![Main Repository](https://img.shields.io/badge/MAIN-REPOSITORY-ffd600?style=for-the-badge&labelColor=20252d)](https://github.com/Draconov/gba-media-maker)
-
-[![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](https://github.com/Draconov/gba-media-maker/releases/latest)
-[![License](https://img.shields.io/badge/license-NON--COMMERCIAL-ffdf00?style=for-the-badge&labelColor=20252d)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.13.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md) [![Open Web App](https://img.shields.io/badge/OPEN-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-media-maker/) [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](https://github.com/Draconov/gba-media-maker/releases/latest) [![License](https://img.shields.io/badge/license-NON--COMMERCIAL-ffdf00?style=for-the-badge&labelColor=20252d)](LICENSE)
 </div>
 
 ## Choose your version
