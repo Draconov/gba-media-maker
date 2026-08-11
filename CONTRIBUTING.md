@@ -11,6 +11,13 @@ Bug reports, reproducible test cases, documentation fixes, and focused pull requ
 5. Attach `GBA Media Maker.log` when the desktop app exits unexpectedly.
 6. Prefer a short synthetic or freely shareable reproduction. Do not upload copyrighted media unless you have permission to share it.
 
+## Get the source
+
+```bash
+git clone https://github.com/Draconov/gba-media-maker.git
+cd gba-media-maker
+```
+
 ## Development requirements
 
 Desktop/core work uses:

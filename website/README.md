@@ -10,6 +10,14 @@
   Media processing stays on the user's device; there is no conversion-upload backend.
 </p>
 
+<p align="center">
+  <a href="https://draconov.github.io/gba-media-maker/"><strong>Open the web app</strong></a>
+  ·
+  <a href="https://github.com/Draconov/gba-media-maker">Main repository</a>
+  ·
+  <a href="https://github.com/Draconov/gba-media-maker/releases/latest">Desktop releases</a>
+</p>
+
 ---
 
 ## Overview

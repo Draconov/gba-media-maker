@@ -1,6 +1,6 @@
 # Third-party notices
 
-GBA Media Maker source code is MIT-licensed, but the project uses/distributes components and assets that remain under their own licences.
+GBA Media Maker is distributed under the project's Non-Commercial Contribution License v1.0, while third-party components and assets remain under their own licences.
 
 ## FFmpeg — desktop conversion
 
@@ -40,7 +40,7 @@ website/public/audio-artwork/
 
 are third-party artwork from the **Grainient — Dither Gradient I** collection, supplied by the project maintainer under a separate licence that permits their inclusion/redistribution with this project.
 
-These artwork files are **not relicensed under the repository's MIT licence**. Their use and redistribution remain subject to the applicable artwork licence.
+These artwork files are **not relicensed under the project's Non-Commercial Contribution License**. Their use and redistribution remain subject to the applicable artwork licence.
 
 - Collection source: <https://grainient.supply/collections/dither-gradient-i>
 

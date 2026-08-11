@@ -15,7 +15,7 @@ Please avoid filing a public issue for vulnerabilities involving:
 - downloaded-binary or checksum verification failures;
 - malicious project/media files that escape intended local processing boundaries.
 
-Use GitHub's private vulnerability-reporting feature when it is enabled for the repository. Include reproduction steps, affected version, operating system/browser, and impact. Do not include private media or personal filesystem paths unless they are necessary to reproduce the issue.
+Use GitHub's private vulnerability-reporting feature for <https://github.com/Draconov/gba-media-maker> when it is enabled for the repository. Include reproduction steps, affected version, operating system/browser, and impact. Do not include private media or personal filesystem paths unless they are necessary to reproduce the issue.
 
 ## Desktop security boundaries
 

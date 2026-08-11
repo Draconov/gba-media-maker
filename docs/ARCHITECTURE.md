@@ -136,7 +136,7 @@ The legacy playlist flag remains readable by the GBV5 player/converter for compa
 
 ## Video pipeline
 
-Video retains the stable GBA Video Maker pipeline.
+Video retains the stable indexed-video pipeline established in GBA Video Maker (pre v0.13.0)
 
 ### FFmpeg extraction
 

@@ -1,9 +1,9 @@
-GBA VIDEO MAKER NON-COMMERCIAL CONTRIBUTION LICENSE
+GBA MEDIA MAKER NON-COMMERCIAL CONTRIBUTION LICENSE
 Version 1.0
 
 Copyright (c) 2026 Draconov
 
-This license applies to GBA Video Maker and its source code, documentation,
+This license applies to GBA Media Maker and its source code, documentation,
 assets, and other original materials included in this repository
 (collectively, the "Software"), except for third-party materials that are
 distributed under their own licenses.
@@ -12,7 +12,6 @@ distributed under their own licenses.
 
 Subject to the terms of this License, you are granted a limited,
 non-exclusive, non-transferable, non-sublicensable, revocable license to:
-
 a. Download, install, and run the Software for personal, educational,
    research, hobby, or other strictly non-commercial purposes.
 
@@ -21,8 +20,7 @@ b. View and study the source code.
 c. Make modifications to the Software solely:
    i. for your own private, non-commercial use; or
    ii. for the purpose of submitting those modifications to the official
-       GBA Video Maker repository as a contribution, patch, or pull request.
-
+       GBA Media Maker repository as a contribution, patch, or pull request.
 d. Create or maintain a fork of the repository only as reasonably necessary
    to prepare, test, and submit contributions to the official project.
 
@@ -31,14 +29,12 @@ No rights are granted except those expressly stated in this License.
 2. CONTRIBUTIONS
 
 You may submit bug fixes, improvements, features, documentation changes, or
-other updates to the official GBA Video Maker project.
-
+other updates to the official GBA Media Maker project.
 By intentionally submitting a contribution, you represent that you have the
 legal right to submit it and you grant the Project Owner a perpetual,
 worldwide, irrevocable, non-exclusive, royalty-free license to use, reproduce,
 modify, merge, publish, distribute, sublicense, and relicense that contribution
-as part of GBA Video Maker or related versions of the project.
-
+as part of GBA Media Maker or related versions of the project.
 Contributions are voluntary. No payment, royalty, compensation, or other
 financial consideration is owed for submitted or accepted contributions unless
 separately agreed in writing.
@@ -51,7 +47,6 @@ for-profit, revenue-generating, or money-making purpose.
 Without limitation, you may not:
 
 a. Sell, rent, lease, license, sublicense, or charge money for the Software.
-
 b. Sell or charge money for copies, modified versions, builds, ports, bundles,
    installers, physical media, or derivative works based on the Software.
 
@@ -61,7 +56,6 @@ c. Offer the Software as part of a paid product, paid service, subscription,
 d. Monetize access to or use of the Software through advertising,
    sponsorships, paid downloads, paid access, affiliate revenue, or similar
    financial arrangements.
-
 e. Use the Software primarily for the benefit of a commercial business or as
    part of a product or service intended to generate revenue.
 
@@ -73,7 +67,6 @@ Commercial use requires separate prior written permission from the Project
 Owner.
 
 4. NO REDISTRIBUTION OR REPACKAGING
-
 Except for a repository fork reasonably necessary to submit contributions as
 described in Section 1, you may not:
 
@@ -84,7 +77,6 @@ b. Distribute modified versions or derivative works of the Software.
 
 c. Publish unofficial builds, installers, packages, ports, or releases of the
    Software.
-
 d. Incorporate the Software or substantial portions of its source code into
    another application, library, service, website, product, or project for
    distribution to third parties.
@@ -92,14 +84,12 @@ d. Incorporate the Software or substantial portions of its source code into
 e. Remove or alter copyright, license, authorship, or attribution notices.
 
 5. OFFICIAL PROJECT AND TRADEMARKS
-
-This License does not grant permission to use the GBA Video Maker name, logos,
+This License does not grant permission to use the GBA Media Maker name, logos,
 branding, or other project identifiers in a way that suggests an unofficial
 copy, fork, modification, or service is endorsed by or affiliated with the
 official project.
 
 6. THIRD-PARTY MATERIALS
-
 Third-party libraries, code, fonts, images, tools, or other materials included
 with or used by the Software remain subject to their respective licenses.
 Nothing in this License changes or overrides rights granted by those third-party
@@ -109,7 +99,6 @@ licenses.
 
 Your rights under this License terminate automatically if you violate any of
 its terms.
-
 After termination, you must stop using, modifying, and distributing the
 Software and delete any copies under your control, except to the extent that
 applicable law requires otherwise.
@@ -118,7 +107,6 @@ The Project Owner may provide written permission for uses that are otherwise
 prohibited by this License.
 
 8. NO WARRANTY
-
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
 FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
@@ -131,9 +119,8 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR INABILITY TO USE THE
 SOFTWARE.
 
 10. ENTIRE LICENSE
-
 This License grants only the permissions expressly stated above. All other
 rights are reserved by the Project Owner.
 
 For commercial licensing or other permissions, contact the Project Owner
-through the official GBA Video Maker repository.
+through the official GBA Media Maker repository.
