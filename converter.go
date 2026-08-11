@@ -109,6 +109,7 @@ type ClipInput struct {
 	MusicArtworkMode   string
 	MusicArtworkPreset string
 	MusicArtworkCustom string
+	MusicSeekSeconds   int
 }
 
 type ProjectOptions struct {
@@ -1366,6 +1367,9 @@ type convertedClip struct {
 func optionsForClip(project ProjectOptions, input ClipInput) ProjectOptions {
 	clip := project
 	clip.AudioTrack = input.AudioTrack
+	if input.MediaKind == "audio" && input.MusicSeekSeconds != 0 {
+		clip.SeekSeconds = input.MusicSeekSeconds
+	}
 	if !input.Custom {
 		return clip
 	}
@@ -1443,6 +1447,9 @@ func validateProject(opt ProjectOptions) error {
 		}
 	}
 	for _, input := range opt.Inputs {
+		if input.MediaKind == "audio" && input.MusicSeekSeconds != 0 && input.MusicSeekSeconds != 3 && input.MusicSeekSeconds != 5 && input.MusicSeekSeconds != 10 && input.MusicSeekSeconds != 15 {
+			return fmt.Errorf("%s: audio seek step must be 3, 5, 10 or 15 seconds", input.Name)
+		}
 		if input.Custom {
 			if err := validateClipSettings(optionsForClip(opt, input), input.Name); err != nil {
 				return err

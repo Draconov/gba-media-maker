@@ -146,8 +146,11 @@ func TestAudioNowPlayingUILayoutAndFeedback(t *testing.T) {
 		"rect3(VRAM0,8,156,w,4,0x03FF)",
 		"mute_badge3(VRAM0,ui->muted)",
 		"volume_badge3(VRAM0,ui->volume_level)",
-		"ui->mute_timer=HUD_HOLD_VBLANKS",
-		"ui->volume_timer=VOLUME_HOLD_VBLANKS",
+		"ui->mute_timer=mute_hold",
+		"ui->volume_timer=AUDIO_VOLUME_HOLD_VBLANKS",
+		"#defineAUDIO_HUD_HOLD_VBLANKS24u",
+		"#defineAUDIO_VOLUME_HOLD_VBLANKS24u",
+		"#defineAUDIO_SEEK_HOLD_VBLANKS24u",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("audio Now Playing UI missing %q", want)
@@ -161,7 +164,7 @@ func TestPlayerUsesSimplifiedV013Controls(t *testing.T) {
 		"#defineSEEK_REPEAT_VBLANKS18u",
 		"cycle_hud(structPlayerUI*ui)",
 		"held_seek_action(u16now,u16pressed,intpaused,structPlayerUI*ui)",
-		"common_combo_action(u16now,u16pressed,intcan_change,intaudio_controls,structPlayerUI*ui)",
+		"common_combo_action(u16now,u16pressed,intcan_change,intaudio_controls,u16mute_hold,structPlayerUI*ui)",
 		"(now&(KEY_START|KEY_SELECT))==(KEY_START|KEY_SELECT)",
 		"if(can_change&&(pressed&KEY_L)&&!(now&KEY_R))returnACTION_PREV_CLIP",
 		"if(can_change&&(pressed&KEY_R)&&!(now&KEY_L))returnACTION_NEXT_CLIP",
@@ -278,7 +281,7 @@ func TestShouldersNavigateWithoutSelectOrHudCombo(t *testing.T) {
 func TestManualImagesDoNotPauseAndImagesHaveNoAudioControls(t *testing.T) {
 	src := compactSource(playerSource(t))
 	for _, want := range []string{
-		"action=common_combo_action(now,p,m->clip_count>1,0,ui)",
+		"action=common_combo_action(now,p,m->clip_count>1,0,HUD_HOLD_VBLANKS,ui)",
 		"if(limit&&(p&KEY_A))",
 		"show_help_screen(&help_page,is_menu_mode(m),m->clip_count>1,limit>0,0,0)",
 	} {
@@ -291,7 +294,7 @@ func TestManualImagesDoNotPauseAndImagesHaveNoAudioControls(t *testing.T) {
 func TestSilentVideoHasNoMuteOrVolumeControls(t *testing.T) {
 	src := compactSource(playerSource(t))
 	for _, want := range []string{
-		"action=common_combo_action(now,pressed,can_change,has_audio,ui)",
+		"action=common_combo_action(now,pressed,can_change,has_audio,HUD_HOLD_VBLANKS,ui)",
 		"if(has_audio&&(pressed&KEY_UP))",
 		"if(has_audio&&(pressed&KEY_DOWN))",
 		"if(has_audio&&ui->mute_timer)mute_badge4",
@@ -313,8 +316,10 @@ func TestPlaybackHUDRestoresVideoAndAudioFeedback(t *testing.T) {
 		"seek_badge3(VRAM0,ui->seek_direction",
 		"ui->paused_ui=1;returnACTION_UI_REFRESH",
 		"if((ui->hud_timer||ui->paused_ui)&&mode<2)mode=2",
-		"ui->mute_timer=HUD_HOLD_VBLANKS",
-		"ui->volume_timer=VOLUME_HOLD_VBLANKS",
+		"ui->mute_timer=mute_hold",
+		"ui->volume_timer=AUDIO_VOLUME_HOLD_VBLANKS",
+		"start_audio_seek_feedback(ui,forward?1:-1)",
+		"bitmap3(d,cx*2u,66,seek_arrow_rows,7,0)",
 		"if(c->flags&CLIP_FLAG_MEDIA_AUDIO){ui->hud_mode=2;ui->hud_last_visible=2",
 	} {
 		if !strings.Contains(src, want) {

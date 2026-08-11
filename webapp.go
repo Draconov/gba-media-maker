@@ -117,6 +117,7 @@ type clipSettingsRequest struct {
 	MusicArtworkMode   string  `json:"musicArtworkMode,omitempty"`
 	MusicArtworkPreset string  `json:"musicArtworkPreset,omitempty"`
 	MusicArtworkCustom string  `json:"musicArtworkCustom,omitempty"`
+	MusicSeekSeconds   int     `json:"musicSeekSeconds,omitempty"`
 }
 
 type convertRequest struct {
@@ -971,7 +972,20 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 				return ProjectOptions{}, nil, fmt.Errorf("%s: %w", v.Name, customErr)
 			}
 		}
-		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds, MusicTitle: clipReq.MusicTitle, MusicArtist: clipReq.MusicArtist, MusicArtworkMode: artworkMode, MusicArtworkPreset: artworkPreset, MusicArtworkCustom: clipReq.MusicArtworkCustom}
+		musicSeekSeconds := 0
+		if v.Info.Kind == "audio" {
+			musicSeekSeconds = clipReq.MusicSeekSeconds
+			if musicSeekSeconds == 0 {
+				musicSeekSeconds = req.SeekSeconds
+				if musicSeekSeconds == 0 {
+					musicSeekSeconds = 5
+				}
+			}
+			if musicSeekSeconds != 3 && musicSeekSeconds != 5 && musicSeekSeconds != 10 && musicSeekSeconds != 15 {
+				return ProjectOptions{}, nil, fmt.Errorf("%s: audio seek step must be 3, 5, 10 or 15 seconds", v.Name)
+			}
+		}
+		input := ClipInput{InputPath: v.Path, Name: v.Name, Title: title, AudioTrack: clipReq.AudioTrack, MediaKind: v.Info.Kind, ImageSeconds: imageSeconds, MusicTitle: clipReq.MusicTitle, MusicArtist: clipReq.MusicArtist, MusicArtworkMode: artworkMode, MusicArtworkPreset: artworkPreset, MusicArtworkCustom: clipReq.MusicArtworkCustom, MusicSeekSeconds: musicSeekSeconds}
 		if isAnimatedGIFPath(v.Path) {
 			input.MediaKind = "video"
 			input.Loop = true

@@ -655,7 +655,7 @@ function makeEntry(file) {
     audioMode: "mix", audioTrack: 0, audioTracks: [], audioTracksKnown: false,
     volume: 1, loop: /\.gif$/i.test(file.name), paletteMode: "shared", ditherMode: "ordered",
     imageSeconds: 5,
-    musicTitle: "", musicArtist: "", musicArtworkMode: "embedded", musicArtworkPreset: "preset-01", musicArtworkCustom: "",
+    musicTitle: "", musicArtist: "", musicArtworkMode: "embedded", musicArtworkPreset: "preset-01", musicArtworkCustom: "", musicSeekSeconds: 5,
     embeddedArtworkRGB: null, embeddedArtworkPreview: "",
     metadataTitle: "", metadataArtist: "", metadataAlbum: "",
     duration: 0, hasAudio: kind === "audio" ? true : undefined, channels: 0, chapters: [],
@@ -884,6 +884,7 @@ function applyPendingProjectMatches() {
       musicArtworkMode: normalizeArtworkMode(saved.musicArtworkMode),
       musicArtworkPreset: normalizeArtworkPreset(saved.musicArtworkPreset),
       musicArtworkCustom: typeof saved.musicArtworkCustom === "string" ? saved.musicArtworkCustom : "",
+      musicSeekSeconds: [3, 5, 10, 15].includes(Number(saved.musicSeekSeconds)) ? Number(saved.musicSeekSeconds) : 5,
     });
     orderedMatches.push(match);
   }
@@ -1594,6 +1595,8 @@ function renderFiles() {
       if (!gif) inheritedControls.push(loop);
     } else if (kind === "audio") {
       const loop = addCheck(optionsGrid, "Loop playback", entry.loop, (checked) => { entry.loop = checked; }, conversionRunning); inheritedControls.push(loop);
+      const musicSeek = makeSelectControl("Seek step", String([3, 5, 10, 15].includes(Number(entry.musicSeekSeconds)) ? Number(entry.musicSeekSeconds) : 5), [["3", "3 seconds"], ["5", "5 seconds"], ["10", "10 seconds"], ["15", "15 seconds"]], (value) => { entry.musicSeekSeconds = Number(value) || 5; });
+      optionsGrid.append(musicSeek.label);
 
       const identity = document.createElement("div"); identity.className = "audio-identity-settings wide-field";
       const title = document.createElement("label"); title.innerHTML = "<span>Song title <small>(Now Playing)</small></span>";
@@ -1761,6 +1764,7 @@ function effectiveClipOptions(entry, project) {
   result.musicArtworkMode = normalizeArtworkMode(entry.musicArtworkMode);
   result.musicArtworkPreset = normalizeArtworkPreset(entry.musicArtworkPreset);
   result.musicArtworkCustom = entry.musicArtworkCustom || "";
+  result.musicSeekSeconds = [3, 5, 10, 15].includes(Number(entry.musicSeekSeconds)) ? Number(entry.musicSeekSeconds) : 5;
   return result;
 }
 
@@ -2735,7 +2739,7 @@ async function performConversion() {
           const clip = await runRomTask("encodeNativeMedia", {
             mediaKind: "audio", nativeRGB, audio,
             title: entry.title || "AUDIO", musicTitle: clipOptions.musicTitle || musicTitleFromEntry(entry), artist: clipOptions.musicArtist || musicArtistFromEntry(entry), album: entry.metadataAlbum || "",
-            durationSeconds: timing.outputDuration, vblanks: project.vblanks, audioCodec, seekSeconds: project.seekSeconds, loop: Boolean(clipOptions.loop),
+            durationSeconds: timing.outputDuration, vblanks: project.vblanks, audioCodec, seekSeconds: clipOptions.musicSeekSeconds, loop: Boolean(clipOptions.loop),
           }, [nativeRGB.buffer, audio.buffer], (fraction, message) => mapped(0.48 + fraction * 0.5, message));
           clips.push(clip); continue;
         }

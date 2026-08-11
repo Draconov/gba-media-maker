@@ -146,13 +146,14 @@ function ensureClipConfigs() {
   for (const id of Object.keys(clipConfigs)) if (!valid.has(id)) delete clipConfigs[id];
   for (const video of state.videos) {
     if (!clipConfigs[video.id]) {
-      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, musicTitle: defaultMusicTitle(video), musicArtist: defaultMusicArtist(video), musicArtworkMode:'embedded', musicArtworkPreset:AUDIO_ARTWORK_PRESETS[0], musicArtworkCustom:'', ...DEFAULT_CLIP};
+      clipConfigs[video.id] = {title: titleForVideo(video), useProject: true, audioTrack: 0, musicTitle: defaultMusicTitle(video), musicArtist: defaultMusicArtist(video), musicArtworkMode:'embedded', musicArtworkPreset:AUDIO_ARTWORK_PRESETS[0], musicArtworkCustom:'', musicSeekSeconds:5, ...DEFAULT_CLIP};
     }
     if (clipConfigs[video.id].musicTitle == null) clipConfigs[video.id].musicTitle = defaultMusicTitle(video);
     if (clipConfigs[video.id].musicArtist == null) clipConfigs[video.id].musicArtist = defaultMusicArtist(video);
     if (!['default','embedded','custom'].includes(clipConfigs[video.id].musicArtworkMode)) clipConfigs[video.id].musicArtworkMode = 'embedded';
     clipConfigs[video.id].musicArtworkPreset = normalizeMusicArtworkPreset(clipConfigs[video.id].musicArtworkPreset);
     if (clipConfigs[video.id].musicArtworkCustom == null) clipConfigs[video.id].musicArtworkCustom = '';
+    if (![3,5,10,15].includes(Number(clipConfigs[video.id].musicSeekSeconds))) clipConfigs[video.id].musicSeekSeconds = 5;
     if (isGIF(video)) clipConfigs[video.id].loop = true;
   }
   if (!selectedID || !valid.has(selectedID)) selectedID = state.videos[0]?.id || '';
@@ -225,7 +226,7 @@ function render() {
   }
 }
 function setConvertingState(busy) {
-  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds','imageSlideshow','imageFit','musicTitle','musicArtist','musicStart','musicEnd','musicSpeed','musicArtworkMode','musicArtworkCustom'];
+  const ids = ['preset','audioQuality','smartTarget','smartPriority','start','end','speed','fps','fit','seekSeconds','paletteMode','ditherMode','compression','audioTrack','audio','volume','normalize','limiter','romTitle','outputMode','loop','resume','splitVideo','splitBudget','maxPartDuration','chapterAware','partTitleScreens','resumeLongSplit','titleCardUseShared','titleCardPartSelect','titleCardTitle','titleCardSubtitle','titleCardBackground','titleCardFrameOffset','titleCardDarkness','titleCardSolidColor','titleCardTextColor','titleCardSubtitleTextColor','titleCardOutline','titleCardOutlineColor','titleCardSubtitleOutlineColor','titleCardAlignment','titleCardSubtitleAlignment','titleCardTextSize','titleCardSubtitleTextSize','titleCardStartMode','titleCardDuration','titleCardAllowSkip','titleCardFade','useProject','menuTitle','menuBackground','customMenuBackground','customMenuVideoStart','customMenuVideoDuration','menuUIColor','menuSelectionColor','menuOutline','menuOutlineColor','imageSeconds','imageSlideshow','imageFit','musicTitle','musicArtist','musicStart','musicEnd','musicSpeed','musicArtworkMode','musicArtworkCustom','musicSeekSeconds'];
   ids.forEach(id => { if ($(id)) $(id).disabled = busy || $(id).dataset.scopeDisabled === '1'; });
   ['convert','optimize','smartAnalyze','addVideos','moveUp','moveDown','saveProject','openProject'].forEach(id => { if ($(id)) $(id).disabled = busy; });
   for (const button of document.querySelectorAll('.music-artwork-preset')) button.disabled = busy;
@@ -826,6 +827,7 @@ function syncMediaAliasControls(){
       if($('musicArtworkCustomStatus') && mode==='custom') $('musicArtworkCustomStatus').textContent = config?.musicArtworkCustom ? 'Custom artwork ready — 240×160.' : 'Choose an image. It will be cropped to 240×160 for the GBA.';
     }
     for(const [id,key] of [['musicStart','start'],['musicEnd','end'],['musicSpeed','speed']]) if($(id)){ $(id).value=source[key] ?? ''; $(id).disabled=locked; }
+    if($('musicSeekSeconds')) { $('musicSeekSeconds').value=String([3,5,10,15].includes(Number(config?.musicSeekSeconds))?Number(config.musicSeekSeconds):5); $('musicSeekSeconds').disabled=!!state?.converting; }
   }
   if(kind==='image'){
     if($('imageFit')) { $('imageFit').value=source.fit || 'fit'; $('imageFit').disabled=locked; }
@@ -903,7 +905,7 @@ $('useProject').onchange = () => {
   const config = clipConfigs[selectedID];
   if (!config) return;
   if (!config.useProject && $('useProject').checked) config.useProject = true;
-  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack,musicTitle=config.musicTitle,musicArtist=config.musicArtist,musicArtworkMode=config.musicArtworkMode,musicArtworkPreset=config.musicArtworkPreset,musicArtworkCustom=config.musicArtworkCustom; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack, musicTitle, musicArtist, musicArtworkMode, musicArtworkPreset, musicArtworkCustom}); }
+  else if (config.useProject && !$('useProject').checked) { const audioTrack=config.audioTrack,musicTitle=config.musicTitle,musicArtist=config.musicArtist,musicArtworkMode=config.musicArtworkMode,musicArtworkPreset=config.musicArtworkPreset,musicArtworkCustom=config.musicArtworkCustom,musicSeekSeconds=config.musicSeekSeconds; Object.assign(config, cloneClip(projectDefaults), {useProject:false, title:config.title, audioTrack, musicTitle, musicArtist, musicArtworkMode, musicArtworkPreset, musicArtworkCustom, musicSeekSeconds}); }
   refreshScope(true); renderClips(); estimate();
 };
 function savePerClipField(id) {
@@ -939,6 +941,7 @@ function saveAliasField(id,key){
 for(const [id,key] of [['musicStart','start'],['musicEnd','end'],['musicSpeed','speed'],['imageFit','fit']]) $(id)?.addEventListener('input',()=>saveAliasField(id,key));
 $('musicTitle')?.addEventListener('input',()=>{ const config=clipConfigs[selectedID]; if(config){ config.musicTitle=$('musicTitle').value.slice(0,28); estimate(); } });
 $('musicArtist')?.addEventListener('input',()=>{ const config=clipConfigs[selectedID]; if(config){ config.musicArtist=$('musicArtist').value.slice(0,28); estimate(); } });
+$('musicSeekSeconds')?.addEventListener('change',()=>{ const config=clipConfigs[selectedID]; if(config){ const value=Number($('musicSeekSeconds').value); config.musicSeekSeconds=[3,5,10,15].includes(value)?value:5; estimate(); } });
 function initializeMusicArtworkPresets(){
   const host=$('musicArtworkPresets');
   if(!host || host.children.length) return;
@@ -1178,7 +1181,7 @@ function values() {
     ...global, ...projectDefaults,
     clips: state.videos.map(video => {
       const config = clipConfigs[video.id];
-      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:isGIF(video)||!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number.isFinite(Number(config.imageSeconds))?Number(config.imageSeconds):5,musicTitle:config.musicTitle||'',musicArtist:config.musicArtist||'',musicArtworkMode:config.musicArtworkMode||'embedded',musicArtworkPreset:normalizeMusicArtworkPreset(config.musicArtworkPreset),musicArtworkCustom:config.musicArtworkCustom||''};
+      return {id:video.id,title:config.title,useProject:config.useProject,start:config.start,end:config.end,speed:Number(config.speed),fit:config.fit,audio:config.audio,audioTrack:Number(config.audioTrack)||0,volume:Number(config.volume),loop:isGIF(video)||!!config.loop,paletteMode:config.paletteMode,ditherMode:config.ditherMode,imageSeconds:Number.isFinite(Number(config.imageSeconds))?Number(config.imageSeconds):5,musicTitle:config.musicTitle||'',musicArtist:config.musicArtist||'',musicArtworkMode:config.musicArtworkMode||'embedded',musicArtworkPreset:normalizeMusicArtworkPreset(config.musicArtworkPreset),musicArtworkCustom:config.musicArtworkCustom||'',musicSeekSeconds:[3,5,10,15].includes(Number(config.musicSeekSeconds))?Number(config.musicSeekSeconds):5};
     })
   };
 }
@@ -1448,7 +1451,7 @@ function applyPendingProject() {
     rebuildMenuTheme();
   }
   clipConfigs = {};
-  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(Number(clip.imageSeconds))?Number(clip.imageSeconds):5,musicTitle:clip.musicTitle ?? null,musicArtist:clip.musicArtist ?? null,musicArtworkMode:['default','embedded','custom'].includes(clip.musicArtworkMode)?clip.musicArtworkMode:'embedded',musicArtworkPreset:normalizeMusicArtworkPreset(clip.musicArtworkPreset),musicArtworkCustom:clip.musicArtworkCustom||''};
+  for (const clip of settings.clips || []) clipConfigs[clip.id] = {title:clip.title || 'GBA VIDEO',useProject:clip.useProject !== false,start:clip.start || '0:00',end:clip.end || '',speed:clip.speed || 1,fit:clip.fit || 'fit',audio:clip.audio || 'mix',audioTrack:Number.isInteger(clip.audioTrack)?clip.audioTrack:0,volume:Number.isFinite(clip.volume)?clip.volume:100,loop:!!clip.loop,paletteMode:clip.paletteMode || 'shared',ditherMode:clip.ditherMode || 'ordered',imageSeconds:Number.isFinite(Number(clip.imageSeconds))?Number(clip.imageSeconds):5,musicTitle:clip.musicTitle ?? null,musicArtist:clip.musicArtist ?? null,musicArtworkMode:['default','embedded','custom'].includes(clip.musicArtworkMode)?clip.musicArtworkMode:'embedded',musicArtworkPreset:normalizeMusicArtworkPreset(clip.musicArtworkPreset),musicArtworkCustom:clip.musicArtworkCustom||'',musicSeekSeconds:[3,5,10,15].includes(Number(clip.musicSeekSeconds))?Number(clip.musicSeekSeconds):([3,5,10,15].includes(Number(settings.seekSeconds))?Number(settings.seekSeconds):5)};
   ensureClipConfigs(); selectedID = state.videos[0]?.id || ''; editScope = 'project'; lastPreviewKey=''; lastThumbKey='';
 }
 async function saveProject() {

@@ -148,6 +148,7 @@ export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0
         musicArtworkMode: normalizeArtworkMode(entry.musicArtworkMode),
         musicArtworkPreset: normalizeArtworkPreset(entry.musicArtworkPreset),
         musicArtworkCustom: String(entry.musicArtworkCustom || ""),
+        musicSeekSeconds: [3, 5, 10, 15].includes(Number(entry.musicSeekSeconds)) ? Number(entry.musicSeekSeconds) : 5,
       },
     })),
   };
@@ -181,6 +182,7 @@ function stateFromDocument(doc) {
       musicArtworkMode: normalizeArtworkMode(saved.settings?.musicArtworkMode),
       musicArtworkPreset: normalizeArtworkPreset(saved.settings?.musicArtworkPreset),
       musicArtworkCustom: String(saved.settings?.musicArtworkCustom || ""),
+      musicSeekSeconds: [3, 5, 10, 15].includes(Number(saved.settings?.musicSeekSeconds)) ? Number(saved.settings.musicSeekSeconds) : numberOr(settings.seekSeconds, 5),
     })),
   };
 }
