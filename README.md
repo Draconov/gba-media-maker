@@ -35,22 +35,32 @@ The Windows app runs a local-only UI on `127.0.0.1` and invokes FFmpeg locally. 
 
 ## GBA controls
 
-### During playback
+### Video and audio playback
 
 | Button | Action |
 |---|---|
 | `A` | Pause or resume |
 | `B` | Restart the current media, or return to the media menu in menu ROMs |
 | `L` / `R` | Previous / next media |
-| D-pad `Left` / `Right` | Seek while playing; step one frame while paused. Holding repeats about every 0.3 seconds |
-| D-pad `Up` / `Down` | Volume 0% / 50% / 100% |
-| `SELECT` | Mute / unmute |
+| D-pad `Left` / `Right` | Seek while playing; video steps one frame while paused. Holding repeats about every 0.3 seconds |
+| D-pad `Up` / `Down` | Volume 0% / 50% / 100% when the current media has audio |
+| `SELECT` | Mute / unmute when the current media has audio |
 | `START` | Cycle HUD: hidden → time only → full |
-| `L + R` | Quickly hide the HUD or restore the previous HUD mode |
 | `START + SELECT` | Open the controls-help screen |
-| `SELECT + L/R` | Legacy playlist shortcut: previous / next media without opening a menu |
 
-Static image entries use the same media-navigation/HUD shortcuts; `A` pauses or resumes an automatic slideshow when a slideshow duration is configured.
+GIFs and silent videos, including videos converted with **No audio**, have no volume or mute controls.
+
+### Image viewer
+
+| Button | Action |
+|---|---|
+| `A` | Pause / resume only when slideshow is enabled; does nothing in manual-viewer mode |
+| `B` | Return to the media menu, or restart in a direct single-image ROM |
+| `L` / `R` | Previous / next media |
+| `START` | Cycle the image HUD |
+| `START + SELECT` | Open the controls-help screen |
+
+Images have no mute or volume controls.
 
 ### Media menu
 

@@ -18,7 +18,7 @@
 - Long-video autosplitting is now strictly video-only.
 - Rebuilt `assets/player_stub.bin` with the v0.13 media runtime.
 - Refined audio Now Playing: 28-character song title and author fields, restored video-style volume/mute feedback, raised the time/play row above the progress bar, and increased the progress bar to 4 pixels.
-- Reworked ROM controls: shoulders now switch media, D-pad Left/Right owns seeking/frame-step with ~0.3 s hold-repeat, START cycles hidden/time/full HUD modes, L+R quick-toggles HUD visibility, START+SELECT opens help, and menu navigation uses true columns.
+- Reworked ROM controls: shoulders switch media directly, D-pad Left/Right owns seeking/frame-step with ~0.3 s hold-repeat, START cycles hidden/time/full HUD modes, START+SELECT opens help, and menu navigation uses true columns. Removed the redundant `SELECT+L/R` media shortcut and `L+R` quick-HUD combo. Images no longer pause with `A` when slideshow is disabled, and silent/GIF/No-audio videos no longer expose mute or volume controls.
 
 ### Compatibility
 - Existing video conversion remains on the legacy 120×80 indexed playback path.

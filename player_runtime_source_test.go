@@ -155,24 +155,35 @@ func TestAudioNowPlayingUILayoutAndFeedback(t *testing.T) {
 	}
 }
 
-func TestPlayerUsesUnifiedV013Controls(t *testing.T) {
+func TestPlayerUsesSimplifiedV013Controls(t *testing.T) {
 	src := compactSource(playerSource(t))
 	for _, want := range []string{
 		"#defineSEEK_REPEAT_VBLANKS18u",
-		"#defineSHOULDER_COMBO_GRACE_VBLANKS2u",
 		"cycle_hud(structPlayerUI*ui)",
-		"quick_toggle_hud(structPlayerUI*ui)",
 		"held_seek_action(u16now,u16pressed,intpaused,structPlayerUI*ui)",
-		"common_combo_action(u16now,u16pressed,intcan_change,intplaylist,structPlayerUI*ui)",
+		"common_combo_action(u16now,u16pressed,intcan_change,intaudio_controls,structPlayerUI*ui)",
 		"(now&(KEY_START|KEY_SELECT))==(KEY_START|KEY_SELECT)",
-		"(now&(KEY_L|KEY_R))==(KEY_L|KEY_R)",
-		"returncan_change?(dir<0?ACTION_PREV_CLIP:ACTION_NEXT_CLIP):ACTION_NONE",
-		"ui->volume_level<2",
-		"ui->volume_level>0",
+		"if(can_change&&(pressed&KEY_L)&&!(now&KEY_R))returnACTION_PREV_CLIP",
+		"if(can_change&&(pressed&KEY_R)&&!(now&KEY_L))returnACTION_NEXT_CLIP",
+		"if(has_audio&&(pressed&KEY_UP))",
+		"if(has_audio&&(pressed&KEY_DOWN))",
 		"PLAY_RESULT_NEXT_CLIP_DIRECT",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("v0.13 control mapping missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"SHOULDER_COMBO_GRACE_VBLANKS",
+		"quick_toggle_hud",
+		"hud_combo_latched",
+		"clip_combo_latched",
+		"shoulder_pending_direction",
+		"SELECT+L/R",
+		"L+RQUICKHUD",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("removed control overlap is still present: %q", forbidden)
 		}
 	}
 }
@@ -247,13 +258,49 @@ func TestVideoInputIsPolledBeforeFrameDeadline(t *testing.T) {
 	}
 }
 
-func TestSelectShoulderNavigationWorksForAnyMultiMediaROM(t *testing.T) {
+func TestShouldersNavigateWithoutSelectOrHudCombo(t *testing.T) {
 	src := compactSource(playerSource(t))
-	if !strings.Contains(src, "(void)playlist;if((now&(KEY_START|KEY_SELECT))") {
-		t.Fatal("legacy playlist flag should not gate shared multi-media controls")
+	for _, want := range []string{
+		"if(can_change&&(pressed&KEY_L)&&!(now&KEY_R))returnACTION_PREV_CLIP",
+		"if(can_change&&(pressed&KEY_R)&&!(now&KEY_L))returnACTION_NEXT_CLIP",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("direct shoulder navigation missing %q", want)
+		}
 	}
-	if !strings.Contains(src, "if(can_change&&(now&KEY_SELECT))") {
-		t.Fatal("SELECT+L/R must be available for any multi-item ROM")
+	for _, forbidden := range []string{"if(can_change&&(now&KEY_SELECT))", "quick_toggle_hud", "SHOULDER_COMBO_GRACE_VBLANKS"} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("obsolete shoulder combo behavior remains: %q", forbidden)
+		}
+	}
+}
+
+func TestManualImagesDoNotPauseAndImagesHaveNoAudioControls(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"action=common_combo_action(now,p,m->clip_count>1,0,ui)",
+		"if(limit&&(p&KEY_A))",
+		"show_help_screen(&help_page,is_menu_mode(m),m->clip_count>1,limit>0,0,0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("image control cleanup missing %q", want)
+		}
+	}
+}
+
+func TestSilentVideoHasNoMuteOrVolumeControls(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"action=common_combo_action(now,pressed,can_change,has_audio,ui)",
+		"if(has_audio&&(pressed&KEY_UP))",
+		"if(has_audio&&(pressed&KEY_DOWN))",
+		"if(has_audio&&ui->mute_timer)mute_badge4",
+		"if(has_audio&&ui->volume_timer)volume_badge4",
+		"show_help_screen(&displayed_page,is_menu_mode(meta),meta->clip_count>1,1,1,has_audio)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("silent-video audio-control guard missing %q", want)
+		}
 	}
 }
 
