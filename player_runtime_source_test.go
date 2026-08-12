@@ -327,3 +327,20 @@ func TestPlaybackHUDRestoresVideoAndAudioFeedback(t *testing.T) {
 		}
 	}
 }
+
+func TestAudioClockUsesIncrementalHUDRefresh(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"native_audio_clock(conststructClipDescriptor*c,u32frame,conststructPlayerUI*ui)",
+		"if(sec!=lastsec){native_audio_clock(c,f,ui);lastsec=sec;}",
+		"rect3(VRAM0,8,144,38,10,0)",
+		"rect3(VRAM0,8,156,224,4,0x2108)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("incremental audio HUD refresh missing %q", want)
+		}
+	}
+	if strings.Contains(src, "if((f&15)==0)native_refresh_audio_ui") {
+		t.Fatal("audio playback must not periodically redraw the complete Now Playing HUD")
+	}
+}
