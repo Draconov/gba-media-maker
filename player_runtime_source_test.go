@@ -344,3 +344,26 @@ func TestAudioClockUsesIncrementalHUDRefresh(t *testing.T) {
 		t.Fatal("audio playback must not periodically redraw the complete Now Playing HUD")
 	}
 }
+
+func TestAudioTemporaryFeedbackUsesDirtyRegions(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"native_refresh_audio_badges(conststructClipDescriptor*c,conststructPlayerUI*ui)",
+		"native_restore_audio_badges(c);native_draw_audio_badges(c,ui)",
+		"native_audio_clock(c,f,ui);native_refresh_audio_badges(c,ui)",
+		"ui->volume_timer=AUDIO_VOLUME_HOLD_VBLANKS;audio_apply_state(ui);native_refresh_audio_badges(c,ui)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("audio dirty-region feedback missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"ui->volume_timer=AUDIO_VOLUME_HOLD_VBLANKS;audio_apply_state(ui);native_refresh_audio_ui",
+		"start_audio_seek_feedback(ui,forward?1:-1);f=target;base_sample=seek_value(c,f);paused_sample=base_sample;audio_start_at(c,base_sample,paused,ui);playback_timer_reset();if(paused)playback_timer_pause();native_refresh_audio_ui",
+		"if(has_audio&&!next_frame_valid&&frame+2<clip->frame_count)",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("unexpected broad/video-side behavior remains: %q", forbidden)
+		}
+	}
+}
