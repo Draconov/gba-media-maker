@@ -457,11 +457,29 @@ func TestV0131ImageHUDHasOnlyHiddenAndShownStates(t *testing.T) {
 	src := compactSource(playerSource(t))
 	for _, want := range []string{
 		"if(c->flags&CLIP_FLAG_MEDIA_IMAGE){ui->hud_mode=0;ui->hud_last_visible=1",
-		"if(action==ACTION_UI_REFRESH&&ui->hud_mode==2)ui->hud_mode=0",
+		"oldmode=ui->hud_mode;action=common_combo_action",
+		"ui->hud_mode=oldmode?0:1;ui->hud_last_visible=1;native_refresh_image_ui",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("v0.13.1 image HUD behavior missing %q", want)
 		}
+	}
+}
+
+func TestV0131ImageHUDUsesDirtyRegionAndClearsAudioFeedback(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"native_refresh_image_ui(conststructClipDescriptor*c,intshow,conststructPlayerUI*ui){constu16*src=(constu16*)rom_ptr(c->video_offset);copy16(VRAM0+132u*240u,src+132u*240u,28u*240u);if(show)native_overlay",
+		"if(mode<=0){if(!image)native_draw_audio_badges(c,ui);return;}",
+		"ui->hud_timer=ui->mute_timer=ui->volume_timer=ui->seek_timer=0",
+		"ui->seek_direction=ui->seek_hold_direction=0;ui->seek_hold_counter=0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("v0.13.1 image dirty-region fix missing %q", want)
+		}
+	}
+	if strings.Contains(src, "if(action==ACTION_UI_REFRESH){show_native_art(c,0,paused,1") {
+		t.Fatal("image HUD toggle must not redraw the complete 240x160 image")
 	}
 }
 

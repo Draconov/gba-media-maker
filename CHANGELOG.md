@@ -31,6 +31,11 @@ All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 - Audio HUD panels now dim the cover beneath them instead of replacing the lower part of the cover with solid black, keeping the full cover visible while playback information is shown.
 - Video playback, video timing, seeking, PCM end protection, and the restored Game Pak wait-state configuration are unchanged from the validated v0.13.0 runtime.
 
+### Fixed
+- Image HUD show/hide transitions now restore only the 28-row HUD dirty region instead of reloading the complete 240×160 image.
+- Entering the image viewer clears transient audio seek/mute/volume feedback, so a stale `+5`/seek arrow can no longer appear when the image HUD is hidden.
+- Slideshow pause/resume no longer redraws the image because the image HUD has no pause-dependent artwork.
+
 ## [0.13.0] - 2026-08-11
 
 ### Highlights
