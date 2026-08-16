@@ -63,12 +63,12 @@ Windows, macOS, and Linux executables embed the same web interface and prebuilt 
 - `website/src/rom.worker.js` — frame/palette conversion work
 - `website/src/project-format.js` — `.gbamedia` v2 serialization/migration
 - `website/src/parity-utils.js` — desktop-compatible naming/settings helpers
-- `website/src/menu-themes.js` — stable menu theme/background conversion and preview
-- `website/src/title-cards.js` — title-card editor/serialization
-- `website/src/gba-text.js` — shared player-compatible glyph encoding
+- `frontend/shared/menu-themes.js` — canonical menu theme/background conversion and preview used by desktop and website
+- `frontend/shared/title-cards.js` — canonical title-card state/rendering/serialization used by desktop and website
+- `frontend/shared/gba-text.js` — canonical player-compatible glyph encoding used by desktop and website
 - `website/scripts/sync-player.mjs` — copies the authoritative player stub into the web build
 
-The website is static. ffmpeg.wasm runs locally in the browser; there is no media-upload conversion backend.
+The website is static. ffmpeg.wasm runs locally in the browser; there is no media-upload conversion backend. Pure frontend logic that must remain identical between the desktop UI and website lives in `frontend/shared/`; platform-specific orchestration stays in `web/app.js` and `website/src/main.js`.
 
 ## Desktop GUI lifecycle
 

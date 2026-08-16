@@ -184,23 +184,20 @@ test("every queried website element exists in the HTML", async () => {
   for (const id of queried) assert.ok(ids.has(id), `missing #${id} in website/index.html`);
 });
 
-test("menu colour picker embeds the full custom picker and sizes its panel to content", async () => {
-  const [desktopScript, webScript, desktopStyle, webStyle] = await Promise.all([
-    readFile(resolve(repository, "web/menu-themes.js"), "utf8"),
-    readFile(resolve(website, "src/menu-themes.js"), "utf8"),
+test("menu colour picker embeds the shared custom picker and sizes both frontends to content", async () => {
+  const [sharedScript, desktopStyle, webStyle] = await Promise.all([
+    readFile(resolve(repository, "frontend/shared/menu-themes.js"), "utf8"),
     readFile(resolve(repository, "web/style.css"), "utf8"),
     readFile(resolve(website, "src/style.css"), "utf8"),
   ]);
 
-  for (const script of [desktopScript, webScript]) {
-    assert.match(script, /className='gba-sv-area'/);
-    assert.match(script, /pickerRow\.append\(eyedropperButton,currentSwatch,hueSlider\)/);
-    assert.match(script, /channelLabel\.append\(caption,numberInput\)/);
-    assert.match(script, /trigger\.style\.setProperty\('--gba-swatch-color',colour\.hex\)/);
-    assert.match(script, /M18\.5 2\.5/);
-    assert.doesNotMatch(script, /Open full colour picker/);
-    assert.doesNotMatch(script, /Common GBA colours/);
-  }
+  assert.match(sharedScript, /className='gba-sv-area'/);
+  assert.match(sharedScript, /pickerRow\.append\(eyedropperButton,currentSwatch,hueSlider\)/);
+  assert.match(sharedScript, /channelLabel\.append\(caption,numberInput\)/);
+  assert.match(sharedScript, /trigger\.style\.setProperty\('--gba-swatch-color',colour\.hex\)/);
+  assert.match(sharedScript, /M18\.5 2\.5/);
+  assert.doesNotMatch(sharedScript, /Open full colour picker/);
+  assert.doesNotMatch(sharedScript, /Common GBA colours/);
 
   for (const style of [desktopStyle, webStyle]) {
     assert.match(style, /\.gba-color-popover\{[^}]*inline-size:fit-content;/s);

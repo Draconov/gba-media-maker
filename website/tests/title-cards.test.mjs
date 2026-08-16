@@ -8,7 +8,7 @@ import {
   createTitleCardProject,
   defaultTitleCardSettings,
   resolveTitleCardSettings,
-} from "../src/title-cards.js";
+} from "../../frontend/shared/title-cards.js";
 
 function u16(bytes, offset) {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offset, true);

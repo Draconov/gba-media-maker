@@ -7,7 +7,7 @@ import {
   safeGBAHeaderTitle,
   sanitizeGBAText,
   unsupportedGBARunes,
-} from "../src/gba-text.js";
+} from "../../frontend/shared/gba-text.js";
 
 test("one GBA font supports the union of Ukrainian and Russian Cyrillic", () => {
   const alphabet = "АБВГҐДЕЄЁЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";

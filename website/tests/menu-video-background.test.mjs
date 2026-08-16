@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FRAME_BYTES, RGB24_FRAME_BYTES, decodeRGB24Frames, isVideoFile } from "../src/menu-themes.js";
+import { FRAME_BYTES, RGB24_FRAME_BYTES, decodeRGB24Frames, isVideoFile } from "../../frontend/shared/menu-themes.js";
 
 test("custom menu backgrounds recognize common video files", () => {
   assert.equal(isVideoFile({ name: "background.mp4", type: "video/mp4" }), true);

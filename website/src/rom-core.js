@@ -1,5 +1,5 @@
 import { encodeIMAADPCM, DEFAULT_ADPCM_BLOCK_SAMPLES } from "./adpcm.js";
-import { encodeGBATextFixed, safeGBAHeaderTitle } from "./gba-text.js";
+import { encodeGBATextFixed, safeGBAHeaderTitle } from "../../frontend/shared/gba-text.js";
 
 export const ROM_LIMIT = 32 * 1024 * 1024;
 export const ROM_MIN_SIZE = 1 * 1024 * 1024;

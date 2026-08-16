@@ -580,6 +580,4 @@ function renderMenuPreview(canvas,theme,settings={},elapsed=0) {
 }
 function startPreview(canvas,getTheme,getSettings) { let stopped=false,start=performance.now(); const tick=now=>{if(stopped)return;renderMenuPreview(canvas,getTheme(),getSettings(),now-start);requestAnimationFrame(tick);};requestAnimationFrame(tick);return()=>{stopped=true;}; }
 
-const api={FRAME_WIDTH,FRAME_HEIGHT,FRAME_BYTES,RGB24_FRAME_BYTES,UI_PRESETS,OUTLINE_PRESETS,COMMON_GBA_COLORS,createBuiltinTheme,decodeCustomFile,decodeRGB24Frames,isVideoFile,serializeTheme,deserializeTheme,renderMenuPreview,startPreview,applyUI,settingsColours,rgb555ToHex,hexToRGB555,quantizeHexColor,describeColor,normalizeHexColor,setupGBAColorPicker};
-
 export { FRAME_WIDTH, FRAME_HEIGHT, FRAME_BYTES, RGB24_FRAME_BYTES, UI_PRESETS, OUTLINE_PRESETS, COMMON_GBA_COLORS, createBuiltinTheme, decodeCustomFile, decodeRGB24Frames, isVideoFile, serializeTheme, deserializeTheme, renderMenuPreview, startPreview, applyUI, settingsColours, rgb555ToHex, hexToRGB555, quantizeHexColor, describeColor, normalizeHexColor, setupGBAColorPicker };

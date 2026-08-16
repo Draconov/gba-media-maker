@@ -1,8 +1,14 @@
+(async () => {
+const [GBAText, MenuThemeTools, TitleCardTools] = await Promise.all([
+  import('./shared/gba-text.js'),
+  import('./shared/menu-themes.js'),
+  import('./shared/title-cards.js'),
+]);
+
 const TOKEN = document.querySelector('meta[name="gbavm-session-token"]').content;
 const APP_BASE = '/' + TOKEN;
 const BASE = APP_BASE + '/api';
 const $ = id => document.getElementById(id);
-const GBAText = window.GBAText;
 
 const DEFAULT_CLIP = Object.freeze({
   start: '0:00', end: '', speed: 1, fit: 'fit', audio: 'mix', volume: 100,
@@ -402,7 +408,6 @@ function menuStyleSettings() {
   return {uiColor:$('menuUIColor')?.value || '#FFFFFF', selectedColor:$('menuSelectionColor')?.value || '#FFDE00', outline:!!$('menuOutline')?.checked, outlineColor:$('menuOutlineColor')?.value || '#000000'};
 }
 function updateMenuColorReadouts() {
-  if (!window.MenuThemeTools) return;
   for (const [inputID, outputID, fallback] of [
     ['menuUIColor','menuUIColorValue','#FFFFFF'],
     ['menuSelectionColor','menuSelectionColorValue','#FFDE00'],
@@ -417,7 +422,7 @@ function updateMenuColorReadouts() {
 }
 function snapMenuColor(inputID, fallback) {
   const input=$(inputID);
-  if (!input || !window.MenuThemeTools) return;
+  if (!input) return;
   input.value=MenuThemeTools.quantizeHexColor(input.value,fallback);
   updateMenuColorReadouts();
 }
@@ -433,7 +438,7 @@ function restoreMenuColors(settings={}) {
   updateMenuColorReadouts();
 }
 function rebuildMenuTheme() {
-  if (!window.MenuThemeTools || !$('menuBackground')) return;
+  if (!$('menuBackground')) return;
   menuBackgroundID = $('menuBackground').value;
   if (menuBackgroundID === 'custom' && customMenuTheme) activeMenuTheme = MenuThemeTools.applyUI(customMenuTheme, menuStyleSettings());
   else if (menuBackgroundID === 'custom') activeMenuTheme = MenuThemeTools.createBuiltinTheme('classic-dark', menuStyleSettings());
@@ -511,11 +516,10 @@ function resetTitleCardPreviewCache() {
 }
 function ensureTitleCardProject(force = false) {
   const source = titleCardSourceName();
-  if (!window.TitleCardTools) return;
   if (force || !titleCardProject || titleCardProjectSource !== source) {
     resetTitleCardPreviewCache();
     titleCardSectionSignature = "";
-    titleCardProject = window.TitleCardTools.createTitleCardProject(source);
+    titleCardProject = TitleCardTools.createTitleCardProject(source);
     titleCardProjectSource = source;
     titleCardPart = 1;
   }
@@ -532,16 +536,15 @@ function titleCardPartRecord(part, create = false) {
   return record?.settings || titleCardProject.shared;
 }
 function serializeTitleCards() {
-  if (!window.TitleCardTools) return null;
   ensureTitleCardProject();
-  const copy = JSON.parse(JSON.stringify(titleCardProject || window.TitleCardTools.createTitleCardProject(titleCardSourceName())));
+  const copy = JSON.parse(JSON.stringify(titleCardProject || TitleCardTools.createTitleCardProject(titleCardSourceName())));
   copy.enabled = !!$('partTitleScreens')?.checked;
   copy.useShared = !!$('titleCardUseShared')?.checked;
   return copy;
 }
 function titleCardColorReadout(inputID, outputID, fallback) {
   const input=$(inputID), output=$(outputID);
-  if (!input || !output || !window.MenuThemeTools) return;
+  if (!input || !output) return;
   const color=MenuThemeTools.describeColor(input.value,fallback);
   output.textContent=`${color.hex} · RGB555 ${color.r},${color.g},${color.b}`;
   input._gbaColorPickerController?.sync();
@@ -597,7 +600,7 @@ function saveTitleCardFields() {
 }
 function loadTitleCardFields() {
   ensureTitleCardProject();
-  const settings = titleCardPartRecord(titleCardPart, false) || window.TitleCardTools.defaultTitleCardSettings(titleCardSourceName());
+  const settings = titleCardPartRecord(titleCardPart, false) || TitleCardTools.defaultTitleCardSettings(titleCardSourceName());
   $('titleCardTitle').value = settings.title ?? '';
   $('titleCardSubtitle').value = settings.subtitle ?? '';
   $('titleCardBackground').value = settings.backgroundMode || 'part-first-frame';
@@ -658,7 +661,7 @@ function drawCurrentTitleCardPreview(source) {
   if (!$('titleCardPreview') || !$('titleCardSection') || $('titleCardSection').classList.contains('hidden')) return;
   const settings = titleCardPartRecord(titleCardPart, false);
   const fit = effectiveClip(state.videos[0].id).fit || 'fit';
-  window.TitleCardTools.renderTitleCardPreview($('titleCardPreview'), source, fit, settings, titleCardPart, titleCardSourceName());
+  TitleCardTools.renderTitleCardPreview($('titleCardPreview'), source, fit, settings, titleCardPart, titleCardSourceName());
 }
 function rememberTitleCardPreview(key, image) {
   titleCardPreviewCache.delete(key);
@@ -720,7 +723,7 @@ function renderTitleCardPreview() {
       if (error?.name !== 'AbortError' && titleCardPreviewDesiredKey === key) {
         const fallback = {...titleCardPartRecord(titleCardPart, false), backgroundMode:'solid', solidColor:'#000000'};
         const fitNow = effectiveClip(state.videos[0].id).fit || 'fit';
-        window.TitleCardTools.renderTitleCardPreview($('titleCardPreview'), $('titleCardPreview'), fitNow, fallback, titleCardPart, titleCardSourceName());
+        TitleCardTools.renderTitleCardPreview($('titleCardPreview'), $('titleCardPreview'), fitNow, fallback, titleCardPart, titleCardSourceName());
       }
     } finally {
       if (titleCardPreviewPendingKey === key) titleCardPreviewPendingKey = '';
@@ -1257,12 +1260,12 @@ function estimate() {
   if (!Number.isFinite(maxPartSeconds)) { $('estimate').innerHTML = '<b class="estimate-over">Maximum duration must be 0 or MM:SS, for example 1:05.</b>'; return {...result,error:'invalid maximum part duration'}; }
   if (single && maxPartSeconds > 0) estimatedParts = Math.max(estimatedParts, Math.ceil(result.sourceDuration / maxPartSeconds));
   let automaticSplit = singleVideo && estimatedParts > 1;
-  if (automaticSplit && $('partTitleScreens')?.checked && window.TitleCardTools) {
+  if (automaticSplit && $('partTitleScreens')?.checked) {
     for (let pass=0; pass<2; pass++) {
-      const withCards=payload + window.TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
+      const withCards=payload + TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
       estimatedParts=Math.max(estimatedParts,Math.ceil(withCards/usable));
     }
-    result.bytes += window.TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
+    result.bytes += TitleCardTools.TITLE_CARD_BYTES * estimatedParts;
   }
   automaticSplit = singleVideo && estimatedParts > 1;
   const hasNonVideo=state.videos.some(v=>mediaKind(v)!=='video');
@@ -1495,7 +1498,7 @@ if ($('menuBackground')) {
 }
 
 
-if (window.TitleCardTools && $('titleCardPreview')) {
+if ($('titleCardPreview')) {
   for (const [inputID,label] of [['titleCardTextColor','Title text colour'],['titleCardOutlineColor','Title outline colour'],['titleCardSubtitleTextColor','Subtitle text colour'],['titleCardSubtitleOutlineColor','Subtitle outline colour'],['titleCardSolidColor','Title-card background colour']]) {
     MenuThemeTools.setupGBAColorPicker($(inputID),{label});
   }
@@ -1547,3 +1550,11 @@ setInterval(() => fetch(BASE + '/heartbeat', {method:'POST',headers:headers(),ke
 window.addEventListener('pagehide', () => fetch(BASE + '/close-intent', {method:'POST',headers:headers(),keepalive:true}).catch(()=>{}));
 
 poll();
+})().catch(error => {
+  console.error('Desktop UI failed to initialize:', error);
+  const target = document.getElementById('engineError') || document.body;
+  if (target) {
+    target.textContent = 'Could not initialize the desktop interface. ' + (error?.message || error);
+    target.classList?.remove('hidden');
+  }
+});

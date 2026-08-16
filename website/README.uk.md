@@ -78,7 +78,6 @@ src/i18n.js              runtime локалізації
 ../locales/*.json        канонічні переклади
 src/rom-core.js          ROM builder
 src/smart-encoding.js    Extreme/Smart аналіз
-src/menu-themes.js       теми меню
-src/title-cards.js       титульні картки
+../frontend/shared/      спільні теми меню, титульні картки та GBA-текст
 scripts/sync-locales.mjs синхронізація локалей
 ```

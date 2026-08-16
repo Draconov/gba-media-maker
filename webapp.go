@@ -1431,17 +1431,17 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(data)
 	})
-	mux.HandleFunc(prefix+"/gba-text.js", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(prefix+"/shared/gba-text.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(gbaTextJS)
 	})
-	mux.HandleFunc(prefix+"/menu-themes.js", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(prefix+"/shared/menu-themes.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(menuThemesJS)
 	})
-	mux.HandleFunc(prefix+"/title-cards.js", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(prefix+"/shared/title-cards.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(titleCardsJS)

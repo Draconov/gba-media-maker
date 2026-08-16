@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { COMMON_GBA_COLORS, describeColor, hexToRGB555, normalizeHexColor, quantizeHexColor, rgb555ToHex, settingsColours } from "../src/menu-themes.js";
+import { COMMON_GBA_COLORS, describeColor, hexToRGB555, normalizeHexColor, quantizeHexColor, rgb555ToHex, settingsColours } from "../../frontend/shared/menu-themes.js";
 
 test("menu colours are quantized to the GBA 15-bit RGB palette", () => {
   assert.equal(hexToRGB555("#ffffff"), 0x7fff);

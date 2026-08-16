@@ -22,13 +22,13 @@ var appJS []byte
 //go:embed web/i18n.js
 var appI18nJS []byte
 
-//go:embed web/gba-text.js
+//go:embed frontend/shared/gba-text.js
 var gbaTextJS []byte
 
-//go:embed web/menu-themes.js
+//go:embed frontend/shared/menu-themes.js
 var menuThemesJS []byte
 
-//go:embed web/title-cards.js
+//go:embed frontend/shared/title-cards.js
 var titleCardsJS []byte
 
 //go:embed locales/*

@@ -114,7 +114,7 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(page, []byte("GBA Media Maker "+appVersion)) {
 		t.Fatal("version missing")
 	}
-	for _, want := range []string{"./icon.png", "./style.css", "./gba-text.js", "./menu-themes.js", "./title-cards.js", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image, GIF or video", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track", "Song title", "Artist(s)", "Enable slideshow", "Collections automatically use the media menu", ".gif"} {
+	for _, want := range []string{"./icon.png", "./style.css", "./app.js", "Smooth — 14.93 fps", "End (blank = full video)", "Optimize to fit 32 MiB", "Fit with bars", "Single ROM", "Menu design", "Blue Wave — animated", "Custom image, GIF or video", "Title cards for split video", "Native 240×160 GBA preview", "Show title card at start", "Use same settings for each part", "Extreme optimization (Experimental)", "Analyze and optimize video", "Compact ADPCM (Experimental)", "Auto for ROM target", "Input audio track", "Song title", "Artist(s)", "Enable slideshow", "Collections automatically use the media menu", ".gif"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("page is missing %q", want)
 		}
@@ -127,6 +127,11 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	}
 	if !bytes.Contains(appJS, []byte("gbavm-session-token")) {
 		t.Fatal("external application script missing")
+	}
+	for _, shared := range []string{"./shared/gba-text.js", "./shared/menu-themes.js", "./shared/title-cards.js"} {
+		if !bytes.Contains(appJS, []byte(shared)) {
+			t.Fatalf("desktop app is not importing shared frontend module %q", shared)
+		}
 	}
 	if !bytes.Contains(page, []byte(`<option value="embedded" selected>Embedded artwork</option>`)) {
 		t.Fatal("embedded artwork is not the default audio artwork source")
@@ -348,7 +353,7 @@ func TestHTTPUploadInspectConvertDownloadV5(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || len(icon) < 1000 {
 		t.Fatalf("bad app icon response status=%d bytes=%d", resp.StatusCode, len(icon))
 	}
-	for _, asset := range []string{"style.css", "menu-themes.js", "title-cards.js", "app.js"} {
+	for _, asset := range []string{"style.css", "shared/gba-text.js", "shared/menu-themes.js", "shared/title-cards.js", "app.js"} {
 		resp, err = http.Get(server.URL + "/" + state.token + "/" + asset)
 		if err != nil {
 			t.Fatal(err)

@@ -339,14 +339,16 @@ website/
 │   ├── rom.worker.js          conversion worker
 │   ├── project-format.js      .gbamedia v2 save/load/migration
 │   ├── parity-utils.js        desktop-compatible naming/settings helpers
-│   ├── menu-themes.js         stable theme/background preview + MTH1 data
-│   ├── title-cards.js         title-card state/preview/TCD1 data
-│   ├── gba-text.js            player-compatible text encoding
 │   ├── adpcm.js               browser IMA ADPCM codec path
 │   ├── smart-encoding.js      Extreme optimization analysis
 │   └── style.css
 └── tests/
     └── *.test.mjs
+
+../frontend/shared/
+├── menu-themes.js             canonical desktop/web theme logic
+├── title-cards.js             canonical desktop/web title-card logic
+└── gba-text.js                canonical desktop/web GBA text logic
 ```
 
 ## GitHub Pages

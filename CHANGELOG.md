@@ -3,12 +3,14 @@
 All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 
 > [!NOTE]
-> Historical sections describe the controls and behavior that existed in that release. For the current v0.13.1 controls and media model, use the main [`README.md`](README.md).
+> Historical sections describe the controls and behavior that existed in that release. For the current v0.13.3 controls and media model, use the main [`README.md`](README.md).
 
 ## Release index
 
 | Version | Date | Main theme |
 |---|---|---|
+| **0.13.3** | **2026-08-17** | Canonical shared desktop/web frontend modules for GBA text, menu themes, and title cards |
+| **0.13.2** | **2026-08-17** | French, Spanish, and German host-app/website localization |
 | **0.13.1** | **2026-08-16** | Audio/image player polish: two-state image HUD, embedded-first audio covers, cover-visible audio HUD |
 | **0.13.0** | **2026-08-11** | GBA Media Maker: video + GIF + music + images, mixed-media menus, desktop/web parity |
 | 0.12.2 | 2026-08-07 | Stable video player/menu refinements, custom menu video backgrounds, Cyrillic text |
@@ -21,6 +23,24 @@ All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 | 0.7.0 | 2026-07-31 | Playback clock/HUD, local-app hardening, stable release workflow |
 | 0.6.0 | 2026-07-31 | Synchronized seeking and reproducible player builds |
 | 0.5.0 | 2026-07-30 | First complete portable local-web conversion workflow |
+
+
+## [0.13.3] - 2026-08-17
+
+### Changed
+- Moved GBA text encoding, menu-theme/background logic, and title-card logic into one canonical `frontend/shared/` implementation consumed by both desktop and website.
+- Desktop loads the shared ES modules before initializing its existing local-web UI; the website imports the same source directly through Vite.
+- Website ROM assembly now uses the same canonical GBA text encoder as the desktop UI instead of maintaining a browser-side copy.
+- GitHub Pages now redeploys when a canonical shared frontend module changes.
+
+### Tests
+- Added regression coverage that rejects duplicate copies of the three shared modules and verifies both frontends consume the canonical files.
+
+## [0.13.2] - 2026-08-17
+
+### Added
+- Added French, Spanish, and German localization to the desktop application and standalone website alongside English and Ukrainian.
+- Added Windows SVG flag assets for the new languages while keeping native emoji flags on the website.
 
 
 ## [0.13.1] - 2026-08-16
