@@ -14,6 +14,27 @@
       "flagFile": "flag-ua.svg",
       "file": "uk.json",
       "flag": "🇺🇦"
+    },
+    {
+      "code": "fr",
+      "short": "FR",
+      "flagFile": "flag-fr.svg",
+      "file": "fr.json",
+      "flag": "🇫🇷"
+    },
+    {
+      "code": "es",
+      "short": "ES",
+      "flagFile": "flag-es.svg",
+      "file": "es.json",
+      "flag": "🇪🇸"
+    },
+    {
+      "code": "de",
+      "short": "DE",
+      "flagFile": "flag-de.svg",
+      "file": "de.json",
+      "flag": "🇩🇪"
     }
   ]
 }

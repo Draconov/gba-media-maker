@@ -10,27 +10,45 @@ const root = dirname(website);
 
 async function json(path) { return JSON.parse(await readFile(path, "utf8")); }
 
-test("website uses the canonical manifest-driven EN/UK localization catalogs", async () => {
+test("website uses the canonical manifest-driven localization catalogs", async () => {
   const manifest = await json(join(root, "locales", "index.json"));
   const generatedManifest = await json(join(website, "public", "locales", "index.json"));
   const en = await json(join(root, "locales", "en.json"));
   const uk = await json(join(root, "locales", "uk.json"));
+  const fr = await json(join(root, "locales", "fr.json"));
+  const es = await json(join(root, "locales", "es.json"));
+  const de = await json(join(root, "locales", "de.json"));
   const generatedUk = await json(join(website, "public", "locales", "uk.json"));
+  const generatedFr = await json(join(website, "public", "locales", "fr.json"));
+  const generatedEs = await json(join(website, "public", "locales", "es.json"));
+  const generatedDe = await json(join(website, "public", "locales", "de.json"));
   assert.equal(manifest.fallback, "en");
-  assert.deepEqual(manifest.languages.map(item => item.code), ["en", "uk"]);
-  assert.deepEqual(manifest.languages.map(item => item.short), ["EN", "UA"]);
-  assert.deepEqual(manifest.languages.map(item => item.flag), ["🇬🇧", "🇺🇦"]);
+  assert.deepEqual(manifest.languages.map(item => item.code), ["en", "uk", "fr", "es", "de"]);
+  assert.deepEqual(manifest.languages.map(item => item.short), ["EN", "UA", "FR", "ES", "DE"]);
+  assert.deepEqual(manifest.languages.map(item => item.flag), ["🇬🇧", "🇺🇦", "🇫🇷", "🇪🇸", "🇩🇪"]);
   assert.deepEqual(generatedManifest, manifest);
   assert.equal(en.meta.code, "en");
   assert.equal(uk.meta.code, "uk");
   assert.equal(uk.meta.fallback, "en");
+  assert.equal(fr.meta.fallback, "en");
+  assert.equal(es.meta.fallback, "en");
+  assert.equal(de.meta.fallback, "en");
   assert.equal(uk.messages.Language, "Мова");
   assert.equal(uk.messages["Choose language"], "Обрати мову");
+  assert.equal(fr.messages.Language, "Langue");
+  assert.equal(es.messages.Language, "Idioma");
+  assert.equal(de.messages.Language, "Sprache");
   assert.deepEqual(generatedUk, uk);
-  assert.ok(Object.keys(uk.messages).length * 100 >= Object.keys(en.messages).length * 80);
+  assert.deepEqual(generatedFr, fr);
+  assert.deepEqual(generatedEs, es);
+  assert.deepEqual(generatedDe, de);
+  for (const catalog of [uk, fr, es, de]) assert.ok(Object.keys(catalog.messages).length * 100 >= Object.keys(en.messages).length * 80);
   await assert.rejects(access(join(root, "locales", "ru.json")));
   await assert.rejects(access(join(website, "public", "locales", "flag-gb.svg")));
   await assert.rejects(access(join(website, "public", "locales", "flag-ua.svg")));
+  await assert.rejects(access(join(website, "public", "locales", "flag-fr.svg")));
+  await assert.rejects(access(join(website, "public", "locales", "flag-es.svg")));
+  await assert.rejects(access(join(website, "public", "locales", "flag-de.svg")));
 });
 
 test("website bootstraps localization and exposes the expandable language menu", async () => {
