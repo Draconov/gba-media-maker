@@ -1,8 +1,6 @@
-//go:build !windows
+//go:build !windows && !darwin && !linux
 
 package main
-
-import "errors"
 
 func openFilesDialog(title, filter string, multi bool) ([]string, error) {
 	return nil, errDialogUnsupported
@@ -11,5 +9,3 @@ func openFilesDialog(title, filter string, multi bool) ([]string, error) {
 func saveFileDialog(title, filter, defaultExt, initialName string) (string, error) {
 	return "", errDialogUnsupported
 }
-
-var _ = errors.New

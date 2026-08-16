@@ -80,7 +80,11 @@ jobs:
         working-directory: website
         run: npm run build
 
-      - name: Build Windows portable executable
+      - name: Check release shell scripts
+        shell: bash
+        run: bash -n scripts/*.sh
+
+      - name: Build Windows desktop executable
         env:
           GOOS: windows
           GOARCH: amd64
@@ -91,6 +95,38 @@ jobs:
 
       - name: Embed application icon
         run: go run ./tools/embedicon -exe "GBA Media Maker.exe" -ico "assets/icon.ico"
+
+      - name: Cross-build macOS and Linux desktop binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/gbamm-darwin-amd64" .
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/gbamm-darwin-arm64" .
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/gbamm-linux-amd64" .
+
+      - name: Dry-run Linux x86_64 package layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          amd="$RUNNER_TEMP/linux-slice-amd64"
+          mkdir -p "$amd"
+          cp "$RUNNER_TEMP/gbamm-linux-amd64" "$amd/gba-media-maker"
+          cp "$RUNNER_TEMP/gbamm-linux-amd64" "$amd/ffmpeg"
+          chmod +x "$amd"/*
+          ./scripts/package-linux.sh "$amd"
+          archive="dist/GBA_Media_Maker_v$(cat VERSION)_Linux_x86_64.tar.gz"
+          test -f "$archive"
+          tar -tzf "$archive" | grep -q '/gba-media-maker$'
+          tar -tzf "$archive" | grep -q '/ffmpeg$'
+          ! tar -tzf "$archive" | grep -q '/bin/arm64/'
+
+      - name: Verify Universal 2 macOS packager is wired
+        shell: bash
+        run: |
+          grep -q 'lipo -create' scripts/package-macos.sh
+          grep -q '_macOS.zip' scripts/package-macos.sh
+          ! grep -q '_macOS_Intel' scripts/package-macos.sh
+          ! grep -q '_macOS_AppleSilicon' scripts/package-macos.sh
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v7

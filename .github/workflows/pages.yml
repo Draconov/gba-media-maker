@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "website/**"
+      - "locales/**"
       - "VERSION"
       - "assets/player_stub.bin"
       - "assets/audio-artwork/**"

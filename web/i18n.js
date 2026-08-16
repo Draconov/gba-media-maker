@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'gba-media-maker-language';
+  const FLAG_MODE = document.querySelector('meta[name="gbavm-flag-mode"]')?.content === 'svg' ? 'svg' : 'emoji';
   const MANIFEST_URL = './locales/index.json';
   const catalogs = new Map();
   let languages = [{ code: 'en', short: 'EN', flag: '🇬🇧', file: 'en.json' }];
@@ -149,8 +150,19 @@
     return catalogs.get(option.code)?.meta?.name || option.code.toUpperCase();
   }
 
-  function flagAssetURL(option) {
-    return option?.flagFile ? ('./locales/' + option.flagFile) : '';
+  function renderFlag(container, option) {
+    if (!container) return;
+    container.replaceChildren();
+    if (FLAG_MODE === 'svg' && option?.flagFile) {
+      const image = document.createElement('img');
+      image.className = 'language-flag-image';
+      image.alt = '';
+      image.loading = 'lazy';
+      image.src = './locales/' + option.flagFile;
+      container.append(image);
+      return;
+    }
+    container.textContent = option?.flag || '';
   }
 
   function closeLanguagePicker(picker, restoreFocus = false) {
@@ -211,7 +223,7 @@
       item.className = 'language-menu-option';
       item.dataset.language = option.code;
       item.setAttribute('role', 'menuitemradio');
-      item.innerHTML = '<span class="language-option-code"></span><span class="language-option-name"></span><span class="language-option-flag" aria-hidden="true"><img class="language-flag-image" alt="" loading="lazy"></span><span class="language-option-check" aria-hidden="true">✓</span>';
+      item.innerHTML = '<span class="language-option-code"></span><span class="language-option-name"></span><span class="language-option-flag" aria-hidden="true"></span><span class="language-option-check" aria-hidden="true">✓</span>';
       item.addEventListener('click', () => {
         setLanguage(option.code);
         closeLanguagePicker(picker, true);
@@ -225,12 +237,7 @@
     const button = picker.querySelector('.language-menu-button');
     if (!button || !display) return;
     button.querySelector('.language-code').textContent = display.short || display.code.toUpperCase();
-    const buttonFlag = button.querySelector('.language-flag-image');
-    if (buttonFlag) {
-      const flagURL = flagAssetURL(display);
-      buttonFlag.src = flagURL;
-      buttonFlag.hidden = !flagURL;
-    }
+    renderFlag(button.querySelector('.language-flag'), display);
     button.dataset.language = language;
     button.setAttribute('aria-label', t('Choose language'));
     button.title = t('Choose language');
@@ -241,12 +248,7 @@
       const selected = option.code === language;
       item.querySelector('.language-option-code').textContent = option.short || option.code.toUpperCase();
       item.querySelector('.language-option-name').textContent = optionName(option);
-      const optionFlag = item.querySelector('.language-flag-image');
-      if (optionFlag) {
-        const flagURL = flagAssetURL(option);
-        optionFlag.src = flagURL;
-        optionFlag.hidden = !flagURL;
-      }
+      renderFlag(item.querySelector('.language-option-flag'), option);
       item.setAttribute('aria-checked', selected ? 'true' : 'false');
       item.classList.toggle('is-active', selected);
     }
@@ -274,7 +276,7 @@
       if (host.querySelector('.language-picker')) continue;
       const picker = document.createElement('div');
       picker.className = 'language-picker';
-      picker.innerHTML = '<button class="language-menu-button" type="button" aria-haspopup="menu" aria-expanded="false"><span class="language-code"></span><span class="language-flag" aria-hidden="true"><img class="language-flag-image" alt="" loading="lazy"></span><span class="language-chevron" aria-hidden="true">▾</span></button><div class="language-menu" role="menu" hidden></div>';
+      picker.innerHTML = '<button class="language-menu-button" type="button" aria-haspopup="menu" aria-expanded="false"><span class="language-code"></span><span class="language-flag" aria-hidden="true"></span><span class="language-chevron" aria-hidden="true">▾</span></button><div class="language-menu" role="menu" hidden></div>';
       const button = picker.querySelector('.language-menu-button');
       const menu = picker.querySelector('.language-menu');
       button.addEventListener('click', () => toggleLanguagePicker(picker));

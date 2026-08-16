@@ -25,6 +25,11 @@ All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 
 ## [0.13.1] - 2026-08-16
 
+### Added
+- Added shared English/Ukrainian host-application localization for the desktop UI and standalone website, with a manifest-driven language menu and English fallback. GBA ROM/player UI text is intentionally unchanged.
+- Added one Universal 2 macOS release for Intel + Apple Silicon and one Linux x86_64 desktop release for modern 64-bit Intel/AMD PCs.
+- Added cross-platform desktop launchers, macOS/Linux file-dialog integrations, bundled-FFmpeg discovery, and GitHub release jobs for Windows x64, Universal macOS, and Linux x86_64.
+
 ### Changed
 - Image playback now has only two HUD states: hidden and shown. Images start with the HUD hidden.
 - New audio tracks default to **Embedded artwork**. If the source has no embedded cover, a stable automatically selected one of the 20 built-in presets is used as the fallback; the fallback preset remains editable and saved with the project.

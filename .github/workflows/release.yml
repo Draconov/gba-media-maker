@@ -10,15 +10,19 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  validate:
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      title: ${{ steps.release.outputs.title }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -31,29 +35,35 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Install LLVM player build tools
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld llvm
+          sudo apt-get install -y ffmpeg clang lld llvm
 
       - name: Build GBA player
         run: bash player/build.sh
 
       - name: Check formatting
         shell: bash
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            echo "::error::These Go files are not formatted:"
-            echo "$unformatted"
-            exit 1
-          fi
+        run: test -z "$(gofmt -l .)"
 
       - name: Vet
         run: go vet ./...
 
-      - name: Test
+      - name: Test Go application
         run: go test ./...
+
+      - name: Test and build browser edition
+        working-directory: website
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
 
       - name: Read release version
         id: release
@@ -65,15 +75,19 @@ jobs:
             echo "::error::VERSION must contain a semantic version such as 1.2.3"
             exit 1
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "title=GBA Media Maker v$version" >> "$GITHUB_OUTPUT"
 
-          tag="v${version}"
-          title="GBA Media Maker ${tag}"
-          folder="GBA_Media_Maker_v${version}_Portable"
-          zip_file="${folder}.zip"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "title=$title" >> "$GITHUB_OUTPUT"
-          echo "folder=$folder" >> "$GITHUB_OUTPUT"
-          echo "zip_file=$zip_file" >> "$GITHUB_OUTPUT"
+  windows:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
 
       - name: Build Windows executable
         env:
@@ -81,109 +95,198 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 0
         run: |
-          rm -f "GBA Media Maker.exe"
-          go build -trimpath \
-            -buildvcs=false \
-            -ldflags="-H windowsgui -s -w" \
-            -o "GBA Media Maker.exe" .
+          go build -trimpath -buildvcs=false -ldflags="-H windowsgui -s -w" -o "GBA Media Maker.exe" .
+          go run ./tools/embedicon -exe "GBA Media Maker.exe" -ico "assets/icon.ico"
 
-      - name: Embed application icon
-        run: >-
-          go run ./tools/embedicon
-          -exe "GBA Media Maker.exe"
-          -ico "assets/icon.ico"
+      - name: Fetch pinned LGPL FFmpeg
+        run: ./scripts/fetch-ffmpeg-btbn.sh windows amd64 ffmpeg.exe
 
-      - name: Fetch pinned FFmpeg for the portable package
-        shell: bash
-        run: |
-          set -euo pipefail
-          FFMPEG_TAG="autobuild-2026-08-07-13-13"
-          FFMPEG_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_TAG}"
-
-          mkdir -p _vendor/ffmpeg
-          curl --fail --location --retry 3 --retry-delay 2 \
-            "${FFMPEG_BASE}/checksums.sha256" \
-            --output _vendor/checksums.sha256
-          archive_entry="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?ffmpeg-[^[:space:]]+-win64-lgpl\.zip$' \
-            _vendor/checksums.sha256 | head -n 1 || true)"
-          if [[ -z "${archive_entry}" ]]; then
-            echo "::error::Could not find the non-shared win64 LGPL FFmpeg ZIP in the pinned release."
-            echo "Available win64 LGPL entries:"
-            grep -E 'win64.*lgpl.*\.zip$' _vendor/checksums.sha256 || true
-            exit 1
-          fi
-          expected="$(printf '%s\n' "${archive_entry}" | awk '{print $1}')"
-          FFMPEG_ARCHIVE="$(printf '%s\n' "${archive_entry}" | \
-            sed -E 's/^[0-9a-fA-F]{64}[[:space:]]+\*?//')"
-          if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ || -z "${FFMPEG_ARCHIVE}" ]]; then
-            echo "::error::Invalid FFmpeg entry in the pinned release checksum list."
-            exit 1
-          fi
-          echo "Using pinned FFmpeg asset: ${FFMPEG_ARCHIVE}"
-          curl --fail --location --retry 3 --retry-delay 2 \
-            "${FFMPEG_BASE}/${FFMPEG_ARCHIVE}" \
-            --output "_vendor/${FFMPEG_ARCHIVE}"
-
-          echo "${expected}  _vendor/${FFMPEG_ARCHIVE}" | sha256sum -c -
-          unzip -q "_vendor/${FFMPEG_ARCHIVE}" -d _vendor/ffmpeg
-          candidate="$(find _vendor/ffmpeg -type f -path '*/bin/ffmpeg.exe' -print -quit)"
-          if [[ -z "${candidate}" ]]; then
-            echo "::error::No ffmpeg.exe was found in the pinned archive."
-            exit 1
-          fi
-          cp "${candidate}" ffmpeg.exe
-
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("ffmpeg.exe")
-          data = path.read_bytes()
-          if data[:2] != b"MZ":
-              raise SystemExit("ffmpeg.exe is not a Windows PE executable")
-          if len(data) < 1_000_000:
-              raise SystemExit("Extracted FFmpeg executable is unexpectedly small")
-          if b"--enable-libdav1d" not in data and b"--enable-libaom" not in data:
-              raise SystemExit("Pinned FFmpeg build has no verified software AV1 decoder")
-          print(f"Verified software-AV1-capable FFmpeg: {len(data)} bytes")
-          PY
-
-      - name: Package portable ZIP
+      - name: Package Windows x64 release
         shell: bash
         env:
-          FOLDER: ${{ steps.release.outputs.folder }}
-          ZIP_FILE: ${{ steps.release.outputs.zip_file }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          mkdir "$FOLDER"
-          cp "GBA Media Maker.exe" ffmpeg.exe README.md LICENSE THIRD_PARTY_NOTICES.md "$FOLDER/"
-          zip -9 -r "$ZIP_FILE" "$FOLDER"
-          sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
+          folder="GBA_Media_Maker_v${VERSION}_Windows_x64"
+          archive="${folder}.zip"
+          mkdir "$folder"
+          cp "GBA Media Maker.exe" ffmpeg.exe README.md README.uk.md LICENSE THIRD_PARTY_NOTICES.md "$folder/"
+          zip -9 -r "$archive" "$folder"
+          sha256sum "$archive" | awk '{print $1}' > "$archive.sha256"
 
-      - name: Publish normal GitHub release
+      - name: Upload Windows release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-x64
+          path: |
+            GBA_Media_Maker_v${{ needs.validate.outputs.version }}_Windows_x64.zip
+            GBA_Media_Maker_v${{ needs.validate.outputs.version }}_Windows_x64.zip.sha256
+          if-no-files-found: error
+
+  linux:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Fetch pinned LGPL FFmpeg
+        run: ./scripts/fetch-ffmpeg-btbn.sh linux amd64 "$RUNNER_TEMP/ffmpeg"
+
+      - name: Build Linux x86_64 release
+        env:
+          FFMPEG_BIN: ${{ runner.temp }}/ffmpeg
+        run: ./scripts/build-linux-slice.sh amd64 "$RUNNER_TEMP/linux-amd64"
+
+      - name: Package Linux x86_64 release
+        run: |
+          chmod +x "$RUNNER_TEMP/linux-amd64/gba-media-maker" "$RUNNER_TEMP/linux-amd64/ffmpeg"
+          ./scripts/package-linux.sh "$RUNNER_TEMP/linux-amd64"
+
+      - name: Smoke-test Linux x86_64 package
+        run: |
+          folder="dist/GBA_Media_Maker_v${{ needs.validate.outputs.version }}_Linux_x86_64"
+          "$folder/gba-media-maker" --help >/dev/null
+          "$folder/ffmpeg" -hide_banner -decoders 2>&1 | grep -Eq 'libdav1d|libaom-av1'
+          test -x "$folder/install-user.sh"
+
+      - name: Upload Linux release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-x86-64
+          path: |
+            dist/GBA_Media_Maker_v${{ needs.validate.outputs.version }}_Linux_x86_64.tar.gz
+            dist/GBA_Media_Maker_v${{ needs.validate.outputs.version }}_Linux_x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  macos-slices:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build pinned LGPL-compatible FFmpeg
+        run: ./scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/ffmpeg-macos"
+
+      - name: Build macOS native slice
+        env:
+          FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-macos
+        run: ./scripts/build-macos-slice.sh ${{ matrix.arch }} "$RUNNER_TEMP/macos-slice"
+
+      - name: Smoke-test native macOS slice
+        run: |
+          "$RUNNER_TEMP/macos-slice/GBA Media Maker" --help >/dev/null
+          "$RUNNER_TEMP/macos-slice/ffmpeg" -hide_banner -decoders 2>&1 | grep -q libdav1d
+
+      - name: Upload macOS slice
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-slice-${{ matrix.arch }}
+          path: ${{ runner.temp }}/macos-slice
+          if-no-files-found: error
+
+  macos:
+    needs: [validate, macos-slices]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download macOS Intel slice
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-slice-amd64
+          path: ${{ runner.temp }}/macos-amd64
+
+      - name: Download macOS Apple Silicon slice
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-slice-arm64
+          path: ${{ runner.temp }}/macos-arm64
+
+      - name: Package Universal 2 macOS app
+        run: |
+          chmod +x "$RUNNER_TEMP/macos-amd64/GBA Media Maker" "$RUNNER_TEMP/macos-amd64/ffmpeg"
+          chmod +x "$RUNNER_TEMP/macos-arm64/GBA Media Maker" "$RUNNER_TEMP/macos-arm64/ffmpeg"
+          ./scripts/package-macos.sh "$RUNNER_TEMP/macos-amd64" "$RUNNER_TEMP/macos-arm64"
+
+      - name: Verify Universal 2 macOS bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="dist/GBA Media Maker.app"
+          lipo -archs "$app/Contents/MacOS/GBA Media Maker" | grep -qw x86_64
+          lipo -archs "$app/Contents/MacOS/GBA Media Maker" | grep -qw arm64
+          lipo -archs "$app/Contents/MacOS/ffmpeg" | grep -qw x86_64
+          lipo -archs "$app/Contents/MacOS/ffmpeg" | grep -qw arm64
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/GBA Media Maker" --help >/dev/null
+          "$app/Contents/MacOS/ffmpeg" -hide_banner -decoders 2>&1 | grep -q libdav1d
+
+      - name: Upload macOS release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: |
+            dist/GBA_Media_Maker_v${{ needs.validate.outputs.version }}_macOS.zip
+            dist/GBA_Media_Maker_v${{ needs.validate.outputs.version }}_macOS.zip.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          gh run download "$GITHUB_RUN_ID" --dir release-assets
+          find release-assets -maxdepth 2 -type f -print
+          find release-assets -mindepth 2 -maxdepth 2 -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} release-assets/ \;
+
+      - name: Publish GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_TITLE: ${{ steps.release.outputs.title }}
-          ZIP_FILE: ${{ steps.release.outputs.zip_file }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_TITLE: ${{ needs.validate.outputs.title }}
         run: |
           set -euo pipefail
+          mapfile -t files < <(find release-assets -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -print | sort)
+          if [[ ${#files[@]} -ne 6 ]]; then
+            echo "::error::Expected three release archives plus three checksums, found ${#files[@]} files."
+            printf '%s\n' "${files[@]}"
+            exit 1
+          fi
+
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             git fetch --tags --force
             git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
             git push origin "refs/tags/$RELEASE_TAG" --force
-
-            gh release upload "$RELEASE_TAG" \
-              "$ZIP_FILE" \
-              "${ZIP_FILE}.sha256" \
-              --clobber
-            gh release edit "$RELEASE_TAG" \
-              --title "$RELEASE_TITLE" \
-              --prerelease=false \
-              --latest
+            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --prerelease=false --latest
           else
-            gh release create "$RELEASE_TAG" \
-              "$ZIP_FILE" \
-              "${ZIP_FILE}.sha256" \
+            gh release create "$RELEASE_TAG" "${files[@]}" \
               --target "$GITHUB_SHA" \
               --title "$RELEASE_TITLE" \
               --generate-notes \

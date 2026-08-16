@@ -4,8 +4,8 @@ $Version = (Get-Content (Join-Path $root "VERSION") -Raw).Trim()
 if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
     throw "VERSION must contain a semantic version such as 1.2.3."
 }
-$stage = Join-Path $root "dist\GBA_Media_Maker_v$Version_Portable"
-$zip = Join-Path $root "dist\GBA_Media_Maker_v$Version_Portable.zip"
+$stage = Join-Path $root "dist\GBA_Media_Maker_v${Version}_Windows_x64"
+$zip = Join-Path $root "dist\GBA_Media_Maker_v${Version}_Windows_x64.zip"
 
 & (Join-Path $PSScriptRoot "build-windows.ps1")
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue

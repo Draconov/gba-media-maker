@@ -1,7 +1,15 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$tag = "autobuild-2026-08-07-13-13"
+$pinsPath = Join-Path $PSScriptRoot "ffmpeg-pins.env"
+$pins = @{}
+foreach ($line in Get-Content $pinsPath) {
+    if ($line -match '^\s*([^#=]+)=(.+?)\s*$') {
+        $pins[$Matches[1].Trim()] = $Matches[2].Trim()
+    }
+}
+$tag = $pins["BTBN_FFMPEG_TAG"]
+if (-not $tag) { throw "BTBN_FFMPEG_TAG is missing from scripts/ffmpeg-pins.env" }
 $baseUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$tag"
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("gbamm-ffmpeg-" + [guid]::NewGuid().ToString("N"))
 $checksums = Join-Path $temp "checksums.sha256"

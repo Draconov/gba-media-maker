@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -294,7 +295,7 @@ func appDirectory() string {
 }
 
 func logDiagnostic(section string, recovered any) {
-	path := filepath.Join(appDirectory(), "GBA Media Maker.log")
+	path := diagnosticLogPath()
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return
@@ -319,14 +320,23 @@ func newVideoID() string {
 }
 
 func locateFFmpeg() string {
+	candidates := make([]string, 0, 12)
 	for _, name := range []string{"ffmpeg.exe", "ffmpeg"} {
-		for _, candidate := range []string{
+		candidates = append(candidates,
 			filepath.Join(appDirectory(), name),
 			filepath.Join(appDirectory(), "tools", name),
-		} {
-			if st, err := os.Stat(candidate); err == nil && !st.IsDir() && st.Size() > 1_000_000 {
-				return candidate
-			}
+		)
+	}
+	candidates = append(candidates, extraFFmpegCandidates()...)
+	seen := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		if candidate == "." || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() && st.Size() > 1_000_000 {
+			return candidate
 		}
 	}
 	return commandExists("ffmpeg")
@@ -1905,7 +1915,15 @@ func renderPage(token string) ([]byte, error) {
 	if localized == versioned {
 		return nil, errors.New("application language placeholder is missing")
 	}
-	return []byte(localized), nil
+	flagMode := "emoji"
+	if runtime.GOOS == "windows" {
+		flagMode = "svg"
+	}
+	flagged := strings.Replace(localized, "__APP_FLAG_MODE__", flagMode, 1)
+	if flagged == localized {
+		return nil, errors.New("application flag mode placeholder is missing")
+	}
+	return []byte(flagged), nil
 }
 
 func runWebApp(launch func(string) error) error {

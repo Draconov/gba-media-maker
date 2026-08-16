@@ -65,6 +65,9 @@ func TestDesktopLocalizationBootstrap(t *testing.T) {
 	if !strings.Contains(appHTML, "__APP_LANGUAGE__") {
 		t.Fatal("desktop saved-language placeholder is missing")
 	}
+	if !strings.Contains(appHTML, "__APP_FLAG_MODE__") {
+		t.Fatal("desktop flag-mode placeholder is missing")
+	}
 	if len(appI18nJS) == 0 {
 		t.Fatal("desktop localization runtime is empty")
 	}

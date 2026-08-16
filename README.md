@@ -5,21 +5,21 @@
 
 [**Українська документація**](README.uk.md)
 
-**Turn videos, music, animated GIFs, and images into playable Game Boy Advance ROMs — on Windows or in the browser.**
+**Turn videos, music, animated GIFs, and images into playable Game Boy Advance ROMs — on Windows, macOS, Linux, or in the browser.**
 
 [![Version](https://img.shields.io/github/v/release/Draconov/gba-media-maker?style=for-the-badge&label=version&color=ffd600&labelColor=20252d)](CHANGELOG.md) [![Open Web App](https://img.shields.io/badge/OPEN-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-media-maker/) [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](https://github.com/Draconov/gba-media-maker/releases/latest) [![License](https://img.shields.io/badge/license-NON--COMMERCIAL-ffdf00?style=for-the-badge&labelColor=20252d)](LICENSE)
 </div>
 
 ## Choose your version
 
-| | Browser edition | Portable desktop app |
+| | Browser edition | Desktop app |
 |---|---|---|
-| Installation | None after deployment | Extract the release ZIP and run the EXE |
+| Installation | None after deployment | Download the package for your OS and run the app |
 | Processing | Local in the browser with ffmpeg.wasm | Local with native FFmpeg |
 | Best for | Quick jobs and normal-size projects | Long videos, repeated jobs, and maximum speed |
 | Media/project model | Current-release parity | Reference implementation |
 | Privacy | Source media stays on your device | Source media stays on your device |
-| Platform | Modern desktop browsers | Windows x64 |
+| Platform | Modern desktop browsers | Windows x64, Universal macOS (Intel + Apple Silicon), Linux x86_64 |
 | Documentation | [Website guide](website/README.md) | This README |
 
 The browser edition has the same current media model, ROM format, output naming, menu/theme tools, title cards, audio-artwork modes, and player runtime as the desktop app. Browser memory and file-access limits still make the desktop build preferable for very large sources.
@@ -274,18 +274,20 @@ Browser security does not allow a saved project to silently reopen arbitrary loc
 
 ## Desktop app
 
-Download the portable ZIP from the repository's **Releases** page, extract it, and run:
+Download the package for your platform from the repository's **Releases** page:
 
-```text
-GBA Media Maker.exe
-```
+- **Windows x64:** extract `GBA_Media_Maker_v*_Windows_x64.zip` and run `GBA Media Maker.exe`.
+- **macOS:** extract `GBA_Media_Maker_v*_macOS.zip`, then open `GBA Media Maker.app`. The app and bundled FFmpeg are Universal 2 binaries containing native Intel (`x86_64`) and Apple Silicon (`arm64`) slices.
+- **Linux x86_64:** extract `GBA_Media_Maker_v*_Linux_x86_64.tar.gz` and run `./gba-media-maker`. This release targets modern 64-bit Intel/AMD Linux PCs. `./install-user.sh` installs it for the current user, adds a desktop launcher, and creates the `~/.local/bin/gba-media-maker` symlink.
 
-Official portable packages place a pinned Windows x64 `ffmpeg.exe` beside the application. No installer, Python runtime, administrator access, or devkitARM installation is required.
+Official Windows and Linux packages bundle a pinned LGPL FFmpeg build. Official macOS packages build and bundle FFmpeg from pinned upstream source with `libdav1d` enabled and without GPL/nonfree configure flags. No Python runtime or devkitARM installation is required to run a release build.
 
-The desktop interface is served only on `127.0.0.1` with a random per-session token. FFmpeg processing is local; source media is not uploaded to an external conversion service.
+The desktop interface is served only on `127.0.0.1` with a random per-session token. FFmpeg processing is local; source media is not uploaded to an external conversion service. Windows uses native Win32 dialogs, macOS uses the system AppleScript file chooser, and Linux uses Zenity with KDialog fallback.
+
+The app tries Chrome/Chromium/Edge/Brave app-mode first and falls back to the system browser when needed. The converter backend stays running only while the local UI session is active.
 
 > [!NOTE]
-> Windows may warn about an unsigned executable. Building from source or signing release binaries is the reliable way to establish publisher trust.
+> Windows may warn about an unsigned executable. macOS release packages are ad-hoc signed unless an official Developer ID signing identity is supplied to the release build; unsigned/not-notarized downloads can trigger Gatekeeper warnings. Proper Developer ID signing + notarization is the remaining Apple distribution step.
 
 ## Browser app
 
@@ -326,8 +328,8 @@ More implementation detail is available in [`docs/ARCHITECTURE.md`](docs/ARCHITE
 - Random per-session API token
 - Local FFmpeg processing
 - Upload-size limits and temporary session workspace
-- Pinned FFmpeg release with SHA-256 archive verification in official packaging
-- No runtime executable downloader in the portable release
+- Pinned/verified FFmpeg packaging: BtbN LGPL archives on Windows/Linux; pinned-source FFmpeg + libdav1d on macOS
+- No runtime executable downloader in desktop release packages
 
 ### Browser
 
@@ -384,6 +386,29 @@ PowerShell:
 
 `VERSION` is the single source of truth for the application release number. Change that one file when preparing a release; the desktop UI, saved projects, website build, packaging scripts, and release workflow consume it automatically.
 
+### Build desktop packages
+
+The official release workflow publishes one user-facing package per OS. macOS is Universal 2; Linux currently targets x86_64 only.
+
+Linux x86_64 package flow:
+
+```bash
+FFMPEG_BIN=/path/to/x64/ffmpeg ./scripts/build-linux-slice.sh amd64 /tmp/linux-amd64
+./scripts/package-linux.sh /tmp/linux-amd64
+```
+
+macOS Universal 2 flow (the final merge must run on macOS because it uses `lipo` and `codesign`):
+
+```bash
+FFMPEG_DIR=/path/to/intel/ffmpeg ./scripts/build-macos-slice.sh amd64 /tmp/macos-amd64
+FFMPEG_DIR=/path/to/arm64/ffmpeg ./scripts/build-macos-slice.sh arm64 /tmp/macos-arm64
+./scripts/package-macos.sh /tmp/macos-amd64 /tmp/macos-arm64
+```
+
+On the macOS release runners, `scripts/build-ffmpeg-macos.sh` builds the pinned FFmpeg source with `libdav1d` for each native architecture. The packaging job merges matching Mach-O slices into one Universal 2 app. Linux uses one archive containing two architecture directories because ELF executables are architecture-specific; the top-level launcher chooses the native directory at runtime.
+
+The desktop executable still supports the CLI on macOS/Linux. Passing `-input ...` (or `--cli`) runs the command-line converter instead of opening the desktop UI.
+
 ### Build the Windows executable
 
 ```bash
@@ -439,7 +464,7 @@ smart_encoding.go          Extreme optimization analysis/recommendation logic
 web/                       embedded desktop HTML/CSS/JavaScript UI
 webapp.go                  local desktop HTTP API and conversion coordination
 website/                   browser converter, ffmpeg.wasm pipeline, tests, Pages build
-scripts/                   Windows build, FFmpeg fetch, and release helpers
+scripts/                   Windows/macOS/Linux build, FFmpeg fetch, and release helpers
 tools/embedicon/           Windows executable icon embedding
 docs/                      architecture documentation
 .github/workflows/         CI, release, and GitHub Pages workflows

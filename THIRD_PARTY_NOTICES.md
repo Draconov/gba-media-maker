@@ -4,21 +4,29 @@ GBA Media Maker is distributed under the project's Non-Commercial Contribution L
 
 ## FFmpeg — desktop conversion
 
-FFmpeg is not committed to the source repository as a normal source dependency. Official portable Windows release packages may include a pinned Windows x64 `ffmpeg.exe` beside the application.
+FFmpeg is not committed to the source repository as a normal source dependency. Official desktop release packages bundle a native FFmpeg executable for their target platform.
 
-The release workflow currently pins BtbN/FFmpeg-Builds release:
+### Windows and Linux
+
+The release workflow pins the retained BtbN/FFmpeg-Builds release:
 
 ```text
-autobuild-2026-08-07-13-13
+autobuild-2026-07-31-14-10
 ```
 
-Packaging downloads that release's `checksums.sha256`, discovers the matching **non-shared win64 LGPL** ZIP from the manifest instead of assuming a floating `*-latest-*` filename, verifies its SHA-256 hash, extracts `ffmpeg.exe`, and checks for software AV1 decoding support (`libdav1d` or `libaom`).
+Packaging downloads that release's `checksums.sha256`, discovers the matching **non-shared LGPL** archive for Windows x64 or Linux x86_64, verifies the archive SHA-256, extracts FFmpeg, and checks software AV1 decoding support where the target binary can be executed on the build runner.
 
 - FFmpeg project: <https://ffmpeg.org/>
 - BtbN/FFmpeg-Builds: <https://github.com/BtbN/FFmpeg-Builds>
-- Pinned release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-08-07-13-13>
+- Pinned release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-07-31-14-10>
 
-FFmpeg and its linked libraries are distributed under their own licences. The release packaging intentionally selects the LGPL build variant. Review the FFmpeg/BtbN licensing information before redistribution.
+### macOS
+
+macOS packages build FFmpeg from pinned upstream source instead of redistributing a third-party macOS binary. The current source version is declared in `scripts/ffmpeg-pins.env`. The build disables dependency autodetection, enables `libdav1d` for software AV1 decoding, and rejects FFmpeg configurations containing `--enable-gpl`, `--enable-version3`, or `--enable-nonfree`. Any non-system dylibs used by the resulting executable are copied into the app bundle and their load paths are rewritten before packaging.
+
+`libdav1d` remains under its own upstream licence.
+
+FFmpeg and its linked libraries are distributed under their own licences. Review the relevant FFmpeg and dependency licensing information before redistribution.
 
 ## ffmpeg.wasm — browser conversion
 
@@ -35,10 +43,9 @@ The 20 images under:
 
 ```text
 assets/audio-artwork/
-website/public/audio-artwork/
 ```
 
-are third-party artwork from the **Grainient — Dither Gradient I** collection, supplied by the project maintainer under a separate licence that permits their inclusion/redistribution with this project.
+are third-party artwork from the **Grainient — Dither Gradient I** collection, supplied by the project maintainer under a separate licence that permits their inclusion/redistribution with this project. Website copies are generated from this authoritative directory during web dev/test/build.
 
 These artwork files are **not relicensed under the project's Non-Commercial Contribution License**. Their use and redistribution remain subject to the applicable artwork licence.
 

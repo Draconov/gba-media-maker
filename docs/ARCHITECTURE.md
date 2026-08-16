@@ -14,7 +14,7 @@ GBA Media Maker has two front ends that target the same GBV5 ROM/player design:
                     ┌─────────────────┴─────────────────┐
                     │                                   │
                     ▼                                   ▼
-        Portable Windows app                  Browser / GitHub Pages
+      Windows / macOS / Linux app              Browser / GitHub Pages
        Go + embedded web UI                  Vite + JavaScript UI
                     │                                   │
           native FFmpeg process                    ffmpeg.wasm
@@ -45,7 +45,7 @@ The desktop implementation is the reference converter. The website mirrors the s
 
 ### Desktop application
 
-- `main_windows.go` / `main_other.go` — application entry points
+- `main_windows.go` / `main_unix.go` / platform launcher files — desktop entry points; `main_other.go` keeps CLI-only fallback targets
 - `webapp.go` — loopback-only local HTTP API, session state, preview/conversion orchestration
 - `web/` — embedded HTML, CSS, and JavaScript interface
 - `converter.go` — FFmpeg inspection/extraction, encoding, splitting, and ROM assembly
@@ -54,7 +54,7 @@ The desktop implementation is the reference converter. The website mirrors the s
 - `title_card.go` — TCD1 title-card rendering/serialization
 - `smart_encoding.go` — Extreme optimization analysis and recommendations
 
-The Windows executable embeds the web interface and the prebuilt GBA runtime. Media decoding itself is delegated to a local `ffmpeg.exe`.
+Windows, macOS, and Linux executables embed the same web interface and prebuilt GBA runtime. Media decoding is delegated to a local native FFmpeg process. Windows/Linux release packages bundle FFmpeg; macOS release packages build a pinned FFmpeg from source and bundle its required dylibs.
 
 ### Browser application
 
@@ -74,7 +74,7 @@ The website is static. ffmpeg.wasm runs locally in the browser; there is no medi
 
 1. `runWebApp` creates a random per-session token and temporary workspace.
 2. The HTTP listener binds to `127.0.0.1` only.
-3. The desktop shell launches a browser/app-mode window for the local interface.
+3. The platform shell launches Chrome/Chromium/Edge/Brave app-mode where available, with the system browser as fallback.
 4. Selected media is copied/registered in the local session and inspected with FFmpeg.
 5. The UI requests previews, thumbnails, audio samples, menu/theme previews, and title-card previews from token-prefixed endpoints.
 6. Conversion runs locally and reports progress through the same session API.
@@ -561,7 +561,7 @@ Stable named presets continue to use the established fixed-keyframe/PCM path unl
 - Temporary per-session workspace
 - Argument-array process execution rather than shell interpolation
 - Sanitized output filenames
-- Official release packaging pins a BtbN FFmpeg release, discovers the correct non-shared win64 LGPL archive from its checksum manifest, verifies SHA-256, and verifies a software AV1 decoder
+- Windows/Linux release packaging pins a retained BtbN FFmpeg release, selects the matching non-shared LGPL archive from its checksum manifest, verifies SHA-256, and verifies software AV1 decoding. macOS builds pinned FFmpeg source with libdav1d and rejects GPL/version3/nonfree configure flags
 
 ### Website
 
