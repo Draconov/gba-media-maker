@@ -328,6 +328,20 @@ func TestPlaybackHUDRestoresVideoAndAudioFeedback(t *testing.T) {
 	}
 }
 
+func TestVideoStartsWithHUDHidden(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"REG_WAITCNT=0x4317;ui.volume_level=2;ui.hud_mode=0;ui.hud_last_visible=2",
+		"if(c->flags&CLIP_FLAG_MEDIA_AUDIO){ui->hud_mode=2;ui->hud_last_visible=2",
+		"ui->hud_mode=0;ui->hud_last_visible=2;if(!(c->flags&CLIP_FLAG_AUDIO))",
+		"render_pixels_rows(p,d,mode==2?67u:80u)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("video hidden-HUD startup behavior missing %q", want)
+		}
+	}
+}
+
 func TestAudioClockUsesIncrementalHUDRefresh(t *testing.T) {
 	src := compactSource(playerSource(t))
 	for _, want := range []string{
