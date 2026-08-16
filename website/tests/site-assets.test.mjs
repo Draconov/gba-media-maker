@@ -72,6 +72,8 @@ test("web edition exposes current desktop media-maker parity controls", async ()
   assert.match(script, /Built-in artwork/);
   assert.match(script, /automaticArtworkPreset/);
   assert.match(script, /Custom image/);
+  assert.match(script, /musicArtworkMode: "embedded"/);
+  assert.match(script, /\[\["embedded", "Embedded artwork"\], \["default", "Built-in artwork"\]/);
   assert.match(script, /resolveAudioArtworkRGB/);
   assert.match(script, /encodeNativeMedia/);
   assert.match(script, /mediaKind: "image"/);

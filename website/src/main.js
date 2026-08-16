@@ -637,7 +637,7 @@ function automaticArtworkPreset(seed) {
 }
 
 function normalizeArtworkMode(value) {
-  return ["embedded", "default", "custom"].includes(value) ? value : "default";
+  return ["embedded", "default", "custom"].includes(value) ? value : "embedded";
 }
 
 function artworkPresetURL(preset) {
@@ -664,7 +664,7 @@ function makeEntry(file) {
     audioMode: "mix", audioTrack: 0, audioTracks: [], audioTracksKnown: false,
     volume: 1, loop: /\.gif$/i.test(file.name), paletteMode: "shared", ditherMode: "ordered",
     imageSeconds: 5,
-    musicTitle: "", musicArtist: "", musicArtworkMode: "default", musicArtworkPreset: automaticArtworkPreset(file.name), musicArtworkCustom: "", musicSeekSeconds: 5,
+    musicTitle: "", musicArtist: "", musicArtworkMode: "embedded", musicArtworkPreset: automaticArtworkPreset(file.name), musicArtworkCustom: "", musicSeekSeconds: 5,
     embeddedArtworkRGB: null, embeddedArtworkPreview: "",
     metadataTitle: "", metadataArtist: "", metadataAlbum: "",
     duration: 0, hasAudio: kind === "audio" ? true : undefined, channels: 0, chapters: [],
@@ -1616,7 +1616,7 @@ function renderFiles() {
       artistField.addEventListener("input", () => { entry.musicArtist = artistField.value.slice(0, 28); dirty(); }); artist.append(artistField);
       identity.append(title, artist); optionsGrid.append(identity);
 
-      const artMode = makeSelectControl("Artwork source", normalizeArtworkMode(entry.musicArtworkMode), [["default", "Built-in artwork"], ["embedded", "Embedded artwork"], ["custom", "Custom image"]], (value) => { entry.musicArtworkMode = value; renderFiles(); });
+      const artMode = makeSelectControl("Artwork source", normalizeArtworkMode(entry.musicArtworkMode), [["embedded", "Embedded artwork"], ["default", "Built-in artwork"], ["custom", "Custom image"]], (value) => { entry.musicArtworkMode = value; renderFiles(); });
       artMode.label.classList.add("wide-field"); optionsGrid.append(artMode.label);
 
       const mode = normalizeArtworkMode(entry.musicArtworkMode);

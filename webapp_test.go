@@ -128,6 +128,12 @@ func TestRenderPageEmbedsSessionToken(t *testing.T) {
 	if !bytes.Contains(appJS, []byte("gbavm-session-token")) {
 		t.Fatal("external application script missing")
 	}
+	if !bytes.Contains(page, []byte(`<option value="embedded" selected>Embedded artwork</option>`)) {
+		t.Fatal("embedded artwork is not the default audio artwork source")
+	}
+	if !bytes.Contains(appJS, []byte("musicArtworkMode:'embedded'")) {
+		t.Fatal("new desktop audio entries do not default to embedded artwork")
+	}
 	for _, want := range []string{"Ґ", "Є", "І", "Ї", "Ё", "Ъ", "Ы", "Э", "GBA_RUNTIME_CODES"} {
 		if !bytes.Contains(gbaTextJS, []byte(want)) {
 			t.Fatalf("unified GBA text asset is missing %q", want)

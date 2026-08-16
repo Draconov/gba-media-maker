@@ -1533,7 +1533,7 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 		local(20, "preparing album artwork")
 		artworkMode := strings.ToLower(strings.TrimSpace(input.MusicArtworkMode))
 		if artworkMode == "" {
-			artworkMode = "default"
+			artworkMode = "embedded"
 		}
 		artworkPresetValue := strings.TrimSpace(input.MusicArtworkPreset)
 		if artworkPresetValue == "" {

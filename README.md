@@ -173,7 +173,7 @@ The v0.12.2-style video HUD is retained, including elapsed/total time, progress,
 | `START` | Cycle HUD: hidden → time only → full |
 | `START + SELECT` | Open the controls-help screen |
 
-Audio tracks use one of the 20 built-in covers automatically for new imports unless you choose embedded or custom artwork. When an audio HUD is visible, its panel darkens the cover underneath instead of replacing that part with solid black, so the complete cover remains visible edge-to-edge.
+New audio imports use embedded artwork first. If a source has no embedded cover, a stable automatically selected one of the 20 built-in covers is used as the fallback. You can still force a built-in preset or custom artwork. When an audio HUD is visible, its panel darkens the cover underneath instead of replacing that part with solid black, so the complete cover remains visible edge-to-edge.
 
 ### Image viewer
 

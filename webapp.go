@@ -961,7 +961,7 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		}
 		artworkMode := strings.ToLower(strings.TrimSpace(clipReq.MusicArtworkMode))
 		if artworkMode == "" {
-			artworkMode = "default"
+			artworkMode = "embedded"
 		}
 		if artworkMode != "default" && artworkMode != "embedded" && artworkMode != "custom" {
 			return ProjectOptions{}, nil, fmt.Errorf("%s: invalid audio artwork mode", v.Name)
