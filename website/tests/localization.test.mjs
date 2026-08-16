@@ -19,6 +19,7 @@ test("website uses the canonical manifest-driven EN/UK localization catalogs", a
   assert.equal(manifest.fallback, "en");
   assert.deepEqual(manifest.languages.map(item => item.code), ["en", "uk"]);
   assert.deepEqual(manifest.languages.map(item => item.short), ["EN", "UA"]);
+  assert.deepEqual(manifest.languages.map(item => item.flag), ["🇬🇧", "🇺🇦"]);
   assert.deepEqual(generatedManifest, manifest);
   assert.equal(en.meta.code, "en");
   assert.equal(uk.meta.code, "uk");
@@ -28,6 +29,8 @@ test("website uses the canonical manifest-driven EN/UK localization catalogs", a
   assert.deepEqual(generatedUk, uk);
   assert.ok(Object.keys(uk.messages).length * 100 >= Object.keys(en.messages).length * 80);
   await assert.rejects(access(join(root, "locales", "ru.json")));
+  await assert.rejects(access(join(website, "public", "locales", "flag-gb.svg")));
+  await assert.rejects(access(join(website, "public", "locales", "flag-ua.svg")));
 });
 
 test("website bootstraps localization and exposes the expandable language menu", async () => {
@@ -41,6 +44,8 @@ test("website bootstraps localization and exposes the expandable language menu",
   assert.match(i18n, /language-menu-button/);
   assert.match(i18n, /language-menu-option/);
   assert.match(i18n, /aria-haspopup=\"menu\"/);
+  assert.match(i18n, /textContent = display\.flag/);
+  assert.doesNotMatch(i18n, /language-flag-image/);
   assert.doesNotMatch(i18n, /setLanguage\(language ===/);
   assert.match(main, /import \{ initI18n \} from "\.\/i18n\.js";/);
   assert.match(main, /await initI18n\(\);/);

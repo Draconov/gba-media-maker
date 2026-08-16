@@ -192,8 +192,9 @@ type appPreferences struct {
 type localeManifest struct {
 	Fallback  string `json:"fallback"`
 	Languages []struct {
-		Code string `json:"code"`
-		File string `json:"file"`
+		Code     string `json:"code"`
+		File     string `json:"file"`
+		FlagFile string `json:"flagFile"`
 	} `json:"languages"`
 }
 
@@ -241,7 +242,7 @@ func localeAssetAllowed(name string) bool {
 		return false
 	}
 	for _, language := range manifest.Languages {
-		if language.File == name {
+		if language.File == name || language.FlagFile == name {
 			return true
 		}
 	}
@@ -1412,7 +1413,11 @@ func (s *appState) routes(page []byte) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if strings.EqualFold(filepath.Ext(name), ".svg") {
+			w.Header().Set("Content-Type", "image/svg+xml")
+		} else {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(data)
 	})

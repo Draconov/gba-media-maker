@@ -80,7 +80,7 @@ func TestDesktopLocalizationBootstrap(t *testing.T) {
 	if normalizeAppLanguage("en") != "en" || normalizeAppLanguage("en-US") != "en" || normalizeAppLanguage("uk") != "uk" || normalizeAppLanguage("ru") != "" {
 		t.Fatal("desktop language allowlist must come from the EN/UK locale manifest")
 	}
-	if !localeAssetAllowed("index.json") || !localeAssetAllowed("en.json") || !localeAssetAllowed("uk.json") || localeAssetAllowed("ru.json") {
+	if !localeAssetAllowed("index.json") || !localeAssetAllowed("en.json") || !localeAssetAllowed("uk.json") || !localeAssetAllowed("flag-gb.svg") || !localeAssetAllowed("flag-ua.svg") || localeAssetAllowed("ru.json") {
 		t.Fatal("desktop locale route must follow the locale manifest")
 	}
 }

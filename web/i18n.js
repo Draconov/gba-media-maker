@@ -149,6 +149,10 @@
     return catalogs.get(option.code)?.meta?.name || option.code.toUpperCase();
   }
 
+  function flagAssetURL(option) {
+    return option?.flagFile ? ('./locales/' + option.flagFile) : '';
+  }
+
   function closeLanguagePicker(picker, restoreFocus = false) {
     if (!picker) return;
     const button = picker.querySelector('.language-menu-button');
@@ -207,7 +211,7 @@
       item.className = 'language-menu-option';
       item.dataset.language = option.code;
       item.setAttribute('role', 'menuitemradio');
-      item.innerHTML = '<span class="language-option-code"></span><span class="language-option-name"></span><span class="language-option-flag" aria-hidden="true"></span><span class="language-option-check" aria-hidden="true">✓</span>';
+      item.innerHTML = '<span class="language-option-code"></span><span class="language-option-name"></span><span class="language-option-flag" aria-hidden="true"><img class="language-flag-image" alt="" loading="lazy"></span><span class="language-option-check" aria-hidden="true">✓</span>';
       item.addEventListener('click', () => {
         setLanguage(option.code);
         closeLanguagePicker(picker, true);
@@ -221,7 +225,12 @@
     const button = picker.querySelector('.language-menu-button');
     if (!button || !display) return;
     button.querySelector('.language-code').textContent = display.short || display.code.toUpperCase();
-    button.querySelector('.language-flag').textContent = display.flag || '';
+    const buttonFlag = button.querySelector('.language-flag-image');
+    if (buttonFlag) {
+      const flagURL = flagAssetURL(display);
+      buttonFlag.src = flagURL;
+      buttonFlag.hidden = !flagURL;
+    }
     button.dataset.language = language;
     button.setAttribute('aria-label', t('Choose language'));
     button.title = t('Choose language');
@@ -232,7 +241,12 @@
       const selected = option.code === language;
       item.querySelector('.language-option-code').textContent = option.short || option.code.toUpperCase();
       item.querySelector('.language-option-name').textContent = optionName(option);
-      item.querySelector('.language-option-flag').textContent = option.flag || '';
+      const optionFlag = item.querySelector('.language-flag-image');
+      if (optionFlag) {
+        const flagURL = flagAssetURL(option);
+        optionFlag.src = flagURL;
+        optionFlag.hidden = !flagURL;
+      }
       item.setAttribute('aria-checked', selected ? 'true' : 'false');
       item.classList.toggle('is-active', selected);
     }
@@ -260,7 +274,7 @@
       if (host.querySelector('.language-picker')) continue;
       const picker = document.createElement('div');
       picker.className = 'language-picker';
-      picker.innerHTML = '<button class="language-menu-button" type="button" aria-haspopup="menu" aria-expanded="false"><span class="language-code"></span><span class="language-flag" aria-hidden="true"></span><span class="language-chevron" aria-hidden="true">▾</span></button><div class="language-menu" role="menu" hidden></div>';
+      picker.innerHTML = '<button class="language-menu-button" type="button" aria-haspopup="menu" aria-expanded="false"><span class="language-code"></span><span class="language-flag" aria-hidden="true"><img class="language-flag-image" alt="" loading="lazy"></span><span class="language-chevron" aria-hidden="true">▾</span></button><div class="language-menu" role="menu" hidden></div>';
       const button = picker.querySelector('.language-menu-button');
       const menu = picker.querySelector('.language-menu');
       button.addEventListener('click', () => toggleLanguagePicker(picker));
@@ -316,6 +330,7 @@
       code: String(item.code).trim().toLowerCase(),
       short: String(item.short || item.code).trim().toUpperCase(),
       flag: String(item.flag || ''),
+      flagFile: String(item.flagFile || '').trim(),
       file: String(item.file).trim(),
     }));
     fallbackLanguage = languages.some(item => item.code === manifest.fallback) ? manifest.fallback : languages[0].code;

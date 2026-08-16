@@ -4,14 +4,16 @@
     {
       "code": "en",
       "short": "EN",
-      "flag": "🇬🇧",
-      "file": "en.json"
+      "flagFile": "flag-gb.svg",
+      "file": "en.json",
+      "flag": "🇬🇧"
     },
     {
       "code": "uk",
       "short": "UA",
-      "flag": "🇺🇦",
-      "file": "uk.json"
+      "flagFile": "flag-ua.svg",
+      "file": "uk.json",
+      "flag": "🇺🇦"
     }
   ]
 }

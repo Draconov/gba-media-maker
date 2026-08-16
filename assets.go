@@ -31,5 +31,5 @@ var menuThemesJS []byte
 //go:embed web/title-cards.js
 var titleCardsJS []byte
 
-//go:embed locales/*.json
+//go:embed locales/*
 var localeFS embed.FS
