@@ -61,10 +61,10 @@ while IFS= read -r dep; do
   esac
   base="$(basename "$dep")"
   cp -f "$dep" "$OUT/Frameworks/$base"
-  install_name_tool -change "$dep" "@executable_path/../Frameworks/$base" "$OUT/ffmpeg"
+  install_name_tool -change "$dep" "@executable_path/Frameworks/$base" "$OUT/ffmpeg"
 done < <(otool -L "$OUT/ffmpeg" | tail -n +2 | awk '{print $1}')
 
-if otool -L "$OUT/ffmpeg" | grep -Eq '/opt/homebrew|/usr/local/Cellar'; then
+if otool -L "$OUT/ffmpeg" | grep -Eq '/opt/homebrew|/usr/local/(Cellar|opt)'; then
   echo "FFmpeg still references Homebrew after bundling dependencies:" >&2
   otool -L "$OUT/ffmpeg" >&2
   exit 1
@@ -72,7 +72,7 @@ fi
 
 for dylib in "$OUT"/Frameworks/*.dylib; do
   [[ -e "$dylib" ]] || continue
-  install_name_tool -id "@executable_path/../Frameworks/$(basename "$dylib")" "$dylib" || true
+  install_name_tool -id "@loader_path/$(basename "$dylib")" "$dylib" || true
 done
 
 native_arch="$(uname -m)"

@@ -113,7 +113,7 @@ jobs:
           cp "$RUNNER_TEMP/gbamm-linux-amd64" "$amd/gba-media-maker"
           cp "$RUNNER_TEMP/gbamm-linux-amd64" "$amd/ffmpeg"
           chmod +x "$amd"/*
-          ./scripts/package-linux.sh "$amd"
+          bash ./scripts/package-linux.sh "$amd"
           archive="dist/GBA_Media_Maker_v$(cat VERSION)_Linux_x86_64.tar.gz"
           test -f "$archive"
           tar -tzf "$archive" | grep -q '/gba-media-maker$'

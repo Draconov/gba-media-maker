@@ -134,3 +134,67 @@ func TestWindowsReleaseUsesPlatformName(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseWorkflowsDoNotDependOnShellScriptExecutableBits(t *testing.T) {
+	for _, path := range []string{".github/workflows/release.yml", ".github/workflows/ci.yml"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := string(data)
+		// GitHub preserves the executable bit only when it is committed as file
+		// mode 100755. Archive/web uploads can turn scripts into 100644, so CI
+		// must invoke repository shell scripts through bash explicitly.
+		directScript := regexp.MustCompile(`(?m)^\s*(?:run:\s*)?\./scripts/[A-Za-z0-9_.-]+\.sh(?:\s|$)`)
+		if match := directScript.FindString(source); match != "" {
+			t.Fatalf("%s directly executes a repository shell script and can fail with permission denied: %q", path, strings.TrimSpace(match))
+		}
+	}
+}
+
+func TestWindowsReleaseIconHelperRunsForHostOS(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(workflow)
+	buildStart := strings.Index(source, "      - name: Build Windows executable")
+	embedStart := strings.Index(source, "      - name: Embed application icon")
+	fetchStart := strings.Index(source, "      - name: Fetch pinned LGPL FFmpeg")
+	if buildStart < 0 || embedStart <= buildStart || fetchStart <= embedStart {
+		t.Fatal("Windows build/icon/fetch steps are not separated correctly")
+	}
+	buildBlock := source[buildStart:embedStart]
+	embedBlock := source[embedStart:fetchStart]
+	if !strings.Contains(buildBlock, "GOOS: windows") || strings.Contains(buildBlock, "tools/embedicon") {
+		t.Fatal("Windows cross-build step must build only the Windows application")
+	}
+	if !strings.Contains(embedBlock, "go run ./tools/embedicon") || strings.Contains(embedBlock, "GOOS: windows") {
+		t.Fatal("icon helper must run in a separate host-native step without GOOS=windows")
+	}
+}
+
+func TestMacOSFFmpegPathsMatchSliceAndFinalBundleLayouts(t *testing.T) {
+	builder, err := os.ReadFile("scripts/build-ffmpeg-macos.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packager, err := os.ReadFile("scripts/package-macos.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	builderSource := string(builder)
+	packagerSource := string(packager)
+	if !strings.Contains(builderSource, `@executable_path/Frameworks/$base`) {
+		t.Fatal("macOS FFmpeg slice must resolve bundled frameworks beside the slice executable")
+	}
+	if !strings.Contains(builderSource, `@loader_path/$(basename "$dylib")`) {
+		t.Fatal("bundled macOS dylibs must use loader-relative install names")
+	}
+	if !strings.Contains(packagerSource, `@executable_path/../Frameworks/$base`) {
+		t.Fatal("Universal macOS packager must rewrite FFmpeg frameworks for Contents/MacOS")
+	}
+	if !strings.Contains(packagerSource, `@executable_path/Frameworks/`) {
+		t.Fatal("Universal macOS package verification must reject unrevised slice paths")
+	}
+}

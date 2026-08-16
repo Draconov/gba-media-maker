@@ -55,6 +55,10 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Check release shell scripts
+        shell: bash
+        run: bash -n scripts/*.sh
+
       - name: Test Go application
         run: go test ./...
 
@@ -95,11 +99,16 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 0
         run: |
+          rm -f "GBA Media Maker.exe"
           go build -trimpath -buildvcs=false -ldflags="-H windowsgui -s -w" -o "GBA Media Maker.exe" .
-          go run ./tools/embedicon -exe "GBA Media Maker.exe" -ico "assets/icon.ico"
+
+      # Keep this in a separate host-native step. If GOOS=windows leaks into
+      # `go run`, the helper is built as a Windows EXE and cannot run on Ubuntu.
+      - name: Embed application icon
+        run: go run ./tools/embedicon -exe "GBA Media Maker.exe" -ico "assets/icon.ico"
 
       - name: Fetch pinned LGPL FFmpeg
-        run: ./scripts/fetch-ffmpeg-btbn.sh windows amd64 ffmpeg.exe
+        run: bash ./scripts/fetch-ffmpeg-btbn.sh windows amd64 ffmpeg.exe
 
       - name: Package Windows x64 release
         shell: bash
@@ -134,17 +143,17 @@ jobs:
           cache: false
 
       - name: Fetch pinned LGPL FFmpeg
-        run: ./scripts/fetch-ffmpeg-btbn.sh linux amd64 "$RUNNER_TEMP/ffmpeg"
+        run: bash ./scripts/fetch-ffmpeg-btbn.sh linux amd64 "$RUNNER_TEMP/ffmpeg"
 
       - name: Build Linux x86_64 release
         env:
           FFMPEG_BIN: ${{ runner.temp }}/ffmpeg
-        run: ./scripts/build-linux-slice.sh amd64 "$RUNNER_TEMP/linux-amd64"
+        run: bash ./scripts/build-linux-slice.sh amd64 "$RUNNER_TEMP/linux-amd64"
 
       - name: Package Linux x86_64 release
         run: |
           chmod +x "$RUNNER_TEMP/linux-amd64/gba-media-maker" "$RUNNER_TEMP/linux-amd64/ffmpeg"
-          ./scripts/package-linux.sh "$RUNNER_TEMP/linux-amd64"
+          bash ./scripts/package-linux.sh "$RUNNER_TEMP/linux-amd64"
 
       - name: Smoke-test Linux x86_64 package
         run: |
@@ -181,12 +190,12 @@ jobs:
           cache: false
 
       - name: Build pinned LGPL-compatible FFmpeg
-        run: ./scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/ffmpeg-macos"
+        run: bash ./scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/ffmpeg-macos"
 
       - name: Build macOS native slice
         env:
           FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-macos
-        run: ./scripts/build-macos-slice.sh ${{ matrix.arch }} "$RUNNER_TEMP/macos-slice"
+        run: bash ./scripts/build-macos-slice.sh ${{ matrix.arch }} "$RUNNER_TEMP/macos-slice"
 
       - name: Smoke-test native macOS slice
         run: |
@@ -222,7 +231,7 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/macos-amd64/GBA Media Maker" "$RUNNER_TEMP/macos-amd64/ffmpeg"
           chmod +x "$RUNNER_TEMP/macos-arm64/GBA Media Maker" "$RUNNER_TEMP/macos-arm64/ffmpeg"
-          ./scripts/package-macos.sh "$RUNNER_TEMP/macos-amd64" "$RUNNER_TEMP/macos-arm64"
+          bash ./scripts/package-macos.sh "$RUNNER_TEMP/macos-amd64" "$RUNNER_TEMP/macos-arm64"
 
       - name: Verify Universal 2 macOS bundle
         shell: bash

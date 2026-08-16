@@ -66,6 +66,19 @@ while IFS= read -r base; do
   fi
 done < "$framework_list"
 
+# Architecture slices are laid out as <slice>/ffmpeg + <slice>/Frameworks, so
+# their FFmpeg load commands use @executable_path/Frameworks. In the final
+# .app, FFmpeg moves to Contents/MacOS while frameworks live in Contents/Frameworks.
+# Rewrite only at the final packaging stage so both slice smoke tests and the
+# Universal app resolve the same bundled libraries correctly.
+while IFS= read -r base; do
+  [[ -n "$base" ]] || continue
+  install_name_tool -change \
+    "@executable_path/Frameworks/$base" \
+    "@executable_path/../Frameworks/$base" \
+    "$APP/Contents/MacOS/ffmpeg" 2>/dev/null || true
+done < "$framework_list"
+
 cp "$ROOT/assets/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/README.md" "$ROOT/README.uk.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/"
 
@@ -89,8 +102,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
-if otool -L "$APP/Contents/MacOS/ffmpeg" | grep -Eq '/opt/homebrew|/usr/local/Cellar'; then
-  echo "Universal FFmpeg still references Homebrew paths:" >&2
+if otool -L "$APP/Contents/MacOS/ffmpeg" | grep -Eq '/opt/homebrew|/usr/local/(Cellar|opt)|@executable_path/Frameworks/'; then
+  echo "Universal FFmpeg still has an invalid external/slice dependency path:" >&2
   otool -L "$APP/Contents/MacOS/ffmpeg" >&2
   exit 1
 fi
