@@ -189,15 +189,63 @@ type appPreferences struct {
 	Language string `json:"language,omitempty"`
 }
 
+type localeManifest struct {
+	Fallback  string `json:"fallback"`
+	Languages []struct {
+		Code string `json:"code"`
+		File string `json:"file"`
+	} `json:"languages"`
+}
+
+var (
+	localeManifestOnce sync.Once
+	localeManifestData localeManifest
+	localeManifestErr  error
+)
+
+func loadLocaleManifest() (localeManifest, error) {
+	localeManifestOnce.Do(func() {
+		data, err := localeFS.ReadFile("locales/index.json")
+		if err != nil {
+			localeManifestErr = err
+			return
+		}
+		localeManifestErr = json.Unmarshal(data, &localeManifestData)
+	})
+	return localeManifestData, localeManifestErr
+}
+
 func normalizeAppLanguage(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "en":
-		return "en"
-	case "uk":
-		return "uk"
-	default:
+	code := strings.ToLower(strings.TrimSpace(value))
+	if split := strings.IndexAny(code, "-_"); split >= 0 {
+		code = code[:split]
+	}
+	manifest, err := loadLocaleManifest()
+	if err != nil {
 		return ""
 	}
+	for _, language := range manifest.Languages {
+		if strings.EqualFold(language.Code, code) {
+			return strings.ToLower(language.Code)
+		}
+	}
+	return ""
+}
+
+func localeAssetAllowed(name string) bool {
+	if name == "index.json" {
+		return true
+	}
+	manifest, err := loadLocaleManifest()
+	if err != nil {
+		return false
+	}
+	for _, language := range manifest.Languages {
+		if language.File == name {
+			return true
+		}
+	}
+	return false
 }
 
 func preferencesFilePath() string {
@@ -1355,7 +1403,7 @@ func (s *appState) routes(page []byte) http.Handler {
 	})
 	mux.HandleFunc(prefix+"/locales/", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, prefix+"/locales/")
-		if name != "en.json" && name != "uk.json" {
+		if filepath.Base(name) != name || !localeAssetAllowed(name) {
 			http.NotFound(w, r)
 			return
 		}

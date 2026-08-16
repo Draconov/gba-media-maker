@@ -29,6 +29,13 @@ func readLocaleCatalog(t *testing.T, name string) localeCatalog {
 }
 
 func TestLocalizationCatalogs(t *testing.T) {
+	manifest, err := loadLocaleManifest()
+	if err != nil {
+		t.Fatalf("load locale manifest: %v", err)
+	}
+	if manifest.Fallback != "en" || len(manifest.Languages) != 2 || manifest.Languages[0].Code != "en" || manifest.Languages[1].Code != "uk" {
+		t.Fatalf("unexpected locale manifest: %+v", manifest)
+	}
 	en := readLocaleCatalog(t, "en.json")
 	uk := readLocaleCatalog(t, "uk.json")
 	if en.Meta.Code != "en" || uk.Meta.Code != "uk" {
@@ -37,7 +44,7 @@ func TestLocalizationCatalogs(t *testing.T) {
 	if uk.Meta.Fallback != "en" {
 		t.Fatalf("Ukrainian fallback = %q, want en", uk.Meta.Fallback)
 	}
-	if uk.Messages["Language"] != "Мова" || uk.Messages["Open project"] != "Відкрити проєкт" {
+	if uk.Messages["Language"] != "Мова" || uk.Messages["Open project"] != "Відкрити проєкт" || uk.Messages["Choose language"] != "Обрати мову" {
 		t.Fatal("core Ukrainian UI translations are missing")
 	}
 	if len(uk.Messages)*100 < len(en.Messages)*80 {
@@ -50,7 +57,7 @@ func TestLocalizationCatalogs(t *testing.T) {
 
 func TestDesktopLocalizationBootstrap(t *testing.T) {
 	if !strings.Contains(appHTML, "data-i18n-language-host") {
-		t.Fatal("desktop language selector host is missing")
+		t.Fatal("desktop language toggle host is missing")
 	}
 	if !strings.Contains(appHTML, "./i18n.js") {
 		t.Fatal("desktop localization runtime is not loaded")
@@ -64,7 +71,16 @@ func TestDesktopLocalizationBootstrap(t *testing.T) {
 	if !strings.Contains(string(appI18nJS), "X-GBA-Token") {
 		t.Fatal("desktop language persistence does not use the API session token")
 	}
-	if normalizeAppLanguage("en") != "en" || normalizeAppLanguage("uk") != "uk" || normalizeAppLanguage("ru") != "" {
-		t.Fatal("desktop language allowlist must contain only English and Ukrainian")
+	if !strings.Contains(string(appI18nJS), "language-menu-button") || !strings.Contains(string(appI18nJS), "language-menu-option") || !strings.Contains(string(appI18nJS), "locales/index.json") {
+		t.Fatal("desktop localization must use the manifest-driven language dropdown")
+	}
+	if strings.Contains(string(appI18nJS), "setLanguage(language ===") {
+		t.Fatal("desktop language button must open a menu instead of directly toggling languages")
+	}
+	if normalizeAppLanguage("en") != "en" || normalizeAppLanguage("en-US") != "en" || normalizeAppLanguage("uk") != "uk" || normalizeAppLanguage("ru") != "" {
+		t.Fatal("desktop language allowlist must come from the EN/UK locale manifest")
+	}
+	if !localeAssetAllowed("index.json") || !localeAssetAllowed("en.json") || !localeAssetAllowed("uk.json") || localeAssetAllowed("ru.json") {
+		t.Fatal("desktop locale route must follow the locale manifest")
 	}
 }

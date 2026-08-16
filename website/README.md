@@ -26,6 +26,20 @@
 
 The browser edition targets **current-release parity** with the portable desktop app. It uses ffmpeg.wasm for media work and the same synchronized 32 KiB GBA player stub for ROM playback.
 
+## Languages
+
+The website UI supports **English** and **Українська**. The language button sits on the same row as the desktop-download action and opens a dropdown menu. Browser language is used on first visit, the selection is stored locally, and English is the fallback. GBA ROM/player UI is not localized by this mechanism.
+
+Canonical locale files live at the repository root:
+
+```text
+../locales/index.json
+../locales/en.json
+../locales/uk.json
+```
+
+The manifest drives the available language menu. `scripts/sync-locales.mjs` copies all locale JSON files into generated `public/locales/` before dev, test, and build.
+
 ### Current parity
 
 | Feature | Browser | Desktop |

@@ -24,6 +24,20 @@
 
 The browser edition has the same current media model, ROM format, output naming, menu/theme tools, title cards, audio-artwork modes, and player runtime as the desktop app. Browser memory and file-access limits still make the desktop build preferable for very large sources.
 
+## App localization
+
+The converter interface supports **English** and **Українська**. The compact language button opens a dropdown, the first launch follows the system/browser language, the selected language is remembered, and English is the fallback for missing UI strings. GBA ROM/player UI localization remains out of scope for now.
+
+The canonical localization source is:
+
+```text
+locales/index.json
+locales/en.json
+locales/uk.json
+```
+
+`locales/index.json` is the language registry used by both the desktop app and website. To add another interface language later, add its catalog and one manifest entry; the pickers do not need separate hard-coded language lists. `website/public/locales/` is generated during website dev/test/build.
+
 ## What it can create
 
 - A normal single-media `.gba` ROM

@@ -371,6 +371,7 @@
     "{count} representative samples analyzed · {confidence} confidence": "Проаналізовано {count} типових зразків · впевненість: {confidence}",
     "{label} settings applied": "Налаштування {label} застосовано",
     "{name} — optimized static background": "{name} — оптимізоване статичне тло",
-    "{name} — {count} optimized looping frames": "{name} — {count} оптимізованих зациклених кадрів"
+    "{name} — {count} optimized looping frames": "{name} — {count} оптимізованих зациклених кадрів",
+    "Choose language": "Обрати мову"
   }
 }

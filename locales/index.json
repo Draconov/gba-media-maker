@@ -1,0 +1,17 @@
+{
+  "fallback": "en",
+  "languages": [
+    {
+      "code": "en",
+      "short": "EN",
+      "flag": "🇬🇧",
+      "file": "en.json"
+    },
+    {
+      "code": "uk",
+      "short": "UA",
+      "flag": "🇺🇦",
+      "file": "uk.json"
+    }
+  ]
+}

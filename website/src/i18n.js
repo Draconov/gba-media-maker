@@ -1,12 +1,15 @@
 const STORAGE_KEY = "gba-media-maker-language";
-const SUPPORTED = ["en", "uk"];
+const MANIFEST_URL = "locales/index.json";
 const catalogs = new Map();
+let languages = [{ code: "en", short: "EN", flag: "🇬🇧", file: "en.json" }];
+let fallbackLanguage = "en";
 let language = "en";
 let applying = false;
+let pickerHandlersAttached = false;
 
 function normalizeLanguage(value) {
   const code = String(value || "").trim().toLowerCase().split(/[-_]/)[0];
-  return SUPPORTED.includes(code) ? code : "en";
+  return languages.some(item => item.code === code) ? code : fallbackLanguage;
 }
 
 function detectLanguage() {
@@ -14,7 +17,7 @@ function detectLanguage() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return normalizeLanguage(saved);
   } catch { /* storage may be unavailable */ }
-  return normalizeLanguage(navigator.language || "en");
+  return normalizeLanguage(navigator.language || fallbackLanguage);
 }
 
 function escapeRegex(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
@@ -46,14 +49,18 @@ function translateFromEnglish(source, targetCode) {
   return source;
 }
 function canonicalEnglish(value) {
-  const source = String(value), uk = messagesFor("uk");
-  for (const [english, translated] of Object.entries(uk)) {
-    if (!english.includes("{")) { if (source === translated) return english; continue; }
-    const { regex, names } = compileTemplate(translated);
-    const match = source.match(regex);
-    if (!match) continue;
-    const params = {}; names.forEach((name, index) => { params[name] = match[index + 1]; });
-    return fill(english, params);
+  const source = String(value);
+  for (const option of languages) {
+    if (option.code === fallbackLanguage) continue;
+    const messages = messagesFor(option.code);
+    for (const [english, translated] of Object.entries(messages)) {
+      if (!english.includes("{")) { if (source === translated) return english; continue; }
+      const { regex, names } = compileTemplate(translated);
+      const match = source.match(regex);
+      if (!match) continue;
+      const params = {}; names.forEach((name, index) => { params[name] = match[index + 1]; });
+      return fill(english, params);
+    }
   }
   return source;
 }
@@ -63,11 +70,11 @@ export function translateMessage(value, targetCode = language) {
   const leading = original.match(/^\s*/u)?.[0] || "", trailing = original.match(/\s*$/u)?.[0] || "";
   const core = original.slice(leading.length, original.length - trailing.length);
   const english = canonicalEnglish(core);
-  return leading + (targetCode === "en" ? english : translateFromEnglish(english, targetCode)) + trailing;
+  return leading + (targetCode === fallbackLanguage ? english : translateFromEnglish(english, targetCode)) + trailing;
 }
 export function t(key, params = {}) {
-  const english = fill(messagesFor("en")[key] ?? key, params);
-  return language === "en" ? english : translateFromEnglish(english, language);
+  const english = fill(messagesFor(fallbackLanguage)[key] ?? key, params);
+  return language === fallbackLanguage ? english : translateFromEnglish(english, language);
 }
 function translateNode(root) {
   if (!root || applying) return;
@@ -94,22 +101,113 @@ function translateNode(root) {
     document.documentElement.lang = language;
   } finally { applying = false; }
 }
+
+function currentOption() { return languages.find(item => item.code === language) || languages[0]; }
+function optionName(option) { return catalogs.get(option.code)?.meta?.name || option.code.toUpperCase(); }
+function closeLanguagePicker(picker, restoreFocus = false) {
+  if (!picker) return;
+  const button = picker.querySelector(".language-menu-button"), menu = picker.querySelector(".language-menu");
+  if (!button || !menu) return;
+  menu.hidden = true;
+  button.setAttribute("aria-expanded", "false");
+  if (restoreFocus) button.focus();
+}
+function closeAllLanguagePickers(except = null) {
+  for (const picker of document.querySelectorAll(".language-picker")) if (picker !== except) closeLanguagePicker(picker);
+}
+function focusMenuItem(menu, direction) {
+  const items = [...menu.querySelectorAll(".language-menu-option")];
+  if (!items.length) return;
+  const activeIndex = items.indexOf(document.activeElement);
+  let nextIndex = activeIndex;
+  if (direction === "first") nextIndex = 0;
+  else if (direction === "last") nextIndex = items.length - 1;
+  else if (direction === "next") nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % items.length;
+  else if (direction === "previous") nextIndex = activeIndex < 0 ? items.length - 1 : (activeIndex - 1 + items.length) % items.length;
+  items[nextIndex].focus();
+}
+function openLanguagePicker(picker, focusSelected = false) {
+  const button = picker.querySelector(".language-menu-button"), menu = picker.querySelector(".language-menu");
+  if (!button || !menu) return;
+  closeAllLanguagePickers(picker);
+  menu.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  if (focusSelected) (menu.querySelector(`[data-language="${language}"]`) || menu.querySelector(".language-menu-option"))?.focus();
+}
+function toggleLanguagePicker(picker) {
+  const menu = picker.querySelector(".language-menu");
+  if (!menu) return;
+  if (menu.hidden) openLanguagePicker(picker); else closeLanguagePicker(picker);
+}
+function buildLanguageMenu(picker) {
+  const menu = picker.querySelector(".language-menu");
+  if (!menu) return;
+  menu.replaceChildren();
+  for (const option of languages) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "language-menu-option";
+    item.dataset.language = option.code;
+    item.setAttribute("role", "menuitemradio");
+    item.innerHTML = '<span class="language-option-code"></span><span class="language-option-name"></span><span class="language-option-flag" aria-hidden="true"></span><span class="language-option-check" aria-hidden="true">✓</span>';
+    item.addEventListener("click", () => { setLanguage(option.code); closeLanguagePicker(picker, true); });
+    menu.append(item);
+  }
+}
+function updateLanguagePicker(picker) {
+  const display = currentOption(), button = picker.querySelector(".language-menu-button");
+  if (!display || !button) return;
+  button.querySelector(".language-code").textContent = display.short || display.code.toUpperCase();
+  button.querySelector(".language-flag").textContent = display.flag || "";
+  button.dataset.language = language;
+  button.setAttribute("aria-label", t("Choose language"));
+  button.title = t("Choose language");
+  for (const item of picker.querySelectorAll(".language-menu-option")) {
+    const option = languages.find(entry => entry.code === item.dataset.language);
+    if (!option) continue;
+    const selected = option.code === language;
+    item.querySelector(".language-option-code").textContent = option.short || option.code.toUpperCase();
+    item.querySelector(".language-option-name").textContent = optionName(option);
+    item.querySelector(".language-option-flag").textContent = option.flag || "";
+    item.setAttribute("aria-checked", selected ? "true" : "false");
+    item.classList.toggle("is-active", selected);
+  }
+}
+function attachPickerHandlers() {
+  if (pickerHandlersAttached) return;
+  pickerHandlersAttached = true;
+  document.addEventListener("pointerdown", event => { if (!event.target.closest?.(".language-picker")) closeAllLanguagePickers(); });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const openPicker = [...document.querySelectorAll(".language-picker")].find(picker => !picker.querySelector(".language-menu")?.hidden);
+    if (openPicker) { event.preventDefault(); closeLanguagePicker(openPicker, true); }
+  });
+}
 function createLanguagePicker() {
+  attachPickerHandlers();
   for (const host of document.querySelectorAll("[data-i18n-language-host]")) {
-    if (host.querySelector("select")) continue;
-    const wrapper = document.createElement("label"); wrapper.className = "language-picker";
-    const label = document.createElement("span"); label.className = "language-picker-label"; label.textContent = t("Language");
-    const select = document.createElement("select"); select.setAttribute("aria-label", t("Language"));
-    select.innerHTML = '<option value="en">English</option><option value="uk">Українська</option>'; select.value = language;
-    select.addEventListener("change", () => setLanguage(select.value)); wrapper.append(label, select); host.append(wrapper);
+    if (host.querySelector(".language-picker")) continue;
+    const picker = document.createElement("div");
+    picker.className = "language-picker";
+    picker.innerHTML = '<button class="language-menu-button" type="button" aria-haspopup="menu" aria-expanded="false"><span class="language-code"></span><span class="language-flag" aria-hidden="true"></span><span class="language-chevron" aria-hidden="true">▾</span></button><div class="language-menu" role="menu" hidden></div>';
+    const button = picker.querySelector(".language-menu-button"), menu = picker.querySelector(".language-menu");
+    button.addEventListener("click", () => toggleLanguagePicker(picker));
+    button.addEventListener("keydown", event => {
+      if (event.key === "ArrowDown") { event.preventDefault(); openLanguagePicker(picker, true); }
+    });
+    menu.addEventListener("keydown", event => {
+      if (event.key === "ArrowDown") { event.preventDefault(); focusMenuItem(menu, "next"); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); focusMenuItem(menu, "previous"); }
+      else if (event.key === "Home") { event.preventDefault(); focusMenuItem(menu, "first"); }
+      else if (event.key === "End") { event.preventDefault(); focusMenuItem(menu, "last"); }
+    });
+    buildLanguageMenu(picker);
+    updateLanguagePicker(picker);
+    host.append(picker);
   }
 }
 function refreshLanguagePickers() {
-  for (const host of document.querySelectorAll("[data-i18n-language-host]")) {
-    const label = host.querySelector(".language-picker-label"), select = host.querySelector("select");
-    if (label) label.textContent = t("Language");
-    if (select) { select.value = language; select.setAttribute("aria-label", t("Language")); }
-  }
+  for (const picker of document.querySelectorAll("[data-i18n-language-host] .language-picker")) updateLanguagePicker(picker);
 }
 export function setLanguage(value) {
   language = normalizeLanguage(value);
@@ -118,14 +216,29 @@ export function setLanguage(value) {
   window.dispatchEvent(new CustomEvent("gba-language-changed", { detail: { language } }));
 }
 export function currentLanguage() { return language; }
-async function loadCatalog(code) {
-  const response = await fetch(`${import.meta.env.BASE_URL}locales/${code}.json`, { cache: "no-cache" });
-  if (!response.ok) throw new Error(`Could not load ${code} localization.`);
-  catalogs.set(code, await response.json());
+async function loadManifest() {
+  const response = await fetch(`${import.meta.env.BASE_URL}${MANIFEST_URL}`, { cache: "no-cache" });
+  if (!response.ok) throw new Error("Could not load localization manifest.");
+  const manifest = await response.json();
+  const entries = Array.isArray(manifest.languages) ? manifest.languages.filter(item => item && item.code && item.file) : [];
+  if (!entries.length) throw new Error("Localization manifest has no languages.");
+  languages = entries.map(item => ({
+    code: String(item.code).trim().toLowerCase(),
+    short: String(item.short || item.code).trim().toUpperCase(),
+    flag: String(item.flag || ""),
+    file: String(item.file).trim(),
+  }));
+  fallbackLanguage = languages.some(item => item.code === manifest.fallback) ? manifest.fallback : languages[0].code;
+}
+async function loadCatalog(option) {
+  const response = await fetch(`${import.meta.env.BASE_URL}locales/${option.file}`, { cache: "no-cache" });
+  if (!response.ok) throw new Error(`Could not load ${option.code} localization.`);
+  catalogs.set(option.code, await response.json());
 }
 export async function initI18n() {
+  await loadManifest();
   language = detectLanguage();
-  await Promise.all(SUPPORTED.map(loadCatalog));
+  await Promise.all(languages.map(loadCatalog));
   createLanguagePicker(); translateNode(document);
   const observer = new MutationObserver(records => {
     if (applying) return;
