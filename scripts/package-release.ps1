@@ -28,6 +28,6 @@ Copy-Item (Join-Path $root "LICENSE") $stage
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $stage
 
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
+Remove-Item "$zip.sha256" -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
-(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content "$zip.sha256" -NoNewline
 Write-Host "Created: $zip"

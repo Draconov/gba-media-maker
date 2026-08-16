@@ -82,5 +82,4 @@ TXT
 
 mkdir -p "$DIST"
 tar -C "$DIST" -czf "$ARCHIVE" "$FOLDER"
-sha256sum "$ARCHIVE" | awk '{print $1}' > "$ARCHIVE.sha256"
 echo "$ARCHIVE"

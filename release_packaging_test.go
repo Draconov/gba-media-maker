@@ -72,13 +72,13 @@ func TestReleaseWorkflowPublishesDesktopPackages(t *testing.T) {
 		"windows:", "linux:", "macos-slices:", "macos:",
 		"macos-15-intel", "macos-15",
 		"build-linux-slice.sh amd64", "package-linux.sh", "build-macos-slice.sh", "package-macos.sh", "build-ffmpeg-macos.sh",
-		"_Linux_x86_64.tar.gz", "_macOS.zip", "Expected three release archives plus three checksums",
+		"_Linux_x86_64.tar.gz", "_macOS.zip", "SHA256SUMS.txt", "Expected exactly three release archives",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("release workflow is missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{"linux-slices:", "ubuntu-24.04-arm", "linux-slice-arm64", "_Linux_ARM64.tar.gz", "_macOS_Intel.zip", "_macOS_AppleSilicon.zip"} {
+	for _, unwanted := range []string{"linux-slices:", "ubuntu-24.04-arm", "linux-slice-arm64", "_Linux_ARM64.tar.gz", "_macOS_Intel.zip", "_macOS_AppleSilicon.zip", "Expected three release archives plus three checksums"} {
 		if strings.Contains(source, unwanted) {
 			t.Fatalf("release workflow still contains unsupported/per-architecture release path %q", unwanted)
 		}
@@ -196,5 +196,46 @@ func TestMacOSFFmpegPathsMatchSliceAndFinalBundleLayouts(t *testing.T) {
 	}
 	if !strings.Contains(packagerSource, `@executable_path/Frameworks/`) {
 		t.Fatal("Universal macOS package verification must reject unrevised slice paths")
+	}
+}
+
+func TestReleasePublishesSingleChecksumManifest(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(workflow)
+	for _, want := range []string{
+		"SHA256SUMS.txt",
+		"sha256sum",
+		"gh release upload",
+		"--clobber",
+		"Expected exactly three release archives",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("release workflow is missing single-checksum behavior %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"gh release delete-asset",
+		"Portable.zip",
+		"Windows_x64.zip.sha256",
+		"Linux_x86_64.tar.gz.sha256",
+		"macOS.zip.sha256",
+	} {
+		if strings.Contains(source, unwanted) {
+			t.Fatalf("release workflow still publishes per-platform checksum %q", unwanted)
+		}
+	}
+
+	for _, path := range []string{"scripts/package-release.ps1", "scripts/package-linux.sh", "scripts/package-macos.sh"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		if strings.Contains(text, `> "$ARCHIVE.sha256"`) || strings.Contains(text, `> "$ZIP.sha256"`) || strings.Contains(text, `Set-Content "$zip.sha256"`) {
+			t.Fatalf("%s still creates a per-package checksum file", path)
+		}
 	}
 }

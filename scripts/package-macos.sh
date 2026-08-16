@@ -125,5 +125,4 @@ if command -v ditto >/dev/null 2>&1; then
 else
   (cd "$DIST" && zip -9 -qr "$(basename "$ZIP")" "$(basename "$APP")")
 fi
-shasum -a 256 "$ZIP" | awk '{print $1}' > "$ZIP.sha256"
 echo "$ZIP"
