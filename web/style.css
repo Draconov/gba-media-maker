@@ -128,3 +128,6 @@
 #musicArtworkCustom{padding:6px}
 @media(max-width:720px){.music-artwork-presets{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:520px){.music-artwork-presets{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+.language-slot{display:flex;justify-content:flex-end;width:min(1320px,100%);margin:0 auto 10px}.language-picker{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:700}.language-picker select{width:auto;min-width:126px;padding:7px 28px 7px 9px}.desktop-language-slot{min-height:34px}
+@media(max-width:620px){.language-slot{margin-bottom:8px}.language-picker-label{display:none}.language-picker select{min-width:118px}}

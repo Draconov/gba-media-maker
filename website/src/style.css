@@ -945,3 +945,6 @@ input[type="range"] {
   .music-artwork-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .audio-identity-settings, .inline-settings { grid-template-columns: 1fr; }
 }
+
+.hero-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.language-slot{display:flex;align-items:center}.language-picker{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.82rem;font-weight:700}.language-picker select{width:auto;min-width:126px;padding:9px 30px 9px 10px;background:var(--input);color:var(--text);border:1px solid var(--button-line);border-radius:10px}.language-picker-label{white-space:nowrap}
+@media(max-width:620px){.hero-actions{width:100%;justify-content:space-between}.language-picker-label{display:none}.language-picker select{min-width:118px}}

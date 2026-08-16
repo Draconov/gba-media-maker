@@ -10,10 +10,11 @@
     "sync-player": "node scripts/sync-player.mjs",
     "sync-artwork": "node scripts/sync-artwork.mjs",
     "sync-version": "node scripts/sync-version.mjs",
-    "sync-runtime": "npm run sync-player && npm run sync-artwork && npm run sync-version",
+    "sync-runtime": "npm run sync-player && npm run sync-artwork && npm run sync-version && npm run sync-locales",
     "predev": "npm run sync-runtime",
     "prebuild": "npm run sync-runtime",
-    "pretest": "npm run sync-runtime"
+    "pretest": "npm run sync-runtime",
+    "sync-locales": "node scripts/sync-locales.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "0.12.15",

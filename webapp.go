@@ -181,6 +181,61 @@ type projectOpenResponse struct {
 	Settings  convertRequest `json:"settings,omitempty"`
 }
 
+type languagePreferenceRequest struct {
+	Language string `json:"language"`
+}
+
+type appPreferences struct {
+	Language string `json:"language,omitempty"`
+}
+
+func normalizeAppLanguage(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "en":
+		return "en"
+	case "uk":
+		return "uk"
+	default:
+		return ""
+	}
+}
+
+func preferencesFilePath() string {
+	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
+		return filepath.Join(dir, "GBA Media Maker", "settings.json")
+	}
+	return filepath.Join(appDirectory(), "GBA Media Maker.settings.json")
+}
+
+func loadLanguagePreference() string {
+	data, err := os.ReadFile(preferencesFilePath())
+	if err != nil {
+		return ""
+	}
+	var prefs appPreferences
+	if json.Unmarshal(data, &prefs) != nil {
+		return ""
+	}
+	return normalizeAppLanguage(prefs.Language)
+}
+
+func saveLanguagePreference(language string) error {
+	language = normalizeAppLanguage(language)
+	if language == "" {
+		return errors.New("unsupported interface language")
+	}
+	path := preferencesFilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(appPreferences{Language: language}, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0644)
+}
+
 func appDirectory() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -1293,6 +1348,26 @@ func (s *appState) routes(page []byte) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(appCSS)
 	})
+	mux.HandleFunc(prefix+"/i18n.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(appI18nJS)
+	})
+	mux.HandleFunc(prefix+"/locales/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, prefix+"/locales/")
+		if name != "en.json" && name != "uk.json" {
+			http.NotFound(w, r)
+			return
+		}
+		data, err := localeFS.ReadFile("locales/" + name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(data)
+	})
 	mux.HandleFunc(prefix+"/gba-text.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -1316,6 +1391,22 @@ func (s *appState) routes(page []byte) http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("/state", func(w http.ResponseWriter, r *http.Request) { s.touch(); jsonResponse(w, 200, s.snapshot()) })
 	api.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) { s.touch(); w.WriteHeader(204) })
+	api.HandleFunc("/preferences/language", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var req languagePreferenceRequest
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid language preference"})
+			return
+		}
+		if err := saveLanguagePreference(req.Language); err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	api.HandleFunc("/engine/retry", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(405)
@@ -1756,7 +1847,12 @@ func renderPage(token string) ([]byte, error) {
 	if versioned == page {
 		return nil, errors.New("application version placeholder is missing")
 	}
-	return []byte(versioned), nil
+	language := loadLanguagePreference()
+	localized := strings.Replace(versioned, "__APP_LANGUAGE__", html.EscapeString(language), 1)
+	if localized == versioned {
+		return nil, errors.New("application language placeholder is missing")
+	}
+	return []byte(localized), nil
 }
 
 func runWebApp(launch func(string) error) error {

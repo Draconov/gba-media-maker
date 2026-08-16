@@ -19,6 +19,9 @@ var appCSS []byte
 //go:embed web/app.js
 var appJS []byte
 
+//go:embed web/i18n.js
+var appI18nJS []byte
+
 //go:embed web/gba-text.js
 var gbaTextJS []byte
 
@@ -27,3 +30,6 @@ var menuThemesJS []byte
 
 //go:embed web/title-cards.js
 var titleCardsJS []byte
+
+//go:embed locales/*.json
+var localeFS embed.FS

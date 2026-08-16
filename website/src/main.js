@@ -11,7 +11,10 @@ import { analyzeSmartScan } from "./smart-encoding.js";
 import { glyphBits, glyphLength, sanitizeGBAText, unsupportedGBARunes } from "./gba-text.js";
 import { encodeIMAADPCM, decodeIMAADPCM } from "./adpcm.js";
 import { APP_VERSION } from "./generated/version.js";
+import { initI18n } from "./i18n.js";
 import "./style.css";
+
+await initI18n();
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
 const MAX_RAW_FRAME_BYTES = 384 * 1024 * 1024;

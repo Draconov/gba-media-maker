@@ -36,3 +36,6 @@ website/public/audio-artwork/
 
 # Generated from VERSION by website/scripts/sync-version.mjs
 website/src/generated/
+
+# Generated from locales/ by website/scripts/sync-locales.mjs
+website/public/locales/

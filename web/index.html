@@ -6,12 +6,14 @@
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c0f14">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f7fb">
 <meta name="gbavm-session-token" content="__SESSION_TOKEN__">
+<meta name="gbavm-language" content="__APP_LANGUAGE__">
 <link rel="icon" type="image/png" href="./icon.png">
 <link rel="stylesheet" href="./style.css">
 <title>GBA Media Maker __APP_VERSION__</title>
 </head>
 <body>
 <div class="shell">
+  <div class="language-slot desktop-language-slot" data-i18n-language-host></div>
   <div id="topBar" class="top hidden"><div class="top-actions"><button id="openProject" class="btn">Open project</button><button id="saveProject" class="btn">Save project</button><button id="resetTop" class="btn">Start over</button></div></div>
   <input id="picker" type="file" accept="video/*,audio/*,image/*,.mkv,.webm,.avi,.mov,.m4v,.mp4,.mpeg,.mpg,.gif,.mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.wma,.aiff,.aif,.ape,.png,.jpg,.jpeg,.webp,.bmp,.tga,.tif,.tiff" multiple class="hidden">
   <section id="welcome" class="card welcome" tabindex="0"><div><h1>Drag and drop media here</h1><p>Videos, music and images can live together in one GBA ROM.</p><div class="welcome-actions"><button id="chooseVideos" class="btn primary">Choose media</button><button id="openProjectWelcome" class="btn">Open project</button></div></div></section>
@@ -114,6 +116,6 @@
   </section>
 </div>
 <div id="optimizerModal" class="modal hidden" role="dialog"><div class="modal-card card"><h2 id="optimizerTitle">Optimize to fit 32 MiB</h2><div id="optimizerSummary"></div><div class="modal-actions"><button id="optimizerCancel" class="btn">Cancel</button><button id="optimizerApply" class="btn primary">Apply changes</button></div></div></div>
-<script src="./gba-text.js" defer></script><script src="./menu-themes.js" defer></script><script src="./title-cards.js" defer></script><script src="./app.js" defer></script>
+<script src="./i18n.js" defer></script><script src="./gba-text.js" defer></script><script src="./menu-themes.js" defer></script><script src="./title-cards.js" defer></script><script src="./app.js" defer></script>
 </body>
 </html>

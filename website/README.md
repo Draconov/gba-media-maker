@@ -16,6 +16,8 @@
   <a href="https://github.com/Draconov/gba-media-maker">Main repository</a>
   ·
   <a href="https://github.com/Draconov/gba-media-maker/releases/latest">Desktop releases</a>
+  ·
+  <a href="README.uk.md"><strong>Українська</strong></a>
 </p>
 
 ---
