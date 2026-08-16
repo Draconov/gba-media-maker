@@ -3,12 +3,13 @@
 All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 
 > [!NOTE]
-> Historical sections describe the controls and behavior that existed in that release. For the current v0.13.0 controls and media model, use the main [`README.md`](README.md).
+> Historical sections describe the controls and behavior that existed in that release. For the current v0.13.1 controls and media model, use the main [`README.md`](README.md).
 
 ## Release index
 
 | Version | Date | Main theme |
 |---|---|---|
+| **0.13.1** | **2026-08-16** | Audio/image player polish: two-state image HUD, automatic built-in audio covers, cover-visible audio HUD |
 | **0.13.0** | **2026-08-11** | GBA Media Maker: video + GIF + music + images, mixed-media menus, desktop/web parity |
 | 0.12.2 | 2026-08-07 | Stable video player/menu refinements, custom menu video backgrounds, Cyrillic text |
 | 0.12.1 | 2026-08-07 | Independent split-title typography and responsive editor fixes |
@@ -20,6 +21,15 @@ All notable user-visible changes are recorded here. Dates use `YYYY-MM-DD`.
 | 0.7.0 | 2026-07-31 | Playback clock/HUD, local-app hardening, stable release workflow |
 | 0.6.0 | 2026-07-31 | Synchronized seeking and reproducible player builds |
 | 0.5.0 | 2026-07-30 | First complete portable local-web conversion workflow |
+
+
+## [0.13.1] - 2026-08-16
+
+### Changed
+- Image playback now has only two HUD states: hidden and shown. Images start with the HUD hidden.
+- New audio tracks are assigned one of the 20 built-in artwork presets automatically; the selected preset remains editable and saved with the project.
+- Audio HUD panels now dim the cover beneath them instead of replacing the lower part of the cover with solid black, keeping the full cover visible while playback information is shown.
+- Video playback, video timing, seeking, PCM end protection, and the restored Game Pak wait-state configuration are unchanged from the validated v0.13.0 runtime.
 
 ## [0.13.0] - 2026-08-11
 

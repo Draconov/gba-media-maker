@@ -5,7 +5,7 @@
 
 **Turn videos, music, animated GIFs, and images into playable Game Boy Advance ROMs — on Windows or in the browser.**
 
-[![Version](https://img.shields.io/badge/version-0.13.0-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md) [![Open Web App](https://img.shields.io/badge/OPEN-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-media-maker/) [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](https://github.com/Draconov/gba-media-maker/releases/latest) [![License](https://img.shields.io/badge/license-NON--COMMERCIAL-ffdf00?style=for-the-badge&labelColor=20252d)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.13.1-ffd600?style=for-the-badge&labelColor=20252d)](CHANGELOG.md) [![Open Web App](https://img.shields.io/badge/OPEN-WEB_APP-ffd600?style=for-the-badge&labelColor=20252d)](https://draconov.github.io/gba-media-maker/) [![Desktop](https://img.shields.io/badge/DOWNLOAD-DESKTOP_APP-ffffff?style=for-the-badge&labelColor=20252d)](https://github.com/Draconov/gba-media-maker/releases/latest) [![License](https://img.shields.io/badge/license-NON--COMMERCIAL-ffdf00?style=for-the-badge&labelColor=20252d)](LICENSE)
 </div>
 
 ## Choose your version
@@ -15,7 +15,7 @@
 | Installation | None after deployment | Extract the release ZIP and run the EXE |
 | Processing | Local in the browser with ffmpeg.wasm | Local with native FFmpeg |
 | Best for | Quick jobs and normal-size projects | Long videos, repeated jobs, and maximum speed |
-| Media/project model | v0.13.0 parity | Reference implementation |
+| Media/project model | v0.13.1 parity | Reference implementation |
 | Privacy | Source media stays on your device | Source media stays on your device |
 | Platform | Modern desktop browsers | Windows x64 |
 | Documentation | [Website guide](website/README.md) | This README |
@@ -173,6 +173,8 @@ The v0.12.2-style video HUD is retained, including elapsed/total time, progress,
 | `START` | Cycle HUD: hidden → time only → full |
 | `START + SELECT` | Open the controls-help screen |
 
+Audio tracks use one of the 20 built-in covers automatically for new imports unless you choose embedded or custom artwork. When an audio HUD is visible, its panel darkens the cover underneath instead of replacing that part with solid black, so the complete cover remains visible edge-to-edge.
+
 ### Image viewer
 
 | Button | Action |
@@ -180,10 +182,10 @@ The v0.12.2-style video HUD is retained, including elapsed/total time, progress,
 | `A` | Pause / resume only when slideshow is enabled |
 | `B` | Return to the media menu in menu ROMs; restart in a direct single-image ROM |
 | `L` / `R` | Previous / next media |
-| `START` | Cycle image HUD visibility |
+| `START` | Toggle image HUD: hidden ↔ shown |
 | `START + SELECT` | Open the controls-help screen |
 
-Images have no seeking, mute, or volume controls. `A` does nothing when slideshow is disabled.
+Images start with the HUD hidden and have only two HUD states: hidden and shown. Images have no seeking, mute, or volume controls. `A` does nothing when slideshow is disabled.
 
 ### Media menu
 
@@ -198,7 +200,7 @@ Images have no seeking, mute, or volume controls. `A` does nothing when slidesho
 
 Mute/unmute, volume, seek-arrow feedback, and the temporary full HUD after a seek are each displayed for **6 VBlanks (~0.10 s)**. Held seek/step repetition remains **18 VBlanks (~0.30 s)**.
 
-The old redundant `SELECT + L/R` media shortcut and `L + R` quick-HUD shortcut are not used in v0.13.0.
+The old redundant `SELECT + L/R` media shortcut and `L + R` quick-HUD shortcut are not used in v0.13.1.
 
 ## Save/resume support
 
@@ -271,7 +273,7 @@ The desktop interface is served only on `127.0.0.1` with a random per-session to
 
 ## Browser app
 
-The standalone browser edition lives under [`website/`](website/) and has v0.13.0 feature/naming parity with the desktop media workflow.
+The standalone browser edition lives under [`website/`](website/) and has v0.13.1 feature/naming parity with the desktop media workflow.
 
 It uses ffmpeg.wasm for local media processing and synchronizes the same 32 KiB `assets/player_stub.bin` into the website build, so desktop and browser ROMs use the same GBA playback runtime.
 
@@ -379,7 +381,7 @@ PowerShell helpers:
 
 ```powershell
 ./scripts/build-windows.ps1
-./scripts/package-release.ps1 -Version 0.13.0
+./scripts/package-release.ps1 -Version 0.13.1
 ```
 
 ### Run/build the website

@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the **GBA Media Maker v0.13.0** desktop, browser, converter, ROM, and GBA runtime architecture.
+This document describes the **GBA Media Maker v0.13.1** desktop, browser, converter, ROM, and GBA runtime architecture.
 
 ## Overview
 

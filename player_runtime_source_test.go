@@ -452,3 +452,31 @@ func TestPlayerBuildUsesSizeStableARMFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestV0131ImageHUDHasOnlyHiddenAndShownStates(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"if(c->flags&CLIP_FLAG_MEDIA_IMAGE){ui->hud_mode=0;ui->hud_last_visible=1",
+		"if(action==ACTION_UI_REFRESH&&ui->hud_mode==2)ui->hud_mode=0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("v0.13.1 image HUD behavior missing %q", want)
+		}
+	}
+}
+
+func TestV0131AudioHUDKeepsCoverVisible(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"staticvoiddim3(volatileu16*d,u32y,u32h)",
+		"if(mode==2){dim3(VRAM0,104,56)",
+		"elsedim3(VRAM0,140,20)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("v0.13.1 cover-visible audio HUD missing %q", want)
+		}
+	}
+	if strings.Contains(src, "if(mode==2){rect3(VRAM0,0,104,240,56,0)") {
+		t.Fatal("full audio HUD must not replace the lower cover with a solid black panel")
+	}
+}

@@ -593,7 +593,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-media-maker-project", Version: 2, AppVersion: "0.13.0", Settings: req}
+	doc := projectDocument{Format: "gba-media-maker-project", Version: 2, AppVersion: "0.13.1", Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -961,12 +961,16 @@ func (s *appState) buildOptions(req convertRequest) (ProjectOptions, []MediaInfo
 		}
 		artworkMode := strings.ToLower(strings.TrimSpace(clipReq.MusicArtworkMode))
 		if artworkMode == "" {
-			artworkMode = "embedded"
+			artworkMode = "default"
 		}
 		if artworkMode != "default" && artworkMode != "embedded" && artworkMode != "custom" {
 			return ProjectOptions{}, nil, fmt.Errorf("%s: invalid audio artwork mode", v.Name)
 		}
-		artworkPreset := normalizeAudioArtworkPreset(clipReq.MusicArtworkPreset)
+		artworkPresetValue := strings.TrimSpace(clipReq.MusicArtworkPreset)
+		if artworkPresetValue == "" {
+			artworkPresetValue = automaticAudioArtworkPreset(v.Name)
+		}
+		artworkPreset := normalizeAudioArtworkPreset(artworkPresetValue)
 		if v.Info.Kind == "audio" && artworkMode == "custom" {
 			if _, customErr := decodeCustomAudioArtworkDataURL(clipReq.MusicArtworkCustom); customErr != nil {
 				return ProjectOptions{}, nil, fmt.Errorf("%s: %w", v.Name, customErr)

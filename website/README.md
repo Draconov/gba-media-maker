@@ -22,7 +22,7 @@
 
 ## Overview
 
-The browser edition targets **v0.13.0 parity** with the portable Windows app. It uses ffmpeg.wasm for media work and the same synchronized 32 KiB GBA player stub for ROM playback.
+The browser edition targets **v0.13.1 parity** with the portable Windows app. It uses ffmpeg.wasm for media work and the same synchronized 32 KiB GBA player stub for ROM playback.
 
 ### Current parity
 

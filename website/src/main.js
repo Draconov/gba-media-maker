@@ -627,8 +627,17 @@ function normalizeArtworkPreset(value) {
   return AUDIO_ARTWORK_PRESETS.includes(value) ? value : AUDIO_ARTWORK_PRESETS[0];
 }
 
+function automaticArtworkPreset(seed) {
+  let hash = 2166136261 >>> 0;
+  for (const ch of String(seed || "")) {
+    hash ^= ch.codePointAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return AUDIO_ARTWORK_PRESETS[hash % AUDIO_ARTWORK_PRESETS.length];
+}
+
 function normalizeArtworkMode(value) {
-  return ["embedded", "default", "custom"].includes(value) ? value : "embedded";
+  return ["embedded", "default", "custom"].includes(value) ? value : "default";
 }
 
 function artworkPresetURL(preset) {
@@ -655,7 +664,7 @@ function makeEntry(file) {
     audioMode: "mix", audioTrack: 0, audioTracks: [], audioTracksKnown: false,
     volume: 1, loop: /\.gif$/i.test(file.name), paletteMode: "shared", ditherMode: "ordered",
     imageSeconds: 5,
-    musicTitle: "", musicArtist: "", musicArtworkMode: "embedded", musicArtworkPreset: "preset-01", musicArtworkCustom: "", musicSeekSeconds: 5,
+    musicTitle: "", musicArtist: "", musicArtworkMode: "default", musicArtworkPreset: automaticArtworkPreset(file.name), musicArtworkCustom: "", musicSeekSeconds: 5,
     embeddedArtworkRGB: null, embeddedArtworkPreview: "",
     metadataTitle: "", metadataArtist: "", metadataAlbum: "",
     duration: 0, hasAudio: kind === "audio" ? true : undefined, channels: 0, chapters: [],
@@ -782,7 +791,7 @@ function saveProject() {
   const data = canonicalProjectFromBrowser({
     settings: projectSettingsSnapshot(),
     entries,
-    appVersion: "0.13.0",
+    appVersion: "0.13.1",
   });
   const base = cleanFileBase(elements.romTitle.value || "GBA_MEDIA", "GBA_MEDIA");
   downloadBlob(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" }), `${base}.gbamedia`);
@@ -1607,14 +1616,14 @@ function renderFiles() {
       artistField.addEventListener("input", () => { entry.musicArtist = artistField.value.slice(0, 28); dirty(); }); artist.append(artistField);
       identity.append(title, artist); optionsGrid.append(identity);
 
-      const artMode = makeSelectControl("Artwork source", normalizeArtworkMode(entry.musicArtworkMode), [["embedded", "Embedded artwork"], ["default", "Default artwork"], ["custom", "Custom image"]], (value) => { entry.musicArtworkMode = value; renderFiles(); });
+      const artMode = makeSelectControl("Artwork source", normalizeArtworkMode(entry.musicArtworkMode), [["default", "Built-in artwork"], ["embedded", "Embedded artwork"], ["custom", "Custom image"]], (value) => { entry.musicArtworkMode = value; renderFiles(); });
       artMode.label.classList.add("wide-field"); optionsGrid.append(artMode.label);
 
       const mode = normalizeArtworkMode(entry.musicArtworkMode);
       if (mode !== "custom") {
         const presetWrap = document.createElement("div"); presetWrap.className = "artwork-preset-field wide-field";
         const presetCaption = document.createElement("span"); presetCaption.className = "artwork-preset-caption";
-        presetCaption.textContent = mode === "embedded" ? "Fallback artwork preset (used if embedded cover is missing)" : "Default artwork preset";
+        presetCaption.textContent = mode === "embedded" ? "Fallback artwork preset (used if embedded cover is missing)" : "Built-in artwork preset (auto-picked for new tracks)";
         const grid = document.createElement("div"); grid.className = "music-artwork-presets"; grid.setAttribute("role", "radiogroup");
         for (let presetIndex = 0; presetIndex < AUDIO_ARTWORK_PRESETS.length; presetIndex += 1) {
           const preset = AUDIO_ARTWORK_PRESETS[presetIndex];

@@ -28,6 +28,15 @@ func normalizeAudioArtworkPreset(value string) string {
 	return value
 }
 
+func automaticAudioArtworkPreset(seed string) string {
+	h := uint32(2166136261)
+	for _, r := range seed {
+		h ^= uint32(r)
+		h *= 16777619
+	}
+	return fmt.Sprintf("preset-%02d", int(h%20)+1)
+}
+
 func audioArtworkPresetPNG(value string) ([]byte, error) {
 	preset := normalizeAudioArtworkPreset(value)
 	data, err := audioArtworkFS.ReadFile("assets/audio-artwork/" + preset + ".png")

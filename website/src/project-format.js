@@ -81,7 +81,7 @@ function browserSettingsFromLegacy(settings = {}) {
   };
 }
 
-export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0.13.0" }) {
+export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0.13.1" }) {
   const fps = VBLANKS_TO_FPS[Number(settings.vblanks)] || "balanced";
   return {
     format: PROJECT_FORMAT,

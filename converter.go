@@ -1533,9 +1533,13 @@ func convertClip(project ProjectOptions, input ClipInput, tempDir string, index,
 		local(20, "preparing album artwork")
 		artworkMode := strings.ToLower(strings.TrimSpace(input.MusicArtworkMode))
 		if artworkMode == "" {
-			artworkMode = "embedded"
+			artworkMode = "default"
 		}
-		artworkPreset := normalizeAudioArtworkPreset(input.MusicArtworkPreset)
+		artworkPresetValue := strings.TrimSpace(input.MusicArtworkPreset)
+		if artworkPresetValue == "" {
+			artworkPresetValue = automaticAudioArtworkPreset(input.Name)
+		}
+		artworkPreset := normalizeAudioArtworkPreset(artworkPresetValue)
 		switch artworkMode {
 		case "default":
 			if err := writePresetAudioArtwork(artworkPreset, videoPath); err != nil {
