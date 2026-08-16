@@ -4,7 +4,7 @@ $build = Join-Path $PSScriptRoot "build"
 Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $build -ItemType Directory -Force | Out-Null
 
-$common = @("--target=arm-none-eabi", "-mcpu=arm7tdmi", "-marm", "-ffreestanding", "-fno-builtin", "-fno-stack-protector", "-Oz", "-Wall", "-Wextra")
+$common = @("--target=arm-none-eabi", "-mcpu=arm7tdmi", "-marm", "-ffreestanding", "-fno-builtin", "-fno-stack-protector", "-fomit-frame-pointer", "-Oz", "-mllvm", "-enable-machine-outliner", "-mllvm", "-machine-outliner-reruns=3", "-Wall", "-Wextra")
 & clang @common -c (Join-Path $PSScriptRoot "startup.S") -o (Join-Path $build "startup.o")
 & clang @common -c (Join-Path $PSScriptRoot "metadata.S") -o (Join-Path $build "metadata.o")
 & clang @common -c (Join-Path $PSScriptRoot "main.c") -o (Join-Path $build "main.o")

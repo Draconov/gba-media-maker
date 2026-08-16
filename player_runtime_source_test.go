@@ -423,3 +423,18 @@ func TestFullVideoHUDSkipsOnlyCoveredRows(t *testing.T) {
 		t.Fatal("video frame dropping/catch-up must not be present")
 	}
 }
+
+func TestPlayerBuildUsesSizeStableARMFlags(t *testing.T) {
+	for _, path := range []string{"player/build.sh", "player/build.ps1"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(data)
+		for _, want := range []string{"-fomit-frame-pointer", "-enable-machine-outliner", "-machine-outliner-reruns=3"} {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing player-size build flag %q", path, want)
+			}
+		}
+	}
+}
