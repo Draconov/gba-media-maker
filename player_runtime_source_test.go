@@ -461,7 +461,7 @@ func TestV0131ImageHUDHasOnlyHiddenAndShownStates(t *testing.T) {
 		"ui->hud_mode=oldmode?0:1;ui->hud_last_visible=1;native_refresh_image_ui",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("v0.13.1 image HUD behavior missing %q", want)
+			t.Fatalf("image HUD behavior missing %q", want)
 		}
 	}
 }
@@ -475,7 +475,7 @@ func TestV0131ImageHUDUsesDirtyRegionAndClearsAudioFeedback(t *testing.T) {
 		"ui->seek_direction=ui->seek_hold_direction=0;ui->seek_hold_counter=0",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("v0.13.1 image dirty-region fix missing %q", want)
+			t.Fatalf("image dirty-region fix missing %q", want)
 		}
 	}
 	if strings.Contains(src, "if(action==ACTION_UI_REFRESH){show_native_art(c,0,paused,1") {
@@ -491,7 +491,7 @@ func TestV0131AudioHUDKeepsCoverVisible(t *testing.T) {
 		"elsedim3(VRAM0,140,20)",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("v0.13.1 cover-visible audio HUD missing %q", want)
+			t.Fatalf("cover-visible audio HUD missing %q", want)
 		}
 	}
 	if strings.Contains(src, "if(mode==2){rect3(VRAM0,0,104,240,56,0)") {

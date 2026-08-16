@@ -1,20 +1,12 @@
 name: Release
 
-run-name: >-
-  ${{ github.event_name == 'workflow_dispatch'
-      && format('Publish release {0}', inputs.version)
-      || 'Publish release from VERSION' }}
+run-name: Publish release from VERSION
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version tag, for example v0.13.1"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -63,31 +55,18 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Choose release version
+      - name: Read release version
         id: release
         shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          MANUAL_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            tag="$MANUAL_VERSION"
-            [[ "$tag" == v* ]] || tag="v$tag"
-          else
-            base_version="$(tr -d '[:space:]' < VERSION)"
-            if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::VERSION must contain a version such as 0.13.1"
-              exit 1
-            fi
-            tag="v${base_version}"
-          fi
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Version must look like v0.13.1"
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION must contain a semantic version such as 1.2.3"
             exit 1
           fi
 
-          version="${tag#v}"
+          tag="v${version}"
           title="GBA Media Maker ${tag}"
           folder="GBA_Media_Maker_v${version}_Portable"
           zip_file="${folder}.zip"

@@ -10,6 +10,7 @@ import { buildTitleCardAsset, createTitleCardProject, defaultTitleCardSettings, 
 import { analyzeSmartScan } from "./smart-encoding.js";
 import { glyphBits, glyphLength, sanitizeGBAText, unsupportedGBARunes } from "./gba-text.js";
 import { encodeIMAADPCM, decodeIMAADPCM } from "./adpcm.js";
+import { APP_VERSION } from "./generated/version.js";
 import "./style.css";
 
 const FFMPEG_CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
@@ -791,7 +792,7 @@ function saveProject() {
   const data = canonicalProjectFromBrowser({
     settings: projectSettingsSnapshot(),
     entries,
-    appVersion: "0.13.1",
+    appVersion: APP_VERSION,
   });
   const base = cleanFileBase(elements.romTitle.value || "GBA_MEDIA", "GBA_MEDIA");
   downloadBlob(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" }), `${base}.gbamedia`);
@@ -1897,7 +1898,7 @@ async function runSmartAnalysis() {
     const framesRGB = await ffmpeg.readFile(scanName);
     elements.smartStatus.textContent = "Comparing encoding candidates…";
     const result = analyzeSmartScan({
-      framesRGB, duration, hasAudio: probe.hasAudio && clip.audioMode !== "none",
+      framesRGB, duration, sourceStart: start, sourceEnd, hasAudio: probe.hasAudio && clip.audioMode !== "none",
       targetBytes: Number(elements.smartTarget.value) * 1048576,
       priority: elements.smartPriority.value, audioQuality: elements.audioQuality.value,
     });

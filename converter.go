@@ -252,7 +252,7 @@ func isAnimatedGIFPath(path string) bool {
 
 func isAudioFirstPath(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".mp3", ".flac", ".wav", ".ogg", ".opus", ".m4a", ".aac", ".wma", ".aiff", ".ape":
+	case ".mp3", ".flac", ".wav", ".ogg", ".opus", ".m4a", ".aac", ".wma", ".aiff", ".aif", ".ape":
 		return true
 	}
 	return false

@@ -30,3 +30,9 @@ website/dist/
 
 # Generated from assets/player_stub.bin by website/scripts/sync-player.mjs
 website/public/player_stub.bin
+
+# Generated from assets/audio-artwork by website/scripts/sync-artwork.mjs
+website/public/audio-artwork/
+
+# Generated from VERSION by website/scripts/sync-version.mjs
+website/src/generated/

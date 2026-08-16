@@ -37,7 +37,7 @@ function metricsForFrame(frame, previous) {
   };
 }
 
-function selectSamples(metrics, duration) {
+function selectSamples(metrics, sourceStart, sourceEnd) {
   const kinds = [
     ["Typical scene", (m) => 1 - Math.abs(m.motion - 0.35)],
     ["Fast motion", (m) => m.motion * 0.75 + m.scene * 0.25],
@@ -59,7 +59,14 @@ function selectSamples(metrics, duration) {
     }
     if (best >= 0) {
       const m = metrics[best];
-      selected.push({ time: metrics.length > 1 ? (best * duration) / (metrics.length - 1) : 0, kind, ...m });
+      selected.push({
+        time: metrics.length > 1 ? sourceStart + (best * (sourceEnd - sourceStart)) / (metrics.length - 1) : sourceStart,
+        kind,
+        motion: m.motion,
+        detail: m.detail,
+        brightness: m.brightness,
+        colour: m.colour,
+      });
       used.add(best);
     }
     if (selected.length >= 6) break;
@@ -85,10 +92,13 @@ function quality(candidate, metrics) {
   const fpsScore = { 4: 1, 5: 0.84, 6: 0.7, 8: 0.52 }[candidate.vblanks];
   const paletteScore = candidate.paletteMode === "scene" ? 0.96 : 0.82;
   const ditherScore = candidate.ditherMode === "error" ? 0.98 - metrics.motion * 0.2 : candidate.ditherMode === "ordered" ? 0.92 : 0.76 + (1 - metrics.detail) * 0.12;
+  let temporalStability = 92 - 22 * metrics.motion;
+  if (candidate.ditherMode === "error") temporalStability -= 14 * metrics.motion;
+  if (candidate.paletteMode === "scene") temporalStability += 4 * metrics.colour;
   return {
     visualQuality: clamp(Math.round(58 + 24 * paletteScore + 15 * ditherScore + 8 * (1 - metrics.detail * 0.15)), 0, 100),
     motionQuality: clamp(Math.round(48 + 47 * fpsScore - 10 * metrics.motion * (1 - fpsScore)), 0, 100),
-    temporalStability: clamp(Math.round(92 - 22 * metrics.motion - (candidate.ditherMode === "error" ? 14 * metrics.motion : 0)), 0, 100),
+    temporalStability: clamp(Math.round(temporalStability), 0, 100),
     audioQuality: candidate.audioCodec === "adpcm" ? 88 : 100,
   };
 }
@@ -133,15 +143,19 @@ function estimateCandidate(candidate, duration, hasAudio, targetBytes, metrics) 
 
 function score(candidate, priority, targetBytes) {
   let value = candidate.visualQuality * 0.45 + candidate.motionQuality * 0.3 + candidate.temporalStability * 0.2 + candidate.audioQuality * 0.05;
-  if (candidate.estimatedMaxBytes > targetBytes) value -= 80 + ((candidate.estimatedMaxBytes - targetBytes) / targetBytes) * 100;
+  const fitPenalty = candidate.estimatedMaxBytes > targetBytes
+    ? 80 + ((candidate.estimatedMaxBytes - targetBytes) / targetBytes) * 100
+    : 0;
   const headroom = (targetBytes - candidate.estimatedBytes) / targetBytes;
   if (priority === "longest") value = value * 0.55 + headroom * 50;
-  if (priority === "motion") value = candidate.motionQuality * 0.55 + candidate.visualQuality * 0.25 + candidate.temporalStability * 0.2;
-  if (priority === "detail") value = candidate.visualQuality * 0.65 + candidate.motionQuality * 0.2 + candidate.temporalStability * 0.15;
-  return value;
+  else if (priority === "motion") value = candidate.motionQuality * 0.55 + candidate.visualQuality * 0.25 + candidate.temporalStability * 0.2;
+  else if (priority === "detail") value = candidate.visualQuality * 0.65 + candidate.motionQuality * 0.2 + candidate.temporalStability * 0.15;
+  else if (priority === "quality") value *= 1.08;
+  else value += Math.min(0.08, Math.max(0, headroom)) * 20;
+  return value - fitPenalty;
 }
 
-export function analyzeSmartScan({ framesRGB, duration, hasAudio = true, targetBytes = 32 * 1024 * 1024, priority = "balanced", audioQuality = "auto" }) {
+export function analyzeSmartScan({ framesRGB, duration, sourceStart = 0, sourceEnd = sourceStart + duration, hasAudio = true, targetBytes = 32 * 1024 * 1024, priority = "balanced", audioQuality = "auto" }) {
   if (!(framesRGB instanceof Uint8Array) || framesRGB.length % RGB_FRAME_BYTES !== 0) throw new Error("Smart scan frames are invalid.");
   const frameCount = framesRGB.length / RGB_FRAME_BYTES;
   const metrics = [];
@@ -172,7 +186,8 @@ export function analyzeSmartScan({ framesRGB, duration, hasAudio = true, targetB
     priority,
     duration,
     confidence: frameCount >= 80 && averages.variability < 0.28 ? "high" : frameCount < 30 || averages.variability > 0.45 ? "low" : "medium",
-    samples: selectSamples(metrics, duration),
+    analyzedAt: new Date().toISOString(),
+    samples: selectSamples(metrics, sourceStart, sourceEnd),
     recommended: templates[0],
     alternatives: templates.slice(1, 4),
     candidates: templates,

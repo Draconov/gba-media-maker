@@ -22,7 +22,7 @@
 
 ## Overview
 
-The browser edition targets **v0.13.1 parity** with the portable Windows app. It uses ffmpeg.wasm for media work and the same synchronized 32 KiB GBA player stub for ROM playback.
+The browser edition targets **current-release parity** with the portable desktop app. It uses ffmpeg.wasm for media work and the same synchronized 32 KiB GBA player stub for ROM playback.
 
 ### Current parity
 
@@ -269,15 +269,15 @@ Do not hand-edit `dist/`; it is a build product.
 
 ## Player synchronization
 
-The npm lifecycle hooks run `scripts/sync-player.mjs` before development, testing, and production build:
+The npm lifecycle hooks synchronize both the GBA player stub and the app version from the repository root before development, testing, and production build:
 
 ```json
-"predev": "npm run sync-player",
-"pretest": "npm run sync-player",
-"prebuild": "npm run sync-player"
+"predev": "npm run sync-runtime",
+"pretest": "npm run sync-runtime",
+"prebuild": "npm run sync-runtime"
 ```
 
-The script copies `../assets/player_stub.bin`, verifies its 32 KiB size, and supplies `public/player_stub.bin` to the static build.
+The runtime sync scripts copy `../assets/player_stub.bin`, copy the 20 shared artwork presets from `../assets/audio-artwork/`, and generate the website app version from `../VERSION`. Change `VERSION` once when preparing a release; generated browser assets are not committed.
 
 ## Tests
 
@@ -314,7 +314,9 @@ website/
 │   │   └── ... preset-20.png
 │   └── player_stub.bin        generated/synchronized for build
 ├── scripts/
-│   └── sync-player.mjs
+│   ├── sync-player.mjs
+│   ├── sync-artwork.mjs
+│   └── sync-version.mjs
 ├── src/
 │   ├── main.js                UI, ffmpeg.wasm workflow, conversion/downloads
 │   ├── rom-core.js            GBV5 assembly, palette/compression/media records

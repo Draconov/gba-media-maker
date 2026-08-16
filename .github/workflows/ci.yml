@@ -22,6 +22,11 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Install FFmpeg and GBA player build tools
         run: |
           sudo apt-get update
@@ -62,6 +67,18 @@ jobs:
 
       - name: Test with race detector
         run: go test -race ./...
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm install --no-audit --no-fund
+
+      - name: Test browser edition
+        working-directory: website
+        run: npm test
+
+      - name: Build browser edition
+        working-directory: website
+        run: npm run build
 
       - name: Build Windows portable executable
         env:

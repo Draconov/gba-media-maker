@@ -215,12 +215,14 @@ func newVideoID() string {
 }
 
 func locateFFmpeg() string {
-	for _, candidate := range []string{
-		filepath.Join(appDirectory(), "ffmpeg.exe"),
-		filepath.Join(appDirectory(), "tools", "ffmpeg.exe"),
-	} {
-		if st, err := os.Stat(candidate); err == nil && !st.IsDir() && st.Size() > 1_000_000 {
-			return candidate
+	for _, name := range []string{"ffmpeg.exe", "ffmpeg"} {
+		for _, candidate := range []string{
+			filepath.Join(appDirectory(), name),
+			filepath.Join(appDirectory(), "tools", name),
+		} {
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() && st.Size() > 1_000_000 {
+				return candidate
+			}
 		}
 	}
 	return commandExists("ffmpeg")
@@ -232,7 +234,7 @@ func newAppState(token, sessionDir string) *appState {
 		s.ffmpegPath, s.engineStatus, s.engineProgress, s.engineMessage = ff, "ready", 100, "Conversion engine ready"
 	} else {
 		s.engineStatus = "missing"
-		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Media Maker.exe, then click Check again."
+		s.engineMessage = "FFmpeg is missing. Place FFmpeg beside GBA Media Maker or install it on PATH, then click Check again."
 	}
 	return s
 }
@@ -340,7 +342,7 @@ func (s *appState) refreshEngine() {
 		s.ffmpegPath = ""
 		s.engineStatus = "missing"
 		s.engineProgress = 0
-		s.engineMessage = "FFmpeg is missing. Place ffmpeg.exe beside GBA Media Maker.exe, then click Check again."
+		s.engineMessage = "FFmpeg is missing. Place FFmpeg beside GBA Media Maker or install it on PATH, then click Check again."
 		s.mu.Unlock()
 		return
 	}
@@ -593,7 +595,7 @@ func (s *appState) saveProject(req convertRequest) (bool, string, error) {
 		return false, "", errors.New("there is no project to save")
 	}
 	settings := clipSettingsByID(req.Clips)
-	doc := projectDocument{Format: "gba-media-maker-project", Version: 2, AppVersion: "0.13.1", Settings: req}
+	doc := projectDocument{Format: "gba-media-maker-project", Version: 2, AppVersion: appVersion, Settings: req}
 	doc.Settings.Clips = nil
 	for _, video := range videos {
 		path := video.SourcePath
@@ -1750,7 +1752,11 @@ func renderPage(token string) ([]byte, error) {
 	if page == appHTML {
 		return nil, errors.New("session token placeholder is missing")
 	}
-	return []byte(page), nil
+	versioned := strings.Replace(page, "__APP_VERSION__", html.EscapeString(appVersion), 1)
+	if versioned == page {
+		return nil, errors.New("application version placeholder is missing")
+	}
+	return []byte(versioned), nil
 }
 
 func runWebApp(launch func(string) error) error {

@@ -37,7 +37,7 @@ func main() {
 	if *out == "" {
 		*out = filepath.Join(filepath.Dir(*in), "media_output.gba")
 	}
-	ff := commandExists("ffmpeg")
+	ff := locateFFmpeg()
 	if ff == "" {
 		fmt.Fprintln(os.Stderr, "ffmpeg not found")
 		os.Exit(1)

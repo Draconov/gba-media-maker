@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - "website/**"
+      - "VERSION"
       - "assets/player_stub.bin"
+      - "assets/audio-artwork/**"
       - "player/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:

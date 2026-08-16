@@ -1,6 +1,6 @@
 # Embedded GBA Media Player
 
-Freestanding ARM7TDMI runtime used by **GBA Media Maker v0.13.1**.
+Freestanding ARM7TDMI runtime used by the **current GBA Media Maker release**.
 
 The player is built once as a generic **32 KiB** stub and embedded at the beginning of every generated ROM. GBV5 metadata and media assets are appended by the desktop or browser converter.
 

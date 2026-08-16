@@ -1,10 +1,9 @@
-param(
-    [Parameter(Mandatory = $false)]
-    [string]$Version = "0.13.1"
-)
-
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$Version = (Get-Content (Join-Path $root "VERSION") -Raw).Trim()
+if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+    throw "VERSION must contain a semantic version such as 1.2.3."
+}
 $stage = Join-Path $root "dist\GBA_Media_Maker_v$Version_Portable"
 $zip = Join-Path $root "dist\GBA_Media_Maker_v$Version_Portable.zip"
 

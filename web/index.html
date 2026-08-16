@@ -8,12 +8,12 @@
 <meta name="gbavm-session-token" content="__SESSION_TOKEN__">
 <link rel="icon" type="image/png" href="./icon.png">
 <link rel="stylesheet" href="./style.css">
-<title>GBA Media Maker 0.13.1</title>
+<title>GBA Media Maker __APP_VERSION__</title>
 </head>
 <body>
 <div class="shell">
   <div id="topBar" class="top hidden"><div class="top-actions"><button id="openProject" class="btn">Open project</button><button id="saveProject" class="btn">Save project</button><button id="resetTop" class="btn">Start over</button></div></div>
-  <input id="picker" type="file" accept="video/*,audio/*,image/*,.mkv,.webm,.avi,.mov,.m4v,.mp4,.gif,.mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.wma,.aiff,.ape,.png,.jpg,.jpeg,.webp,.bmp,.tga,.tif,.tiff" multiple class="hidden">
+  <input id="picker" type="file" accept="video/*,audio/*,image/*,.mkv,.webm,.avi,.mov,.m4v,.mp4,.mpeg,.mpg,.gif,.mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.wma,.aiff,.aif,.ape,.png,.jpg,.jpeg,.webp,.bmp,.tga,.tif,.tiff" multiple class="hidden">
   <section id="welcome" class="card welcome" tabindex="0"><div><h1>Drag and drop media here</h1><p>Videos, music and images can live together in one GBA ROM.</p><div class="welcome-actions"><button id="chooseVideos" class="btn primary">Choose media</button><button id="openProjectWelcome" class="btn">Open project</button></div></div></section>
   <section id="loading" class="card loading hidden"><h2 id="loadingTitle">Opening media…</h2><p id="loadingText">Reading media information.</p><div class="bar"><i id="loadingFill"></i></div><div id="engineError" class="error hidden"></div><button id="retryEngine" class="btn hidden">Check again</button></section>
   <section id="editor" class="editor hidden">

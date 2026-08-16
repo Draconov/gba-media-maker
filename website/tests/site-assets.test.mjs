@@ -213,3 +213,11 @@ test("menu colour picker embeds the full custom picker and sizes its panel to co
     assert.match(style, /\.gba-eyedropper svg\{[^}]*fill:none;[^}]*stroke:currentColor/s);
   }
 });
+
+test("website app version is generated from the repository VERSION file", async () => {
+  const [version, generated] = await Promise.all([
+    readFile(resolve(repository, "VERSION"), "utf8"),
+    readFile(resolve(website, "src/generated/version.js"), "utf8"),
+  ]);
+  assert.match(generated, new RegExp(`APP_VERSION = ${JSON.stringify(version.trim()).replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
+});

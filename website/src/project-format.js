@@ -1,3 +1,5 @@
+import { APP_VERSION } from "./generated/version.js";
+
 export const PROJECT_FORMAT = "gba-media-maker-project";
 export const PROJECT_VERSION = 2;
 export const LEGACY_PROJECT_FORMAT = "gba-video-maker-project";
@@ -81,7 +83,7 @@ function browserSettingsFromLegacy(settings = {}) {
   };
 }
 
-export function canonicalProjectFromBrowser({ settings, entries, appVersion = "0.13.1" }) {
+export function canonicalProjectFromBrowser({ settings, entries, appVersion = APP_VERSION }) {
   const fps = VBLANKS_TO_FPS[Number(settings.vblanks)] || "balanced";
   return {
     format: PROJECT_FORMAT,
