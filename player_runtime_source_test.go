@@ -367,3 +367,59 @@ func TestAudioTemporaryFeedbackUsesDirtyRegions(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayerRestoresFastGamePakWaitState(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"#defineREG_WAITCNTREG16(0x04000204)",
+		"REG_WAITCNT=0x4317",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("Game Pak timing restore missing %q", want)
+		}
+	}
+}
+
+func TestVideoPCMHasHardDescriptorEndGuard(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"staticu32pcm_guard_ticks;staticintpcm_guard_active",
+		"u32start=v&~3u;u32end=c->audio_sample_count?c->audio_sample_count:c->audio_size",
+		"pcm_guard_ticks=end-start;pcm_guard_active=1",
+		"if(pcm_guard_active&&e>=pcm_guard_ticks){REG_TM0CNT_H=0;REG_DMA1CNT_H=0;REG_SOUNDCNT_H=0x0800;pcm_guard_active=0;}",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("PCM end guard missing %q", want)
+		}
+	}
+}
+
+func TestDirectSoundStateMatchesStableVideoPlayer(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"u16v=reset?0x0800u:0u",
+		"v|=0x0300u",
+		"if(ui->volume_level>=2)v|=0x0004u",
+		"REG_SOUNDCNT_H=sound_control(ui,0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("stable Direct Sound control missing %q", want)
+		}
+	}
+}
+
+func TestFullVideoHUDSkipsOnlyCoveredRows(t *testing.T) {
+	src := compactSource(playerSource(t))
+	for _, want := range []string{
+		"render_pixels_rows(constu8*s,volatileu16*d,u32rows)",
+		"render_pixels_rows(p,d,mode==2?67u:80u)",
+		"if((ui->hud_timer||ui->paused_ui)&&mode<2)mode=2",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("covered-row render optimization missing %q", want)
+		}
+	}
+	if strings.Contains(src, "target=frame+1;structPlaybackClocktarget_clock") || strings.Contains(src, "frame+2<clip->frame_count") {
+		t.Fatal("video frame dropping/catch-up must not be present")
+	}
+}
